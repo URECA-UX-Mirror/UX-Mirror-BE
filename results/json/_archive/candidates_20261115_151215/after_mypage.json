@@ -1,0 +1,432 @@
+{
+  "url": "http://127.0.0.1:8002/shop/mypage",
+  "title": "마이페이지 | MORO MARKET",
+  "candidates": [
+    {
+      "optionId": "option_01",
+      "label": "MORO MARKET",
+      "region": "상단 메뉴",
+      "href": "/shop/home",
+      "bbox": {
+        "x": 72,
+        "y": 22,
+        "width": 242,
+        "height": 36
+      },
+      "semanticKey": "상단 메뉴>/shop/home#1"
+    },
+    {
+      "optionId": "option_02",
+      "label": "주문·환불",
+      "region": "상단 메뉴",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 478,
+        "y": 26,
+        "width": 55,
+        "height": 28
+      },
+      "semanticKey": "상단 메뉴>/shop/orders#1"
+    },
+    {
+      "optionId": "option_03",
+      "label": "고객센터",
+      "region": "상단 메뉴",
+      "href": "/shop/support",
+      "bbox": {
+        "x": 557,
+        "y": 26,
+        "width": 51,
+        "height": 28
+      },
+      "semanticKey": "상단 메뉴>/shop/support#1"
+    },
+    {
+      "optionId": "option_04",
+      "label": "홈",
+      "region": "본문",
+      "href": "/shop/home",
+      "bbox": {
+        "x": 72,
+        "y": 90,
+        "width": 11,
+        "height": 14
+      },
+      "semanticKey": "본문>/shop/home#1"
+    },
+    {
+      "optionId": "option_05",
+      "label": "고객지원센터",
+      "region": "본문",
+      "href": "/shop/support",
+      "bbox": {
+        "x": 1287,
+        "y": 90,
+        "width": 81,
+        "height": 14
+      },
+      "semanticKey": "본문>/shop/support#1"
+    },
+    {
+      "optionId": "option_06",
+      "label": "주문/배송 조회 NEW",
+      "region": "경로 표시",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 88,
+        "y": 320,
+        "width": 274,
+        "height": 36
+      },
+      "semanticKey": "경로 표시>/shop/orders#1"
+    },
+    {
+      "optionId": "option_07",
+      "label": "취소/교환/반품 내역 1",
+      "region": "경로 표시",
+      "href": "/shop/refund",
+      "bbox": {
+        "x": 88,
+        "y": 358,
+        "width": 274,
+        "height": 34
+      },
+      "semanticKey": "경로 표시>/shop/refund#1"
+    },
+    {
+      "optionId": "option_08",
+      "label": "1:1 문의내역 1",
+      "region": "경로 표시",
+      "href": "/shop/support",
+      "bbox": {
+        "x": 88,
+        "y": 780,
+        "width": 274,
+        "height": 34
+      },
+      "semanticKey": "경로 표시>/shop/support#1"
+    },
+    {
+      "optionId": "option_09",
+      "label": "주문/배송 전체보기",
+      "region": "본문",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 1209,
+        "y": 587,
+        "width": 119,
+        "height": 16
+      },
+      "semanticKey": "본문>/shop/orders#1"
+    },
+    {
+      "optionId": "option_10",
+      "label": "입금대기 0",
+      "region": "본문",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 442,
+        "y": 634,
+        "width": 171,
+        "height": 126
+      },
+      "semanticKey": "본문>/shop/orders#2"
+    },
+    {
+      "optionId": "option_11",
+      "label": "결제완료 1",
+      "region": "본문",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 621,
+        "y": 634,
+        "width": 171,
+        "height": 126
+      },
+      "semanticKey": "본문>/shop/orders#3"
+    },
+    {
+      "optionId": "option_12",
+      "label": "상품준비중 0",
+      "region": "본문",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 800,
+        "y": 634,
+        "width": 171,
+        "height": 126
+      },
+      "semanticKey": "본문>/shop/orders#4"
+    },
+    {
+      "optionId": "option_13",
+      "label": "배송중 2",
+      "region": "본문",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 978,
+        "y": 634,
+        "width": 171,
+        "height": 126
+      },
+      "semanticKey": "본문>/shop/orders#5"
+    },
+    {
+      "optionId": "option_14",
+      "label": "배송완료 4",
+      "region": "본문",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 1157,
+        "y": 634,
+        "width": 171,
+        "height": 126
+      },
+      "semanticKey": "본문>/shop/orders#6"
+    },
+    {
+      "optionId": "option_15",
+      "label": "취소접수 0",
+      "region": "본문",
+      "href": "/shop/refund",
+      "bbox": {
+        "x": 560,
+        "y": 800,
+        "width": 69,
+        "height": 22
+      },
+      "semanticKey": "본문>/shop/refund#1"
+    },
+    {
+      "optionId": "option_16",
+      "label": "반품/교환 진행 1",
+      "region": "본문",
+      "href": "/shop/refund",
+      "bbox": {
+        "x": 637,
+        "y": 800,
+        "width": 98,
+        "height": 22
+      },
+      "semanticKey": "본문>/shop/refund#2"
+    },
+    {
+      "optionId": "option_17",
+      "label": "환불완료 2",
+      "region": "본문",
+      "href": "/shop/refund",
+      "bbox": {
+        "x": 743,
+        "y": 800,
+        "width": 69,
+        "height": 22
+      },
+      "semanticKey": "본문>/shop/refund#3"
+    },
+    {
+      "optionId": "option_18",
+      "label": "반품 및 환불 가이드 확인하기",
+      "region": "본문",
+      "href": "/shop/refund",
+      "bbox": {
+        "x": 1155,
+        "y": 804,
+        "width": 157,
+        "height": 14
+      },
+      "semanticKey": "본문>/shop/refund#4"
+    }
+  ],
+  "excluded": [
+    {
+      "label": "베스트",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "신상품",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "마이페이지",
+      "region": "상단 메뉴",
+      "reason": "SELF_LINK"
+    },
+    {
+      "label": "5",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "2",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "정기배송 관리",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "영수증 / 세금계산서",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "쿠폰함 3장",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "마일리지 포인트 14,200 P",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "회원 등급 및 혜택",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "찜한 상품 18",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "최근 본 상품 12",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "작성한 상품리뷰 8",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "회원정보 수정",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "배송지 관리 기본 1곳",
+      "region": "경로 표시",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "로그아웃",
+      "region": "경로 표시",
+      "reason": "DANGEROUS_ACTION"
+    },
+    {
+      "label": "회원 탈퇴",
+      "region": "경로 표시",
+      "reason": "DANGEROUS_ACTION"
+    },
+    {
+      "label": "실시간 채팅 문의하기",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "등급 혜택 보기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "전체 주문내역 보러가기 (이용정보)",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "환불 / 반품 신청",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "배송조회",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "리뷰 작성 (+500P)",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "실시간 위치추적",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "찜 목록 전체보기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "장바구니 담기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "장바구니 담기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "장바구니 담기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "장바구니 담기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "반품/교환 바로 신청하기",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "자주 묻는 질문 FAQ",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "회사소개",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "이용약관",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "개인정보처리방침",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "입점문의",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "에스크로 안전결제 인증",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "자주 묻는 질문 (FAQ)",
+      "region": "하단",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "반품/교환 안내",
+      "region": "하단",
+      "reason": "OUT_OF_VIEWPORT"
+    }
+  ]
+}

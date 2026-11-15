@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+results/screenshots/
+# STS / Eclipse 설정
+.project
+.settings/
+.pydevproject
+.classpath

@@ -1,0 +1,247 @@
+{
+  "url": "http://127.0.0.1:8002/shop/support",
+  "title": "고객센터 | MORO MARKET",
+  "candidates": [
+    {
+      "optionId": "option_01",
+      "label": "배송 현황 확인",
+      "region": "본문",
+      "context": "주문/배송 조회",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 442,
+        "y": 723,
+        "width": 226,
+        "height": 20
+      },
+      "semanticKey": "본문>/shop/orders#1"
+    }
+  ],
+  "excluded": [
+    {
+      "label": "MORO MARKET",
+      "region": "상단 메뉴",
+      "reason": "GLOBAL_NAV_NOT_START"
+    },
+    {
+      "label": "베스트",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "신상품",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "주문·환불",
+      "region": "상단 메뉴",
+      "reason": "GLOBAL_NAV_NOT_START"
+    },
+    {
+      "label": "고객센터",
+      "region": "상단 메뉴",
+      "reason": "SELF_LINK"
+    },
+    {
+      "label": "마이페이지",
+      "region": "상단 메뉴",
+      "reason": "GLOBAL_NAV_NOT_START"
+    },
+    {
+      "label": "5",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "2",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "검색",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "#환불신청",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "#반품배송비",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "#사이즈교환",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "#배송조회",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "#회원등급",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "문의 접수",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "가이드 확인",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "성수 스토어 정보",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "전체",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "배송/수령",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "반품/환불",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "주문/결제",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "회원/혜택",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "상품문의",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "Q 주문한 상품의 환불(반품) 신청은 어떻게 하나요?",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "Q 단순 변심으로 인한 반품 배송비는 얼마인가요?",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "Q 환불 금액은 언제 어떤 방식으로 입금되나요?",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "Q 상품에 하자가 있거나 오배송된 경우는 어떻게 처리되나요?",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "Q 평균 배송 기간은 얼마나 걸리나요?",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "Q 현금영수증 및 세금계산서 발급은 어디서 하나요?",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "전체보기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "공지 2025 설 연휴 배송 마감 및 고객센터 운영 일정 안내 2025.01.20",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "안내 모로마켓 개인정보처리방침 개정 안내 (2025년 2월 1일자 시행) 2025.01.15",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "프로모션 2025 봄맞이 첫 구매 15% 웰컴 쿠폰팩 지급 이벤트 2025.02.01",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "전화 상담 바로연결",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "카카오톡 상담 채널 열기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "쇼룸 방문 예약 및 길찾기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "회사소개",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "이용약관",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "개인정보처리방침",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "입점문의",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "에스크로 안전결제 인증",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "자주 묻는 질문 (FAQ)",
+      "region": "하단",
+      "reason": "SELF_LINK"
+    },
+    {
+      "label": "반품/교환 안내",
+      "region": "하단",
+      "reason": "OUT_OF_VIEWPORT"
+    }
+  ],
+  "goal": {
+    "reached": false,
+    "pathMatched": false,
+    "textVisible": false,
+    "successCondition": {
+      "path": "/shop/refund",
+      "text": "환불 / 반품 신청"
+    }
+  },
+  "screenshot": "screenshots/candidates/candidates_20261115_222518/after_support.png"
+}

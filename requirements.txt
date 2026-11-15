@@ -1,0 +1,12 @@
+# torch는 CUDA 빌드로 따로 설치:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+transformers>=5.12
+accelerate
+safetensors
+requests
+python-dotenv
+pytest
+# B~E (쇼핑몰 화면). 설치 후 브라우저 본체도 받아야 함: python -m playwright install chromium
+playwright
+# ZORO_DEVICE=cuda-4bit 를 쓸 때만
+bitsandbytes

@@ -1,0 +1,235 @@
+{
+  "url": "http://127.0.0.1:8001/shop/orders",
+  "title": "주문/배송 조회 | MORO MARKET",
+  "candidates": [
+    {
+      "optionId": "option_01",
+      "label": "홈",
+      "region": "경로 표시",
+      "context": null,
+      "href": "/shop/home",
+      "bbox": {
+        "x": 72,
+        "y": 120,
+        "width": 31,
+        "height": 16
+      },
+      "semanticKey": "경로 표시>/shop/home#1"
+    },
+    {
+      "optionId": "option_02",
+      "label": "환불 신청하기",
+      "region": "본문",
+      "context": "울 블렌드 미니멀 오버핏 싱글 자켓",
+      "href": "/shop/refund",
+      "bbox": {
+        "x": 1152,
+        "y": 758,
+        "width": 192,
+        "height": 44
+      },
+      "semanticKey": "본문>/shop/refund#1"
+    }
+  ],
+  "excluded": [
+    {
+      "label": "MORO MARKET",
+      "region": "상단 메뉴",
+      "reason": "GLOBAL_NAV_NOT_START"
+    },
+    {
+      "label": "베스트",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "신상품",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "이용정보",
+      "region": "상단 메뉴",
+      "reason": "SELF_LINK"
+    },
+    {
+      "label": "고객센터",
+      "region": "상단 메뉴",
+      "reason": "GLOBAL_NAV_NOT_START"
+    },
+    {
+      "label": "마이페이지",
+      "region": "상단 메뉴",
+      "reason": "GLOBAL_NAV_NOT_START"
+    },
+    {
+      "label": "5",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "2",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "전체 결제 영수증",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "배송 안내 가이드",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "최근 1개월",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "3개월 (기본)",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "최근 6개월",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "직접 설정",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "조회하기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "ORD-20250224-884920",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "사이즈/색상 교환",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "배송조회",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "주문상세",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "ORD-20250218-501239",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "구매확정",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "리뷰 작성 (500P 적립)",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "환불 신청",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "주문상세",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "ORD-20250227-104928",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "실시간 위치추적",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "주문상세 내역",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "1",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "2",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "3",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "1:1 상담 바로가기",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "회사소개",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "이용약관",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "개인정보처리방침",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "입점문의",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "에스크로 안전결제 인증",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "자주 묻는 질문 (FAQ)",
+      "region": "하단",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "반품/교환 안내",
+      "region": "하단",
+      "reason": "OUT_OF_VIEWPORT"
+    }
+  ],
+  "goal": {
+    "reached": false,
+    "pathMatched": false,
+    "textVisible": false,
+    "successCondition": {
+      "path": "/shop/refund",
+      "text": "환불 / 반품 신청"
+    }
+  }
+}

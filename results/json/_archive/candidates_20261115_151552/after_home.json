@@ -1,0 +1,213 @@
+{
+  "url": "http://127.0.0.1:8002/shop/home",
+  "title": "MORO MARKET",
+  "candidates": [
+    {
+      "optionId": "option_01",
+      "label": "주문·환불",
+      "region": "상단 메뉴",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 478,
+        "y": 26,
+        "width": 55,
+        "height": 28
+      },
+      "semanticKey": "상단 메뉴>/shop/orders#1"
+    },
+    {
+      "optionId": "option_02",
+      "label": "고객센터",
+      "region": "상단 메뉴",
+      "href": "/shop/support",
+      "bbox": {
+        "x": 557,
+        "y": 26,
+        "width": 51,
+        "height": 28
+      },
+      "semanticKey": "상단 메뉴>/shop/support#1"
+    },
+    {
+      "optionId": "option_03",
+      "label": "마이페이지",
+      "region": "상단 메뉴",
+      "href": "/shop/mypage",
+      "bbox": {
+        "x": 632,
+        "y": 26,
+        "width": 64,
+        "height": 28
+      },
+      "semanticKey": "상단 메뉴>/shop/mypage#1"
+    },
+    {
+      "optionId": "option_04",
+      "label": "실시간 조회 이용정보 · 주문/배송",
+      "region": "본문",
+      "href": "/shop/orders",
+      "bbox": {
+        "x": 72,
+        "y": 799,
+        "width": 312,
+        "height": 196
+      },
+      "semanticKey": "본문>/shop/orders#1"
+    },
+    {
+      "optionId": "option_05",
+      "label": "24H 빠른 접수 고객 케어 & 1:1 상담",
+      "region": "본문",
+      "href": "/shop/support",
+      "bbox": {
+        "x": 1056,
+        "y": 799,
+        "width": 312,
+        "height": 196
+      },
+      "semanticKey": "본문>/shop/support#1"
+    }
+  ],
+  "excluded": [
+    {
+      "label": "MORO MARKET",
+      "region": "상단 메뉴",
+      "reason": "SELF_LINK"
+    },
+    {
+      "label": "베스트",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "신상품",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "5",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "2",
+      "region": "상단 메뉴",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "주문/배송 즉시조회",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "에디토리얼 매거진",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "멤버십 등급혜택",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "2025 SS 컬렉션 보기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "룩북 & 브랜드 스토리",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "TOP 50 실시간 랭킹 베스트",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "NEW ARRIVAL 신규 디자이너 레이블",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "배송조회",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "전체",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "패션/어패럴",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "라이프/인테리어",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "테크/워크스페이스",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "그로서리",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "랭킹 50위 전체 상품 확인하기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "브랜드 풀 스토리 인터뷰 읽기",
+      "region": "본문",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "내 주문 내역 및 반품 신청 바로가기",
+      "region": "본문",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "회사소개",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "이용약관",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "개인정보처리방침",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "입점문의",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "에스크로 안전결제 인증",
+      "region": "하단",
+      "reason": "NOT_NAVIGATION"
+    },
+    {
+      "label": "자주 묻는 질문 (FAQ)",
+      "region": "하단",
+      "reason": "OUT_OF_VIEWPORT"
+    },
+    {
+      "label": "반품/교환 안내",
+      "region": "하단",
+      "reason": "OUT_OF_VIEWPORT"
+    }
+  ]
+}
