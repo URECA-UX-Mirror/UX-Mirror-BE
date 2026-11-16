@@ -14,8 +14,8 @@
   5 orders  환불 신청하기 클릭           → refund   NAVIGATED
     refund  도착 판정 → SUCCESS (도착 화면 원본만 저장, Step 없음)
 
-주의: 일반 mypage 화면의 쿠폰함은 링크가 아니라 후보가 아니다. nochange 화면의 쿠폰함 링크를 흉내 내려고
-      화면에 보이는 '쿠폰함' 줄 위치에 후보를 붙였다 (실제 nochange 구현의 위치와 다를 수 있음).
+마이페이지 사진·후보는 실제 nochange 화면이다 (쇼핑몰 testMode #11, 쿠폰함 후보 `사이드 메뉴>/shop/coupons#1`).
+확률은 후보 번호가 아니라 semanticKey로 정해서, 후보 순서가 바뀌어도 같은 후보에 같은 값이 간다.
 
     .venv\\Scripts\\python scripts\\make_sample_run.py
 """
@@ -43,8 +43,10 @@ T0 = datetime(2026, 11, 16, 10, 0, 0, tzinfo=KST)
 CANDIDATE_SCOPE = ["상단 메뉴", "본문", "사이드 메뉴", "경로 표시", "하단"]
 ALLOWED_PATHS = [["home", "orders", "refund"], ["home", "mypage", "refund"], ["home", "mypage", "orders", "refund"]]
 SHORTEST = 2
-COUPON = {"label": "쿠폰함", "region": "사이드 메뉴", "context": None, "href": "/shop/coupons",
-          "bbox": {"x": 88, "y": 514, "width": 274, "height": 34}, "semanticKey": "사이드 메뉴>/shop/coupons#1"}
+COUPON = "사이드 메뉴>/shop/coupons#1"          # nochange 화면에만 있는 쿠폰함 (#11)
+MYPAGE_REFUND = "사이드 메뉴>/shop/refund#1"    # 취소/교환/반품 내역
+MYPAGE_ORDERS = "사이드 메뉴>/shop/orders#1"    # 주문/배송 조회
+GO_BACK = "GO_BACK"
 
 _clock = [0.0]
 
@@ -63,6 +65,23 @@ def load_page(name: str) -> dict:
 def renumber(cands: list[dict]) -> list[dict]:
     """다시 판단할 때도 option_01부터 빈틈없이 매긴다 (GO_BACK 번호가 겹치지 않게)."""
     return [{**c, "optionId": f"option_{i:02d}"} for i, c in enumerate(cands, 1)]
+
+
+def probs_by_key(cands: list[dict], weights: dict, back: bool) -> dict:
+    """semanticKey(또는 GO_BACK)별 확률을 optionId별로. 정하지 않은 후보는 남은 확률을 똑같이 나눠 갖는다."""
+    ids = {c["semanticKey"]: c["optionId"] for c in cands}
+    if back:
+        ids[GO_BACK] = f"option_{len(cands) + 1:02d}"   # build_screen_request와 같은 번호 (클릭 후보 다음)
+    missing = [k for k in weights if k not in ids]
+    assert not missing, f"샘플 화면에 없는 후보: {missing}"
+    rest = [k for k in ids if k not in weights]
+    share = (1.0 - sum(weights.values())) / len(rest)
+    return {ids[k]: weights.get(k, share) for k in ids}
+
+
+def option_of(cands: list[dict], key: str) -> str:
+    return f"option_{len(cands) + 1:02d}" if key == GO_BACK else next(
+        c["optionId"] for c in cands if c["semanticKey"] == key)
 
 
 def page_key(path: str) -> str:
@@ -97,29 +116,30 @@ def png_size(path: str) -> dict:
 # ---------------------------------------------------------------- 단계 정의
 
 def build_steps():
-    home, mypage, orders = load_page("home"), load_page("mypage"), load_page("orders")
-    mp = mypage["candidates"]
-    mypage_nochange = {**mypage, "candidates": renumber(mp[:4] + [COUPON] + mp[4:])}   # 사이드 메뉴 순서에 끼움
-    mypage_retry = {**mypage, "candidates": renumber(mp)}
+    home, mypage_nochange, orders = load_page("home"), load_page("mypage"), load_page("orders")
+    mp = mypage_nochange["candidates"]
+    assert any(c["semanticKey"] == COUPON for c in mp), "마이페이지가 nochange 화면이 아님 (capture_sample_screens.py 다시)"
+    mypage_retry = {**mypage_nochange, "candidates": renumber([c for c in mp if c["semanticKey"] != COUPON])}
     b5_home = {"option_01": 0.1142, "option_02": 0.1531, "option_03": 0.602, "option_04": 0.0957, "option_05": 0.035}
 
-    # mypage(nochange) 16개 + GO_BACK: 쿠폰함 0.30, 취소/교환/반품 내역 0.22, 주문/배송 조회 0.12, GO_BACK 0.10, 나머지 0.02씩
-    p2 = {f"option_{i:02d}": 0.02 for i in range(1, 18)}
-    p2.update({"option_05": 0.30, "option_04": 0.22, "option_03": 0.12, "option_17": 0.10})
-    # mypage 다시 판단 15개 + GO_BACK: GO_BACK 0.34, 취소/교환/반품 내역 0.28, 주문/배송 조회 0.12, 나머지 0.02씩
-    p3 = {f"option_{i:02d}": 0.02 for i in range(1, 17)}
-    p3.update({"option_16": 0.34, "option_04": 0.28, "option_03": 0.12})
+    # mypage(nochange) + GO_BACK: 쿠폰함 0.30, 취소/교환/반품 내역 0.22, 주문/배송 조회 0.12, GO_BACK 0.10, 나머지 나눔
+    p2 = probs_by_key(mp, {COUPON: 0.30, MYPAGE_REFUND: 0.22, MYPAGE_ORDERS: 0.12, GO_BACK: 0.10}, back=True)
+    # 쿠폰함 뺀 다시 판단 + GO_BACK: GO_BACK 0.34, 취소/교환/반품 내역 0.28, 주문/배송 조회 0.12, 나머지 나눔
+    rc = mypage_retry["candidates"]
+    p3 = probs_by_key(rc, {GO_BACK: 0.34, MYPAGE_REFUND: 0.28, MYPAGE_ORDERS: 0.12}, back=True)
 
     return [
         dict(page=home, path="/shop/home", sig="home_default", shot="before_home.png", set_id="home_default_initial",
              changed=False, back=False, probs=b5_home, choice="option_03", latency=3978,
              to_path="/shop/mypage", to_sig="mypage_nochange", result="NAVIGATED"),
         dict(page=mypage_nochange, path="/shop/mypage", sig="mypage_nochange", shot="before_mypage.png",
-             set_id="mypage_nochange_initial", changed=False, back=True, probs=p2, choice="option_05", latency=4120,
+             set_id="mypage_nochange_initial", changed=False, back=True, probs=p2, choice=option_of(mp, COUPON),
+             latency=4120,
              to_path="/shop/mypage", to_sig="mypage_nochange", result="NO_CHANGE"),
         dict(page=mypage_retry, path="/shop/mypage", sig="mypage_nochange", shot="before_mypage.png",
-             set_id="mypage_nochange_retry_1", changed=True, back=True, probs=p3, choice="option_16", latency=4010,
-             to_path="/shop/home", to_sig="home_default", result="NAVIGATED", failed=["마이페이지 → 쿠폰함 클릭 → 화면 변화 없음"]),
+             set_id="mypage_nochange_retry_1", changed=True, back=True, probs=p3, choice=option_of(rc, GO_BACK),
+             latency=4010, to_path="/shop/home", to_sig="home_default", result="NAVIGATED", dropped=1,
+             failed=[f"{next(c['label'] for c in mp if c['semanticKey'] == COUPON)} 선택 → 화면 변화 없음"]),
         dict(page=home, path="/shop/home", sig="home_default", shot="before_home.png", set_id="home_default_initial",
              changed=False, back=False, probs={**b5_home}, choice="option_01", latency=3890,
              to_path="/shop/orders", to_sig="orders_default", result="NAVIGATED"),
@@ -211,6 +231,9 @@ def main():
         reasons = {}
         for e in excluded:
             reasons[e["reason"]] = reasons.get(e["reason"], 0) + 1
+        if s.get("dropped"):   # 다시 판단할 때 뺀 후보 (루프 uxm/agent.py와 같은 FAILED_ACTION)
+            reasons["FAILED_ACTION"] = s["dropped"]
+        excluded_n = sum(reasons.values())
 
         started = ts(s["latency"] / 1000)
         finished = ts(1.2 if s["result"] == "NAVIGATED" else 10.0)   # NO_CHANGE는 10초 기다린 뒤 판정
@@ -223,8 +246,8 @@ def main():
                      "screenshotRef": raw_ref, "overlayScreenshotRef": overlay_ref, "capturedAt": captured_at},
             "candidateSet": {
                 "candidateSetId": s["set_id"], "candidateSetChanged": s["changed"], "candidateScope": CANDIDATE_SCOPE,
-                "candidateCountCollected": len(cands) + len(excluded), "candidateCountSent": len(option_ids),
-                "excludedCandidateCount": len(excluded), "exclusionReasons": reasons,
+                "candidateCountCollected": len(cands) + excluded_n, "candidateCountSent": len(option_ids),
+                "excludedCandidateCount": excluded_n, "exclusionReasons": reasons,
                 "actionSetIncludesBack": back_id is not None, "backOptionId": back_id,
                 "candidates": [{**c, "actionType": "CLICK", "probability": s["probs"][c["optionId"]],
                                 "selected": c["optionId"] == s["choice"]} for c in cands],

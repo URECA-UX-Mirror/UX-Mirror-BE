@@ -11,11 +11,15 @@
       .venv\\Scripts\\python scripts\\run_c.py --variant before --goal refund-from-mypage-test
     testMode (C4·C6):
       .venv\\Scripts\\python scripts\\run_c.py --variant before --test-mode nochange --mock ...
+    눈으로 보기 (브라우저 창, 행동마다 3초 멈춤, 끝나면 Enter로 닫기):
+      .venv\\Scripts\\python scripts\\run_c.py --variant after --watch 3
 """
 import argparse
+import dataclasses
 import json
 import os
 import sys
+import time
 from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,7 +27,8 @@ sys.path.insert(0, ROOT)
 
 from api import run_factory  # noqa: E402  (fastapi 없이 import 됨)
 from api.presets import Presets  # noqa: E402
-from uxm.agent import agent_settings, browser_module, run_agent  # noqa: E402
+from uxm.agent import agent_settings, browser_module, default_env, run_agent  # noqa: E402
+from uxm.candidates import draw_probabilities  # noqa: E402
 from uxm.mock import MockBackend  # noqa: E402
 from uxm.storage import RunStore  # noqa: E402
 
@@ -34,8 +39,36 @@ SHOP_URLS = {
 }
 AGENT_RESULT_FIELDS = ("status", "terminationReason", "progress", "summary", "error", "finishedAt")
 
-_browser = browser_module()   # 1번 browser.py, 없을 때만 임시 함수
+_browser = browser_module()   # 1번 uxm/browser.py
 open_browser, close_browser = _browser.open_browser, _browser.close_browser
+
+
+def _watch_env(env, seconds: float):
+    """눈으로 보기용. 저장되는 사진·기록은 그대로이고, 화면에 배지를 오래 띄우고 멈추기만 한다."""
+    def show_probabilities(capture):
+        def wrapped(page, run_dir, step_id, candidates, probs=None, chosen=None):
+            out = capture(page, run_dir, step_id, candidates, probs, chosen)   # 배지 사진은 원래대로 저장
+            if probs is not None:
+                labels = {c["optionId"]: c["label"] for c in candidates}
+                print(f"\n  [{step_id}단계] {page.url.split('?')[0]}")
+                for oid, p in sorted(probs.items(), key=lambda kv: -kv[1])[:6]:
+                    mark = "  ← 선택" if oid == chosen else ""
+                    print(f"    {p:6.1%}  {labels.get(oid, '이전 화면으로 돌아가기 (GO_BACK)')}{mark}")
+                draw_probabilities(page, [c for c in candidates if c.get("bbox")], probs, chosen)
+                time.sleep(seconds)
+                page.evaluate("() => document.querySelectorAll('.uxm-overlay').forEach(e => e.remove())")
+            return out
+        return wrapped
+
+    def pause_after(fn):
+        def wrapped(*args, **kwargs):
+            result = fn(*args, **kwargs)
+            time.sleep(seconds)
+            return result
+        return wrapped
+
+    return dataclasses.replace(env, capture=show_probabilities(env.capture),
+                               click=pause_after(env.click), go_back=pause_after(env.go_back))
 
 
 def main(argv=None) -> int:
@@ -50,7 +83,13 @@ def main(argv=None) -> int:
     ap.add_argument("--model-timeout-ms", type=int, default=None, help="C10처럼 시험할 때만")
     ap.add_argument("--test-mode", choices=("deadend", "nochange"), default=None, help="C4·C6")
     ap.add_argument("--headed", action="store_true", help="브라우저 창 띄우기")
+    ap.add_argument("--watch", type=float, default=0.0, metavar="초",
+                    help="눈으로 보기: 창을 띄우고, 단계마다 확률 배지를 이만큼 보여 준 뒤 클릭하고, 이동한 화면도 "
+                         "이만큼 보여 줌. 끝나면 Enter를 누를 때까지 창 유지. "
+                         "멈춘 시간이 executionTimeMs에 들어가므로 측정용 실행에는 쓰지 않는다")
     a = ap.parse_args(argv)
+    if a.watch:
+        a.headed = True
 
     presets = Presets()
     goal, persona = presets.goal(a.goal), presets.persona(a.persona)
@@ -91,8 +130,13 @@ def main(argv=None) -> int:
         store.write_run(run_factory.finalize(run))
         print(f"브라우저를 열지 못함: {e}", file=sys.stderr)
         return 1
+    env = default_env()
+    if a.watch:   # 루프는 그대로 두고 화면 함수만 감싼다
+        env = _watch_env(env, a.watch)
     try:
-        result = run_agent(settings, backend, session["page"])
+        result = run_agent(settings, backend, session["page"], env)
+        if a.watch:
+            input("끝났어요. 브라우저를 닫으려면 Enter를 누르세요...")
     finally:
         close_browser(session)
 
