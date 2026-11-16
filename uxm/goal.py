@@ -23,6 +23,15 @@ GOALS = {
 DEFAULT_GOAL_ID = "refund"
 
 
+def success_condition(goal_preset: dict) -> dict:
+    """목표 preset(`config/presets.json`)의 `verification`을 `verify_goal`이 받는 `{"path", "text"}`로 바꾼다.
+
+    실행 API(`api/presets.py`)와 루프 설정(`uxm/agent.py` `agent_settings`)이 같이 쓴다.
+    """
+    v = goal_preset["verification"]
+    return {"path": v["path"], "text": v["text"]}
+
+
 def path_matches(url: str, path: str) -> bool:
     return urlsplit(url).path.rstrip("/") == path.rstrip("/")
 

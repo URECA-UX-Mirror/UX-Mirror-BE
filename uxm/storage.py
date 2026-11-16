@@ -75,8 +75,8 @@ def _write_atomic(path: str, text: str) -> None:
         raise
 
 
-def _read_jsonl(path: str) -> list[dict]:
-    """줄바꿈까지 끝난 줄만 돌려준다. 파일이 없으면 빈 목록."""
+def read_jsonl(path: str) -> list[dict]:
+    """줄바꿈까지 끝난 줄만 돌려준다. 파일이 없으면 빈 목록. (실행 API `api/store.py`도 이 함수로 읽는다)"""
     try:
         with open(path, encoding="utf-8", newline="") as f:
             text = f.read()
@@ -174,10 +174,10 @@ class RunStore:
             return json.load(f)
 
     def read_steps(self) -> list[dict]:
-        return _read_jsonl(self.path("steps.jsonl"))
+        return read_jsonl(self.path("steps.jsonl"))
 
     def read_events(self) -> list[dict]:
-        return _read_jsonl(self.path("events.jsonl"))
+        return read_jsonl(self.path("events.jsonl"))
 
 
 def list_run_ids(runs_dir: str = RUNS_DIR) -> list[str]:

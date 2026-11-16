@@ -13,6 +13,8 @@
 import json
 import os
 
+from uxm.goal import success_condition  # noqa: F401  (루프와 같은 변환. 이전 경로 호환)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRESETS_PATH = os.path.join(ROOT, "config", "presets.json")
 
@@ -49,9 +51,3 @@ def _check_start_path(goal: dict) -> None:
     paths = goal["referencePathConfig"]["allowedPaths"]
     if not paths or any(not p or p[0] != page for p in paths):
         raise ValueError(f"goalId={goal['goalId']}: 허용 경로는 모두 시작 화면 {page}에서 시작해야 합니다.")
-
-
-def success_condition(goal: dict) -> dict:
-    """`uxm/goal.py`의 `verify_goal`이 받는 형식 `{"path", "text"}`로 바꾼다 (계약 2.3)."""
-    v = goal["verification"]
-    return {"path": v["path"], "text": v["text"]}

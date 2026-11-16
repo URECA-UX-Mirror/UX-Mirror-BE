@@ -9,6 +9,7 @@ import secrets
 from api.timeutil import now_iso, now_stamp
 from uxm import config as uxm_config
 from uxm.prompts import PROMPT_VERSION
+from uxm.status import STATUS_BY_REASON  # terminationReason → 고정 status (계약 4.14). 루프와 같은 표
 
 SCHEMA_VERSION = "1.3.5"
 
@@ -110,9 +111,6 @@ def build_run(req, goal: dict, persona: dict, settings: dict) -> dict:
 # ---- 종료 상태 → 유효성 (계약 6.1 유효성 표)
 
 TERMINAL_STATUSES = ("SUCCESS", "BLOCKED", "MAX_STEPS", "TIMEOUT", "ERROR")
-
-# terminationReason → 고정 status (계약 4.14). 루프와 같은 표를 쓴다 (uxm/status.py, #7에서 한 곳으로 합침)
-from uxm.status import STATUS_BY_REASON  # noqa: E402
 
 INVALID_BY_REASON = {
     "BROWSER_ERROR": "BROWSER_CRASH",

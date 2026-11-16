@@ -8,6 +8,8 @@ import os
 import re
 import tempfile
 
+from uxm.storage import read_jsonl   # 줄바꿈까지 끝난 줄만 읽는 규칙(18.2)은 저장 모듈과 같은 함수를 쓴다
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_RESULTS_DIR = os.path.join(ROOT, "results")
 
@@ -37,16 +39,6 @@ def write_json_atomic(path: str, data) -> None:
 def read_json(path: str):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
-
-
-def read_jsonl_complete(path: str) -> list[dict]:
-    """줄바꿈까지 끝난 줄만 완전한 레코드로 본다. 쓰는 중인 마지막 줄은 뺀다 (18.2)."""
-    if not os.path.exists(path):
-        return []
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
-    lines = text.split("\n")[:-1]   # 마지막 조각은 줄바꿈이 없으면 미완성, 있으면 빈 문자열
-    return [json.loads(line) for line in lines if line.strip()]
 
 
 class RunStore:
@@ -87,10 +79,10 @@ class RunStore:
 
     # ---- Step·Event
     def load_steps(self, run_id: str) -> list[dict]:
-        return read_jsonl_complete(os.path.join(self.run_dir(run_id), "steps.jsonl"))
+        return read_jsonl(os.path.join(self.run_dir(run_id), "steps.jsonl"))
 
     def load_events(self, run_id: str) -> list[dict]:
-        return read_jsonl_complete(os.path.join(self.run_dir(run_id), "events.jsonl"))
+        return read_jsonl(os.path.join(self.run_dir(run_id), "events.jsonl"))
 
     # ---- Issue
     def load_issues(self, run_id: str) -> dict | None:
