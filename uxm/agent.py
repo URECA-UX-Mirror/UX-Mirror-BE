@@ -19,6 +19,7 @@ Zoro-1이 고른 행동을 그대로 실행하고, 실패를 처리하고, 언�
 steps.jsonl은 한 줄씩 추가만 하므로 Step 한 줄은 행동 결과까지 채운 뒤 쓴다 (계약 18.2 완전한 줄만).
 """
 import concurrent.futures as cf
+import importlib
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -65,11 +66,23 @@ class Env:
     page_signature: Callable
 
 
-def default_env() -> Env:
+def browser_module():
+    """1번 uxm/browser.py (PR #2). 그 파일이 아직 없을 때만 임시 함수(_browser_stub, 협의 6절)를 쓴다.
+
+    browser.py가 있는데 그 안에서 import가 실패하면 오류를 그대로 낸다 (임시 함수로 조용히 넘어가지 않게, #8 리뷰).
+    `from uxm import browser`는 파일이 없을 때도 일반 ImportError(name='uxm')를 내서 구분이 안 되므로
+    import_module로 불러와 ModuleNotFoundError.name을 본다.
+    """
     try:
-        from uxm import browser as b        # 1번 (PR #2)
-    except ImportError:
-        from uxm import _browser_stub as b  # 합쳐지기 전 임시 (협의 6절)
+        return importlib.import_module("uxm.browser")
+    except ModuleNotFoundError as e:
+        if e.name != "uxm.browser":
+            raise
+    return importlib.import_module("uxm._browser_stub")
+
+
+def default_env() -> Env:
+    b = browser_module()
     return Env(extract=extract_candidates, verify_goal=goal_mod.verify_goal, click=b.click, go_back=b.go_back,
                reload=b.reload, capture=b.capture, page_key=b.page_key, page_signature=b.page_signature)
 

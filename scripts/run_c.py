@@ -23,7 +23,7 @@ sys.path.insert(0, ROOT)
 
 from api import run_factory  # noqa: E402  (fastapi 없이 import 됨)
 from api.presets import Presets  # noqa: E402
-from uxm.agent import agent_settings, run_agent  # noqa: E402
+from uxm.agent import agent_settings, browser_module, run_agent  # noqa: E402
 from uxm.mock import MockBackend  # noqa: E402
 from uxm.storage import RunStore  # noqa: E402
 
@@ -34,10 +34,8 @@ SHOP_URLS = {
 }
 AGENT_RESULT_FIELDS = ("status", "terminationReason", "progress", "summary", "error", "finishedAt")
 
-try:
-    from uxm.browser import close_browser, open_browser  # 1번 (PR #2)
-except ImportError:
-    from uxm._browser_stub import close_browser, open_browser  # 합쳐지기 전 임시
+_browser = browser_module()   # 1번 browser.py, 없을 때만 임시 함수
+open_browser, close_browser = _browser.open_browser, _browser.close_browser
 
 
 def main(argv=None) -> int:

@@ -146,6 +146,26 @@ def start_run(tmp_path, goal_id="refund", **limits):
     return settings, store
 
 
+def test_browser_module_falls_back_only_when_file_missing(monkeypatch):
+    """#8 리뷰: browser.py가 없을 때만 임시 함수로. 있는데 안에서 import가 깨지면 오류를 그대로 낸다."""
+    import importlib
+    import uxm.agent as agent_mod
+    real_import = importlib.import_module
+
+    def fake(missing_name):
+        def _import(name, *a):
+            if name == "uxm.browser":
+                raise ModuleNotFoundError(f"No module named '{missing_name}'", name=missing_name)
+            return real_import(name, *a)
+        return _import
+
+    monkeypatch.setattr(agent_mod.importlib, "import_module", fake("uxm.browser"))   # 파일 없음
+    assert agent_mod.browser_module().__name__ == "uxm._browser_stub"
+    monkeypatch.setattr(agent_mod.importlib, "import_module", fake("some_dependency"))   # 안에서 깨짐
+    with pytest.raises(ModuleNotFoundError):
+        agent_mod.browser_module()
+
+
 def test_agent_settings_matches_api_presets(tmp_path):
     """실행 API(api/runner.py)도 agent_settings를 쓴다. 성공 조건은 preset의 verification과 같아야 한다."""
     settings, store = start_run(tmp_path)
