@@ -8,3 +8,10 @@ results/screenshots/
 .settings/
 .pydevproject
 .classpath
+
+# 개인 세션 메모 (Claude 작업 기록)
+.memory/
+
+# 실행 결과: 가짜 실행 샘플만 Git에 포함 (#3)
+results/runs/*
+!results/runs/sample_before/

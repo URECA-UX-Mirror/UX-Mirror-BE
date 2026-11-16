@@ -1,0 +1,17 @@
+{
+  "answers": {
+    "next_click": {
+      "type": "choice",
+      "choice": "option_03",
+      "confidence": null,
+      "probabilities": {
+        "option_01": 0.1142,
+        "option_02": 0.1531,
+        "option_03": 0.602,
+        "option_04": 0.0957,
+        "option_05": 0.035
+      }
+    }
+  },
+  "timing_ms": 3978
+}
