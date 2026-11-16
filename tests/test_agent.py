@@ -146,24 +146,19 @@ def start_run(tmp_path, goal_id="refund", **limits):
     return settings, store
 
 
-def test_browser_module_falls_back_only_when_file_missing(monkeypatch):
-    """#8 리뷰: browser.py가 없을 때만 임시 함수로. 있는데 안에서 import가 깨지면 오류를 그대로 낸다."""
-    import importlib
-    import uxm.agent as agent_mod
-    real_import = importlib.import_module
+def test_importing_loop_does_not_load_playwright():
+    """루프를 불러오기만 해서는 playwright를 불러오지 않는다 (playwright 없는 PC에서 실행 API가 떠야 함, #12·#14).
 
-    def fake(missing_name):
-        def _import(name, *a):
-            if name == "uxm.browser":
-                raise ModuleNotFoundError(f"No module named '{missing_name}'", name=missing_name)
-            return real_import(name, *a)
-        return _import
-
-    monkeypatch.setattr(agent_mod.importlib, "import_module", fake("uxm.browser"))   # 파일 없음
-    assert agent_mod.browser_module().__name__ == "uxm._browser_stub"
-    monkeypatch.setattr(agent_mod.importlib, "import_module", fake("some_dependency"))   # 안에서 깨짐
-    with pytest.raises(ModuleNotFoundError):
-        agent_mod.browser_module()
+    실제로 루프를 불러오는 실행 API(`api.main` → `api.runner`)까지 확인한다 (#17 리뷰).
+    `api.main`은 fastapi가 필요하므로 fastapi가 있을 때만 포함한다.
+    이 테스트 프로세스에는 이미 playwright가 올라와 있을 수 있어서 새 파이썬으로 확인한다.
+    """
+    import subprocess
+    code = ("import sys, importlib.util; import uxm.agent, api.run_factory\n"
+            "if importlib.util.find_spec('fastapi'): import api.main, api.runner\n"
+            "print(any(m == 'playwright' or m.startswith('playwright.') for m in sys.modules))")
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False", out.stderr
 
 
 def test_agent_settings_matches_api_presets(tmp_path):

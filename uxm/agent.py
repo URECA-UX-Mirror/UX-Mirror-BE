@@ -67,18 +67,12 @@ class Env:
 
 
 def browser_module():
-    """1번 uxm/browser.py (PR #2). 그 파일이 아직 없을 때만 임시 함수(_browser_stub, 협의 6절)를 쓴다.
+    """1번 uxm/browser.py (PR #2).
 
-    browser.py가 있는데 그 안에서 import가 실패하면 오류를 그대로 낸다 (임시 함수로 조용히 넘어가지 않게, #8 리뷰).
-    `from uxm import browser`는 파일이 없을 때도 일반 ImportError(name='uxm')를 내서 구분이 안 되므로
-    import_module로 불러와 ModuleNotFoundError.name을 본다.
+    실제로 실행할 때만 불러온다. browser.py는 playwright를 바로 import하므로, 이 파일(uxm/agent.py) 맨 위에서
+    불러오면 playwright가 없는 환경에서 실행 API가 뜨지 못한다 (API는 그때 /api/health·503으로 알려 준다).
     """
-    try:
-        return importlib.import_module("uxm.browser")
-    except ModuleNotFoundError as e:
-        if e.name != "uxm.browser":
-            raise
-    return importlib.import_module("uxm._browser_stub")
+    return importlib.import_module("uxm.browser")
 
 
 def default_env() -> Env:
