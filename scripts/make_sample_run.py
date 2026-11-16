@@ -148,7 +148,8 @@ def main():
         "limits": {"maxSteps": 8, "modelTimeoutMs": 30000, "pageChangeTimeoutMs": 10000, "runTimeoutMs": 180000,
                    "maxModelBackActions": 2, "maxSystemBackActions": 1, "maxSamePageVisits": 3},
         "thresholdConfig": {"version": "threshold-v1", "entropyThreshold": 0.8, "minCandidateCount": 2,
-                            "configuredAt": "2026-11-15T09:00:00.000+09:00", "changeReason": "초기 사전 지정 기준"},
+                            # API(api/run_factory.py THRESHOLD_CONFIG)와 같은 값. 비교 조건(15.2)에 들어가서 표기까지 같아야 함
+                            "configuredAt": "2026-11-15T09:00:00+09:00", "changeReason": "초기 사전 지정 기준"},
         "analysisVersion": "analysis-v1",
         "referencePathConfig": {"version": "refpath-v1", "allowedPaths": ALLOWED_PATHS,
                                 "shortestAllowedSteps": SHORTEST},
@@ -297,8 +298,6 @@ def main():
     shortest = SHORTEST
     back_count = counters["model_back"]
     nav_cost = counters["nav_clicks"] + back_count
-    ambiguous = any((d["clickOnlyNormalizedEntropy"] or 0) >= 0.8 for d in metric_rows)
-    issue_types = (["CHOICE_AMBIGUITY"] if ambiguous else []) + ["REPEATED_VISIT", "EXTRA_STEPS"]
     run.update(
         status="SUCCESS", terminationReason="GOAL_VERIFIED", finishedAt=finished_at,
         validity="VALID", invalidReason=None,
@@ -313,7 +312,7 @@ def main():
             "extraNavigationCost": max(0, nav_cost - shortest),
             "attemptedExtraSteps": max(0, step_count - shortest),
             "executionTimeMs": int(_clock[0] * 1000), "path": path_visits,
-            "detectedIssueTypes": issue_types,
+            "detectedIssueTypes": [],   # Issue 분석 전(issues.json 없음). 분석이 끝나면 실행 API가 채운다
         },
     )
     run["comparisonContext"]["leakCheckPassed"] = True
@@ -323,7 +322,7 @@ def main():
 
     print(f"saved {store.dir}")
     print(f"  steps={len(metric_rows)} events={len(events)} stepCount={step_count} "
-          f"issues={issue_types} entropy(home)={metric_rows[0]['clickOnlyNormalizedEntropy']}")
+          f"entropy(home)={metric_rows[0]['clickOnlyNormalizedEntropy']}")
 
 
 if __name__ == "__main__":

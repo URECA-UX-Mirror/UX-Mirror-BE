@@ -53,19 +53,26 @@ def _dumps(obj, indent=None) -> str:
 
 def _write_atomic(path: str, text: str) -> None:
     tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-        f.flush()
-        os.fsync(f.fileno())
-    # Windows는 다른 쪽(API)이 파일을 읽는 순간 교체가 실패할 수 있어 잠깐 다시 시도한다
-    for attempt in range(5):
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if attempt == 4:
-                raise
-            time.sleep(0.05)
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        # Windows는 다른 쪽(API)이 파일을 읽는 순간 교체가 실패할 수 있어 잠깐 다시 시도한다
+        for attempt in range(5):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.05)
+    except BaseException:
+        try:   # 실패하면 임시 파일을 남기지 않는다 (PR #6 리뷰)
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _read_jsonl(path: str) -> list[dict]:

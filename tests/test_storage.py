@@ -109,6 +109,20 @@ def test_nan_is_storage_error(store):
     assert store.read_steps() == []
 
 
+def test_failed_atomic_write_leaves_no_tmp(store, monkeypatch):
+    import uxm.storage as st
+
+    def always_locked(src, dst):          # API가 run.json을 계속 열고 있는 상황
+        raise PermissionError("locked")
+    monkeypatch.setattr(st.os, "replace", always_locked)
+    monkeypatch.setattr(st.time, "sleep", lambda s: None)
+    with pytest.raises(StorageError):
+        store.write_run({"runId": "run_test_001", "status": "RUNNING"})
+    assert not os.path.exists(store.path("run.json.tmp"))
+    monkeypatch.undo()
+    assert store.read_run()["status"] == "READY"     # 기존 run.json은 그대로
+
+
 def test_save_raw_returns_relative_ref(store):
     ref = store.save_raw(3, "request", {"state": {}})
     assert ref == "raw/model_request_step_003.json"
@@ -146,6 +160,8 @@ def test_sample_run_fields(sample):
     assert run["schemaVersion"] == SCHEMA_VERSION and run["resultOrigin"] == "MOCK"
     assert (run["status"], run["terminationReason"], run["validity"]) == ("SUCCESS", "GOAL_VERIFIED", "VALID")
     assert run["comparisonContext"]["leakCheckPassed"] is True
+    assert run["summary"]["detectedIssueTypes"] == []          # 분석 전 (issues.json 없음)
+    assert run["thresholdConfig"]["configuredAt"] == "2026-11-15T09:00:00+09:00"   # API와 같은 표기
     assert run["progress"]["stepRecordCount"] == len(steps) == run["summary"]["stepRecordCount"]
 
 

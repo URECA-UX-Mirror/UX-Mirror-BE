@@ -33,7 +33,7 @@
     "version": "threshold-v1",
     "entropyThreshold": 0.8,
     "minCandidateCount": 2,
-    "configuredAt": "2026-11-15T09:00:00.000+09:00",
+    "configuredAt": "2026-11-15T09:00:00+09:00",
     "changeReason": "초기 사전 지정 기준"
   },
   "analysisVersion": "analysis-v1",
@@ -141,10 +141,7 @@
         "stepId": 5
       }
     ],
-    "detectedIssueTypes": [
-      "REPEATED_VISIT",
-      "EXTRA_STEPS"
-    ]
+    "detectedIssueTypes": []
   },
   "error": null,
   "validity": "VALID",
