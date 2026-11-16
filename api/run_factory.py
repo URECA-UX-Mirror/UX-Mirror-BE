@@ -10,7 +10,7 @@ from api.timeutil import now_iso, now_stamp
 from uxm import config as uxm_config
 from uxm.prompts import PROMPT_VERSION
 
-SCHEMA_VERSION = "1.3.2"
+SCHEMA_VERSION = "1.3.4"
 
 # 비교 조건 계산용 버전 값 (계약 6.1 예시 값). 바꾸면 이전 Run과 비교 조건이 달라진다.
 SITE_VERSION = "shop-v1"
@@ -111,8 +111,7 @@ def build_run(req, goal: dict, persona: dict, settings: dict) -> dict:
 
 TERMINAL_STATUSES = ("SUCCESS", "BLOCKED", "MAX_STEPS", "TIMEOUT", "ERROR")
 
-# terminationReason → 고정 status. PAGE_LOAD_FAILED는 계약 v1.3.2(BLOCKED)가 아니라
-# 최종 기획안·P0 문서(계약 v1.3.3 표기) 기준으로 ERROR + INVALID(BROWSER_CRASH).
+# terminationReason → 고정 status (계약 4.14). PAGE_LOAD_FAILED는 v1.3.3부터 ERROR + INVALID(BROWSER_CRASH).
 STATUS_BY_REASON = {
     "GOAL_VERIFIED": "SUCCESS",
     "MAX_STEPS_REACHED": "MAX_STEPS",

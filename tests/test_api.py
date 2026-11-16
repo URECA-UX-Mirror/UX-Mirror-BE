@@ -24,7 +24,7 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
 def make_step(run_id: str, step_id: int, page_key: str = "home") -> dict:
     return {
-        "schemaVersion": "1.3.2", "runId": run_id, "stepId": step_id,
+        "schemaVersion": "1.3.4", "runId": run_id, "stepId": step_id,
         "page": {"pageKey": page_key, "pageSignature": f"{page_key}_default", "path": f"/shop/{page_key}",
                  "screenshotRef": f"screenshots/{step_id}.png",
                  "overlayScreenshotRef": f"screenshots/{step_id}_overlay.png"},
@@ -49,7 +49,10 @@ class FakeIntegrations(Integrations):
         self.compare_result, self.has_compare, self.compare_raises = compare_result, has_compare, compare_raises
         self.gate: threading.Event | None = None
         self.received_settings = None
+        self.received_events = None
         self.closed = 0
+        self.issues_fail = False
+        self.write_valid_then_raise = False
 
     def agent(self):
         if not self.has_agent:
@@ -59,6 +62,14 @@ class FakeIntegrations(Integrations):
             self.received_settings = settings
             if self.gate is not None:
                 self.gate.wait(5)
+            if self.write_valid_then_raise:   # 루프가 VALID를 저장한 뒤 예외
+                path = os.path.join(settings["runDir"], "run.json")
+                with open(path, encoding="utf-8") as f:
+                    saved = json.load(f)
+                saved.update(status="SUCCESS", terminationReason="GOAL_VERIFIED", validity="VALID")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(saved, f)
+                raise RuntimeError("boom after save")
             if self.agent_raises:
                 raise RuntimeError("boom")
             shots = os.path.join(settings["runDir"], "screenshots")
@@ -67,6 +78,9 @@ class FakeIntegrations(Integrations):
                     f.write(PNG)
             with open(os.path.join(settings["runDir"], "steps.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(make_step(settings["runId"], 1), ensure_ascii=False) + "\n")
+            with open(os.path.join(settings["runDir"], "events.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps({"eventId": "event_01", "eventType": "BACK_EXECUTED",
+                                    "eventOrigin": "SYSTEM_RECOVERY"}) + "\n")
             return dict(self.agent_result)
         return run_agent
 
@@ -89,7 +103,13 @@ class FakeIntegrations(Integrations):
     def detect_issues(self):
         if self.issues is None:
             return None
-        return lambda run, steps: list(self.issues)
+
+        def detect(run, steps, events):
+            self.received_events = events
+            if self.issues_fail:
+                raise ValueError("analysis bug")
+            return list(self.issues)
+        return detect
 
     def compare(self):
         if not self.has_compare:
@@ -148,6 +168,18 @@ def test_presets_api_hides_backend_only_fields(make_client):
     data = client.get("/api/presets").json()
     assert data == {"goals": [{"goalId": "refund", "goal": GOAL}],
                     "personas": [{"personaId": "novice-shopper", "persona": PERSONA}]}
+    with_test = client.get("/api/presets?includeTest=true").json()
+    assert [g["goalId"] for g in with_test["goals"]] == ["refund", "refund-from-mypage-test"]
+
+
+def test_c3_test_preset_runs_from_mypage(make_client):
+    client, integ, app = make_client()
+    run = run_and_wait(client, app, goalId="refund-from-mypage-test", startPath="/shop/mypage")
+    assert run["goalId"] == "refund-from-mypage-test" and run["goal"] == GOAL
+    assert run["referencePathConfig"] == {"version": "refpath-mypage-test-v1",
+                                          "allowedPaths": [["mypage", "refund"], ["mypage", "orders", "refund"]],
+                                          "shortestAllowedSteps": 1}
+    assert integ.received_settings["successCondition"] == GOALS["refund"]
 
 
 # ---- 생성·실행
@@ -175,6 +207,8 @@ def test_create_returns_ready_and_runs_to_success(make_client):
     assert s["successCondition"] == {"path": "/shop/refund", "text": "환불 / 반품 신청"}
     assert s["startUrl"].endswith(":8001/shop/home")
 
+    assert integ.received_events == [{"eventId": "event_01", "eventType": "BACK_EXECUTED",
+                                      "eventOrigin": "SYSTEM_RECOVERY"}]
     issues = client.get(f"/api/runs/{created['runId']}/issues").json()
     assert issues["analysisStatus"] == "COMPLETED"
     assert [i["issueType"] for i in issues["items"]] == ["GOAL_NOT_REACHED", "CHOICE_AMBIGUITY"]
@@ -284,6 +318,52 @@ def test_agent_exception_ends_run_as_error(make_client):
     app.state.runner.wait(5)
 
 
+def test_failure_after_agent_saved_valid_is_invalid(make_client):
+    integ = FakeIntegrations(issues=[])
+    integ.write_valid_then_raise = True
+    client, _, app = make_client(integ)
+    run = run_and_wait(client, app)
+    assert (run["status"], run["validity"], run["invalidReason"]) == ("ERROR", "INVALID", "BROWSER_CRASH")
+    integ.write_valid_then_raise = False
+    assert client.post("/api/runs", json=body()).status_code == 201   # 무효라서 다시 실행 가능
+    app.state.runner.wait(5)
+
+
+def test_analysis_failure_is_recorded(make_client):
+    integ = FakeIntegrations(issues=[])
+    integ.issues_fail = True
+    client, _, app = make_client(integ)
+    run = run_and_wait(client, app)
+    assert client.get(f"/api/runs/{run['runId']}/issues").json()["analysisStatus"] == "FAILED"
+
+
+def test_get_issues_never_writes_files(make_client, tmp_path):
+    integ = FakeIntegrations()   # 실행할 때 분석 모듈이 없음
+    client, _, app = make_client(integ)
+    run = run_and_wait(client, app)
+    run_dir = tmp_path / "runs" / run["runId"]
+    before = {p.name: p.stat().st_mtime_ns for p in run_dir.iterdir() if p.is_file()}
+    integ.issues = [{"issueType": "CHOICE_AMBIGUITY"}]   # 나중에 분석 모듈이 생겨도
+    assert client.get(f"/api/runs/{run['runId']}/issues").json() == {
+        "runId": run["runId"], "analysisStatus": "PENDING", "items": []}
+    after = {p.name: p.stat().st_mtime_ns for p in run_dir.iterdir() if p.is_file()}
+    assert before == after and "issues.json" not in after
+
+
+def test_analyze_script_writes_only_issues(make_client, tmp_path, monkeypatch):
+    client, _, app = make_client()   # 분석 모듈 없이 실행
+    run = run_and_wait(client, app)
+    run_json = tmp_path / "runs" / run["runId"] / "run.json"
+    mtime = run_json.stat().st_mtime_ns
+
+    import scripts.analyze_runs as analyze_runs
+    monkeypatch.setattr(analyze_runs, "Integrations", lambda: FakeIntegrations(issues=[{"issueType": "EXTRA_STEPS"}]))
+    assert analyze_runs.main(["--all", "--results-dir", str(tmp_path)]) == 0
+    issues = client.get(f"/api/runs/{run['runId']}/issues").json()
+    assert issues["analysisStatus"] == "COMPLETED" and issues["items"] == [{"issueType": "EXTRA_STEPS"}]
+    assert run_json.stat().st_mtime_ns == mtime
+
+
 def test_decide_validity_table():
     assert decide_validity("ERROR", "MODEL_ERROR", {"code": "MODEL_UNAVAILABLE"}) == ("INVALID", "INFRASTRUCTURE_FAILURE")
     assert decide_validity("ERROR", "STORAGE_FAILED", None) == ("INVALID", "STORAGE_FAILURE")
@@ -372,7 +452,7 @@ def test_interrupted_run_is_invalidated_on_startup(tmp_path):
 # ---- 비교
 
 def test_comparison_errors(make_client):
-    integ = FakeIntegrations()
+    integ = FakeIntegrations(issues=[])
     client, _, app = make_client(integ)
     r = client.get("/api/comparisons/exp_001")
     assert r.status_code == 404 and r.json()["error"]["code"] == "RUN_NOT_FOUND"
@@ -390,7 +470,7 @@ def test_comparison_errors(make_client):
 
 
 def test_comparison_uses_final_valid_run_and_saves(make_client, tmp_path):
-    integ = FakeIntegrations()
+    integ = FakeIntegrations(issues=[])
     client, _, app = make_client(integ)
     run_and_wait(client, app)
     integ.open_fails = True
@@ -405,9 +485,28 @@ def test_comparison_uses_final_valid_run_and_saves(make_client, tmp_path):
     assert (tmp_path / "comparisons" / "exp_001.json").exists()
 
 
+def test_comparison_waits_for_issue_analysis(make_client):
+    integ = FakeIntegrations()   # 분석 모듈 없음 → 두 Run 모두 PENDING
+    client, _, app = make_client(integ)
+    run_and_wait(client, app)
+    run_and_wait(client, app, variant="after")
+    r = client.get("/api/comparisons/exp_001")
+    assert r.status_code == 409 and r.json()["error"]["code"] == "COMPARISON_NOT_READY"
+
+
+def test_comparison_with_failed_analysis_is_500(make_client):
+    integ = FakeIntegrations(issues=[])
+    client, _, app = make_client(integ)
+    run_and_wait(client, app)
+    integ.issues_fail = True
+    run_and_wait(client, app, variant="after")
+    r = client.get("/api/comparisons/exp_001")
+    assert r.status_code == 500 and r.json()["error"]["code"] == "ANALYSIS_ERROR"
+
+
 @pytest.mark.parametrize("kw", [{"has_compare": False}, {"compare_raises": True}])
 def test_comparison_failure_is_500(make_client, kw):
-    client, _, app = make_client(FakeIntegrations(**kw))
+    client, _, app = make_client(FakeIntegrations(issues=[], **kw))
     run_and_wait(client, app)
     run_and_wait(client, app, variant="after")
     r = client.get("/api/comparisons/exp_001")

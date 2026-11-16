@@ -130,6 +130,9 @@ class Runner:
         run["status"] = "ERROR"
         run["terminationReason"] = reason
         run["error"] = error_detail(code, message)
+        # 루프가 실패 전에 VALID를 저장했어도 실패 사유로 다시 정한다 (finalize가 재계산)
+        run["validity"] = None
+        run["invalidReason"] = None
 
     def _run_agent(self, run: dict, goal: dict) -> dict:
         run_agent = self.integrations.agent()
@@ -182,8 +185,12 @@ class Runner:
         }
 
     # ---- 분석
-    def analyze(self, run: dict) -> None:
-        """종료 후 Issue 분석 (14장). 무효 Run은 Issue를 만들지 않는다. 분석 모듈이 없으면 PENDING으로 둔다."""
+    def analyze(self, run: dict, *, update_run: bool = True) -> None:
+        """종료 후 Issue 분석 (14장). 실행이 끝날 때 한 번만 부른다 (조회 API는 파일을 쓰지 않는다).
+
+        무효 Run은 Issue를 만들지 않는다. 분석 모듈이 없으면 issues.json을 만들지 않아 PENDING으로 남는다.
+        update_run=False면 issues.json만 쓰고 run.json은 건드리지 않는다 (scripts/analyze_runs.py).
+        """
         run_id = run["runId"]
         if run["validity"] == "INVALID":
             self.store.save_issues(run_id, _issues_doc(run_id, "COMPLETED", []))
@@ -192,14 +199,14 @@ class Runner:
         if detect is None:
             return
         try:
-            items = list(detect(run, self.store.load_steps(run_id)) or [])
+            items = list(detect(run, self.store.load_steps(run_id), self.store.load_events(run_id)) or [])
         except Exception:
             log.exception("detect_issues failed for %s", run_id)
             self.store.save_issues(run_id, _issues_doc(run_id, "FAILED", []))
             return
         items.sort(key=lambda i: ISSUE_ORDER.index(i["issueType"]) if i.get("issueType") in ISSUE_ORDER else 99)
         self.store.save_issues(run_id, _issues_doc(run_id, "COMPLETED", items))
-        if run.get("summary") is not None:
+        if update_run and run.get("summary") is not None:
             run["summary"]["detectedIssueTypes"] = [t for t in ISSUE_ORDER if any(i.get("issueType") == t for i in items)]
             self.store.save_run(run)
 

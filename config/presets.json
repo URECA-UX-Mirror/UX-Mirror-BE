@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.3.2",
+  "schemaVersion": "1.3.4",
   "goals": [
     {
       "goalId": "refund",
@@ -19,6 +19,26 @@
           ["home", "mypage", "orders", "refund"]
         ],
         "shortestAllowedSteps": 2
+      }
+    },
+    {
+      "goalId": "refund-from-mypage-test",
+      "goal": "최근 구매한 상품의 환불 신청 화면 찾기",
+      "testOnly": true,
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "path": "/shop/refund",
+        "text": "환불 / 반품 신청",
+        "exact": false,
+        "scope": "page"
+      },
+      "referencePathConfig": {
+        "version": "refpath-mypage-test-v1",
+        "allowedPaths": [
+          ["mypage", "refund"],
+          ["mypage", "orders", "refund"]
+        ],
+        "shortestAllowedSteps": 1
       }
     }
   ],

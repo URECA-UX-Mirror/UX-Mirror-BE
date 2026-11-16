@@ -61,8 +61,8 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
 
     # ---- 17.9
     @app.get("/api/presets")
-    def get_presets():
-        return presets.public_view()
+    def get_presets(includeTest: bool = False):
+        return presets.public_view(include_test=includeTest)
 
     # ---- 17.2
     @app.post("/api/runs", status_code=201)
@@ -122,10 +122,7 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
         run = load_run_or_404(run_id)
         if run.get("status") not in run_factory.TERMINAL_STATUSES:
             return {"runId": run_id, "analysisStatus": "PENDING", "items": []}
-        doc = store.load_issues(run_id)
-        if doc is None:
-            runner.analyze(run)   # 실행 뒤에 분석 모듈이 추가된 경우
-            doc = store.load_issues(run_id)
+        doc = store.load_issues(run_id)   # 조회는 파일을 쓰지 않는다 (E-5 원본 Run·Git 샘플 보호)
         if doc is None:
             return {"runId": run_id, "analysisStatus": "PENDING", "items": []}
         return {"runId": run_id, "analysisStatus": doc.get("analysisStatus", "COMPLETED"), "items": doc.get("items", [])}

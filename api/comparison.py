@@ -1,4 +1,8 @@
-"""비교 대상 Run 고르기 (계약 15.1). 비교 계산 자체는 4번 `uxm/analysis.py`의 `compare`가 한다."""
+"""비교 대상 Run 고르기 (계약 15.1, 17.6). 비교 계산 자체는 4번 `uxm/analysis.py`의 `compare`가 한다.
+
+두 최종 Run의 Issue 분석이 모두 COMPLETED일 때만 비교한다 (v1.3.4).
+분석 전 빈 Issue 목록을 "Issue 없음"으로 쓰지 않기 위해서다.
+"""
 from api.errors import AnalysisError, ApiError
 from api.integrations import Integrations
 from api.store import RunStore
@@ -36,6 +40,20 @@ def select_pair(store: RunStore, experiment_key: str) -> tuple[dict, dict]:
     return finals["before"], finals["after"]
 
 
+def analysis_status(store: RunStore, run_id: str) -> str:
+    """issues.json이 아직 없으면 PENDING."""
+    doc = store.load_issues(run_id)
+    return (doc or {}).get("analysisStatus", "PENDING")
+
+
+def require_analyzed(store: RunStore, before: dict, after: dict) -> None:
+    statuses = [analysis_status(store, r["runId"]) for r in (before, after)]
+    if "FAILED" in statuses:
+        raise AnalysisError("비교할 실행의 Issue 분석이 실패했습니다.")
+    if any(s != "COMPLETED" for s in statuses):
+        raise ApiError(409, "COMPARISON_NOT_READY", "비교할 실행의 Issue 분석이 아직 끝나지 않았습니다.", retryable=True)
+
+
 def _bundle(store: RunStore, run: dict) -> dict:
     issues = store.load_issues(run["runId"]) or {}
     return {"run": run, "steps": store.load_steps(run["runId"]), "issues": issues.get("items", [])}
@@ -43,6 +61,7 @@ def _bundle(store: RunStore, run: dict) -> dict:
 
 def build_comparison(store: RunStore, integrations: Integrations, experiment_key: str) -> dict:
     before, after = select_pair(store, experiment_key)
+    require_analyzed(store, before, after)
     compare = integrations.compare()
     if compare is None:
         raise AnalysisError("비교 모듈(uxm/analysis.py)이 아직 준비되지 않았습니다.")

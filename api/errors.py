@@ -1,9 +1,13 @@
 """공통 오류 응답 `{"error": ErrorDetail}` (계약 16장, 4.9)."""
+import logging
+
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from api.timeutil import now_iso
+
+log = logging.getLogger("uxm.api")
 
 
 def error_detail(code: str, message: str, *, retryable: bool = False, details: dict | None = None) -> dict:
@@ -47,9 +51,12 @@ class AnalysisError(Exception):
 
 
 async def analysis_error_handler(_: Request, exc: AnalysisError) -> JSONResponse:
+    if exc.__cause__ is not None:
+        log.error("analysis error: %s", exc, exc_info=exc.__cause__)
     return _response(500, "ANALYSIS_ERROR", str(exc) or "분석 결과를 계산하지 못했습니다.")
 
 
-async def unexpected_error_handler(_: Request, exc: Exception) -> JSONResponse:
-    # 저장 파일 손상 등 예상하지 못한 실패. 내부 경로·예외 내용은 응답에 넣지 않는다.
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # 저장 파일 손상 등 예상하지 못한 실패. 원인은 서버 로그에만 남기고 응답에는 넣지 않는다 (16.1).
+    log.error("unexpected error on %s %s", request.method, request.url.path, exc_info=exc)
     return _response(500, "STORAGE_ERROR", "저장된 실행 결과를 읽지 못했습니다.")

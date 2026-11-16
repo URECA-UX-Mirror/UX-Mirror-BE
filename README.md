@@ -54,19 +54,21 @@ copy .env.example .env
 
 | Method | 주소 | 내용 |
 |---|---|---|
-| GET | `/api/presets` | 목표·페르소나 선택지 |
+| GET | `/api/presets` | 목표·페르소나 선택지 (`?includeTest=true`면 C3용 테스트 전용 목표 포함) |
 | POST | `/api/runs` | Run 생성 `{experimentKey, variant, goalId, personaId, maxSteps?, startPath?}` → `201` READY, 실행은 별도 스레드 |
 | GET | `/api/runs` | Run 목록 `?experimentKey=&variant=` (계약 밖 추가) |
 | GET | `/api/runs/{runId}` | 상태·요약 |
 | GET | `/api/runs/{runId}/steps` | 저장이 끝난 Step |
 | GET | `/api/runs/{runId}/issues` | UX 검토 후보 (`PENDING`/`COMPLETED`/`FAILED`) |
 | GET | `/api/runs/{runId}/screenshots/{stepId}?kind=original\|overlay` | 스크린샷 |
-| GET | `/api/comparisons/{experimentKey}` | Before/After 비교 (VALID 최종 Run) |
+| GET | `/api/comparisons/{experimentKey}` | Before/After 비교 (VALID 최종 Run, 두 Run의 Issue 분석이 모두 `COMPLETED`일 때만) |
 | GET | `/api/health` | 모델·브라우저·에이전트 준비 상태 |
 
 - 동시에 1개만 실행 (`409 RUN_ALREADY_ACTIVE`). 같은 `experimentKey`+`variant`에 VALID·진행 중 Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`. 무효(INVALID) Run만 다시 실행할 수 있고 원본의 `replacementRunId`에 연결된다.
-- 에이전트 루프(`uxm/agent.py`)나 브라우저(`uxm/browser.py`)가 없으면 `POST /api/runs`는 `503`, 분석(`uxm/analysis.py`)이 없으면 `/issues`는 `PENDING`, 비교는 `500 ANALYSIS_ERROR`.
-- `PAGE_LOAD_FAILED`는 최종 기획안 기준으로 `ERROR` + `INVALID`(`BROWSER_CRASH`).
+- 에이전트 루프(`uxm/agent.py`)나 브라우저(`uxm/browser.py`)가 없으면 `POST /api/runs`는 `503`.
+- Issue 분석(`detect_issues(run, steps, events)`)은 Run이 끝날 때 한 번만 돌고 `issues.json`을 쓴다. 조회 API는 파일을 쓰지 않는다. 분석 모듈이 없을 때 끝난 Run은 `PENDING`으로 남고, 비교는 `409 COMPARISON_NOT_READY`(분석 `FAILED`면 `500 ANALYSIS_ERROR`).
+- 나중에 분석하려면 `python scripts/analyze_runs.py --all` (`issues.json`만 쓰고 `run.json`은 건드리지 않음).
+- `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
 
 ## 백엔드 선택 (.env)
 
