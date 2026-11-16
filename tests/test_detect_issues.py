@@ -46,6 +46,8 @@ def test_d2_equal_allowed_candidates_is_general_review(record):
     run, step = simple(record)
     step["candidateSet"]["candidates"] = [step["candidateSet"]["candidates"][0],
                                            step["candidateSet"]["candidates"][2]]
+    for candidate in step["candidateSet"]["candidates"]:
+        candidate["probability"] = 0.5
     step["decision"].update(clickOnlyNormalizedEntropy=1.0, clickOnlyTop2Margin=0.0)
     result = detect_issues(run, [step], [])
     assert types(result) == ["CHOICE_AMBIGUITY"]
