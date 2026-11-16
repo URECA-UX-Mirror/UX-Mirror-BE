@@ -1,12 +1,13 @@
 name: 프론트 실제 API 연동
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       frontend_ref:
         description: '프론트 ref (PR #22 변경 포함)'
         required: true
-        default: develop
+        default: cbf79e469d31c6b9173e155491927bbf13bb7542
 
 jobs:
   frontend-integration:
@@ -18,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: UX-Mirror/UX-Mirror-FE
-          ref: ${{ inputs.frontend_ref }}
+          ref: ${{ inputs.frontend_ref || 'cbf79e469d31c6b9173e155491927bbf13bb7542' }}
           path: frontend
       - uses: actions/setup-python@v5
         with:
