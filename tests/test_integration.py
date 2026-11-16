@@ -65,7 +65,8 @@ def assert_no_test_mode_leak(result, store):
         assert p is None or (not LEAK.search(p) and "?" not in p), p
 
 
-def test_c1_after_reaches_refund_with_real_browser(tmp_path, shops):
+def test_c0_mock_after_reaches_refund_with_real_browser(tmp_path, shops):
+    """C0-MOCK: 가짜 모델로 After 홈 → 주문·환불 → 환불. 실제 모델로 같은 경로를 보는 C1은 행사 당일."""
     result, store = real_run(tmp_path, shops, "after", [HOME_ORDERS, REFUND])
     assert (result["status"], result["terminationReason"]) == ("SUCCESS", "GOAL_VERIFIED")
     assert result["summary"]["stepCount"] == 2
