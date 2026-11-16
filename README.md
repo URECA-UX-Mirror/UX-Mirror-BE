@@ -75,6 +75,19 @@ copy .env.example .env
 - `validity`·`invalidReason`은 루프가 넘긴 값을 쓰지 않고, 종료 시 `terminationReason`·`error.code`로 항상 다시 정한다 (계약 6.1 유효성 표).
 - `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
 
+## 프론트엔드 실제 API 연동 테스트
+
+프론트 저장소에서 `npm ci`, 백엔드 가상환경에서 의존성 설치와
+`python -m playwright install chromium`을 마친 뒤 아래 명령으로 실행한다.
+`UXM_FRONTEND_PATH`는 Issue 상세에서 관련 Step을 볼 수 있는 프론트 체크아웃을 지정한다.
+테스트는 임시 MOCK Run으로 FastAPI와 Vite를 실행하고, 실제 모델은 호출하지 않는다.
+
+```bash
+UXM_FRONTEND_PATH="/path/to/UX-Mirror-FE" .venv/bin/python -m pytest -q tests/test_frontend_live_api.py
+```
+
+변수를 지정하지 않은 일반 테스트에서는 이 연동 테스트를 건너뛴다.
+
 ## 백엔드 선택 (.env)
 
 | 설정 | 용도 | 비고 |
