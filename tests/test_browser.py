@@ -80,11 +80,28 @@ def test_page_key_and_signature_same_for_before_after(shops):
             keys[variant] = (browser.page_key(s["page"].url), browser.page_signature(s["page"]))
         finally:
             browser.close_browser(s)
-    assert keys["before"] == keys["after"] == ("mypage", "/shop/mypage")
+    assert keys["before"] == keys["after"] == ("mypage", "mypage_default")
 
 
-def test_extract_has_dom_index(session):
-    cands = extract(session["page"])["candidates"]
+def test_page_signature_test_mode_only_on_its_page(shops):
+    """계약: testMode 적용 화면만 {pageKey}_{모드}, 나머지는 _default (sessionStorage로 이동 후에도 유지)."""
+    s = browser.open_browser(shops["before"] + "/shop/support?testMode=deadend")
+    try:
+        page = s["page"]
+        assert browser.page_signature(page) == "support_deadend"
+        page.evaluate("() => sessionStorage.setItem('testMode', 'deadend')")
+        page.goto(shops["before"] + "/shop/home")
+        assert browser.page_signature(page) == "home_default"
+        page.goto(shops["before"] + "/shop/support")
+        assert browser.page_signature(page) == "support_deadend"
+    finally:
+        browser.close_browser(s)
+
+
+def test_extract_dom_index_runtime_only(session):
+    page = session["page"]
+    assert all("domIndex" not in c for c in extract(page)["candidates"])   # 계약 8.1: 기본 출력에 없음
+    cands = extract(page, keep_dom_index=True)["candidates"]
     assert cands and all(isinstance(c["domIndex"], int) for c in cands)
 
 

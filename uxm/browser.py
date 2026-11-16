@@ -17,7 +17,7 @@ ActionResult
 """
 import os
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
@@ -59,9 +59,29 @@ def page_key(url: str) -> str:
     return path.rsplit("/", 1)[-1] if path.startswith(SCOPE_PREFIX) else path
 
 
+TESTMODE_PAGE = {"deadend": "support", "nochange": "mypage"}   # testMode가 화면을 바꾸는 곳 (테스트 시나리오 C4·C6)
+
+
+def _test_mode(page) -> str | None:
+    """첫 URL의 ?testMode= 또는 쇼핑몰이 sessionStorage에 유지한 값."""
+    mode = (parse_qs(urlsplit(page.url).query).get("testMode") or [None])[0]
+    if mode is None:
+        try:
+            mode = page.evaluate("() => sessionStorage.getItem('testMode')")
+        except Exception:
+            mode = None
+    return mode
+
+
 def page_signature(page) -> str:
-    """Run 내부 재방문 판단용. 우리 쇼핑몰은 같은 주소에서 화면이 바뀌지 않아 정규화한 경로를 쓴다 (기획안 10.6.2)."""
-    return _path(page.url)
+    """Run 내부 재방문 판단용 `{pageKey}_{상태}` (계약 7.1).
+
+    상태는 testMode가 실제로 적용되는 화면이면 그 값(deadend, nochange), 아니면 default.
+    예: home_default, support_deadend. Backend 전용 값이라 모델 입력에는 들어가지 않는다.
+    """
+    key = page_key(page.url)
+    mode = _test_mode(page)
+    return f"{key}_{mode}" if mode and TESTMODE_PAGE.get(mode) == key else f"{key}_default"
 
 
 # ---------------------------------------------------------------- 열기 / 닫기
@@ -101,7 +121,7 @@ def _same_bbox(a: dict, b: dict) -> bool:
 
 def _find_target(page, candidate: dict) -> list[dict]:
     """클릭 직전에 후보를 다시 뽑아 같은 목적지·글자·위치인 요소를 찾는다 (extract와 같은 규칙)."""
-    fresh = extract(page)["candidates"]
+    fresh = extract(page, keep_dom_index=True)["candidates"]
     return [c for c in fresh if c["href"] == candidate["href"] and c["label"] == candidate["label"]
             and _same_bbox(c["bbox"], candidate["bbox"])]
 

@@ -97,8 +97,12 @@ _JS = r"""
 """
 
 
-def extract(page) -> dict:
-    """현재 페이지에서 후보와 제외 목록을 뽑는다. 페이지는 수정하지 않는다."""
+def extract(page, keep_dom_index: bool = False) -> dict:
+    """현재 페이지에서 후보와 제외 목록을 뽑는다. 페이지는 수정하지 않는다.
+
+    keep_dom_index=True는 browser.click 전용: 클릭 직전 다시 뽑은 후보에 요소 순번(domIndex)을 붙인다.
+    domIndex는 브라우저 런타임 전용이라 기본 출력(Step·후보 JSON·API·모델)에는 넣지 않는다 (계약 8.1).
+    """
     vp = page.viewport_size
     raw = page.evaluate(_JS, [vp["width"], vp["height"], list(DANGEROUS_WORDS), CLICKABLE_SELECTOR])
     path = urlsplit(page.url).path.rstrip("/")
@@ -120,8 +124,9 @@ def extract(page) -> dict:
             "href": el["href"],
             "bbox": el["bbox"],
             "semanticKey": f"{base}#{seen[base]}",   # 백엔드 전용
-            "domIndex": el["domIndex"],   # 백엔드 전용. browser.click이 클릭 대상을 다시 찾을 때 사용
         })
+        if keep_dom_index:
+            candidates[-1]["domIndex"] = el["domIndex"]
     return {"url": page.url, "title": page.title(), "candidates": candidates, "excluded": excluded}
 
 
