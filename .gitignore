@@ -15,3 +15,6 @@ results/screenshots/
 # 실행 결과: 가짜 실행 샘플만 Git에 포함 (#3)
 results/runs/*
 !results/runs/sample_before/
+
+# 쇼핑몰 서버 로그 (server.py > server.log 로 켤 때 생김)
+shop/**/server.log

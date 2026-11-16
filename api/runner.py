@@ -10,8 +10,8 @@ import threading
 from api import run_factory
 from api.errors import ApiError, error_detail
 from api.integrations import Integrations
-from api.presets import success_condition
 from api.store import RunStore
+from uxm.agent import agent_settings
 from api.timeutil import now_iso
 
 log = logging.getLogger("uxm.api.runner")
@@ -152,34 +152,14 @@ class Runner:
         except Exception as e:
             raise _RunFailure("BROWSER_ERROR", "BROWSER_ERROR", "브라우저 또는 쇼핑몰을 시작하지 못했습니다.") from e
         try:
-            return run_agent(self._agent_settings(run, goal, base_url, start_url), backend, session["page"]) or {}
+            # 루프 설정은 루프 쪽 함수로 만든다 (scripts/run_c.py와 같은 설정, #7)
+            settings = agent_settings(run, goal, self.store.run_dir(run["runId"]), start_url, base_url)
+            return run_agent(settings, backend, session["page"]) or {}
         finally:
             try:
                 close_browser(session)
             except Exception:
                 log.exception("close_browser failed")
-
-    def _agent_settings(self, run: dict, goal: dict, base_url: str, start_url: str) -> dict:
-        """run_agent에 넘기는 설정. 성공 조건·허용 경로는 채점용이며 모델 요청에 넣으면 안 된다 (9.3)."""
-        return {
-            "run": run,
-            "runId": run["runId"],
-            "runDir": self.store.run_dir(run["runId"]),
-            "shopBaseUrl": base_url,
-            "startUrl": start_url,
-            "startPath": run["startPath"],
-            "goalId": run["goalId"],
-            "goal": run["goal"],
-            "persona": run["persona"],
-            "successCondition": success_condition(goal),
-            "referencePathConfig": run["referencePathConfig"],
-            "limits": run["limits"],
-            "viewport": run["viewport"],
-            "goalJudgmentMode": run["goalJudgmentMode"],
-            "temperature": run["temperature"],
-            "promptVersion": run["promptVersion"],
-            "resultOrigin": run["resultOrigin"],
-        }
 
     # ---- 분석
     def analyze(self, run: dict, *, update_run: bool = True) -> None:

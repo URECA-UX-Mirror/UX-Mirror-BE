@@ -173,6 +173,8 @@ def test_sample_steps_fields_and_candidate_rules(sample):
         assert set(s["decision"]) == DECISION_FIELDS and set(s["action"]) == ACTION_FIELDS
         cs = s["candidateSet"]
         assert set(cs) == CANDIDATE_SET_FIELDS
+        sig = s["page"]["pageSignature"]   # 계약 8.2 {pageSignature}_initial / _retry_{n}
+        assert cs["candidateSetId"] == f"{sig}_initial" or cs["candidateSetId"].startswith(f"{sig}_retry_")
         for c in cs["candidates"]:
             assert set(c) == STEP_CANDIDATE_FIELDS and c["bbox"]["width"] > 0
         # 8.2 불변조건

@@ -111,7 +111,7 @@ def build_steps():
     p3.update({"option_16": 0.34, "option_04": 0.28, "option_03": 0.12})
 
     return [
-        dict(page=home, path="/shop/home", sig="home_default", shot="before_home.png", set_id="home_initial",
+        dict(page=home, path="/shop/home", sig="home_default", shot="before_home.png", set_id="home_default_initial",
              changed=False, back=False, probs=b5_home, choice="option_03", latency=3978,
              to_path="/shop/mypage", to_sig="mypage_nochange", result="NAVIGATED"),
         dict(page=mypage_nochange, path="/shop/mypage", sig="mypage_nochange", shot="before_mypage.png",
@@ -120,11 +120,11 @@ def build_steps():
         dict(page=mypage_retry, path="/shop/mypage", sig="mypage_nochange", shot="before_mypage.png",
              set_id="mypage_nochange_retry_1", changed=True, back=True, probs=p3, choice="option_16", latency=4010,
              to_path="/shop/home", to_sig="home_default", result="NAVIGATED", failed=["마이페이지 → 쿠폰함 클릭 → 화면 변화 없음"]),
-        dict(page=home, path="/shop/home", sig="home_default", shot="before_home.png", set_id="home_initial",
+        dict(page=home, path="/shop/home", sig="home_default", shot="before_home.png", set_id="home_default_initial",
              changed=False, back=False, probs={**b5_home}, choice="option_01", latency=3890,
              to_path="/shop/orders", to_sig="orders_default", result="NAVIGATED"),
         dict(page=orders, path="/shop/orders", sig="orders_default", shot="before_orders.png",
-             set_id="orders_initial", changed=False, back=True,
+             set_id="orders_default_initial", changed=False, back=True,
              probs={"option_01": 0.08, "option_02": 0.84, "option_03": 0.08}, choice="option_02", latency=1650,
              to_path="/shop/refund", to_sig="refund_default", result="NAVIGATED"),
     ]
