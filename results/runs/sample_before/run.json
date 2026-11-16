@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "1.3.5",
+  "runId": "sample_before",
+  "experimentKey": "sample_demo_001",
+  "variant": "before",
+  "resultOrigin": "MOCK",
+  "siteVersion": "shop-v1",
+  "modelVersion": null,
+  "modelEndpointId": "mock",
+  "promptVersion": "v2",
+  "temperature": 1.52,
+  "decisionMode": "DIRECT",
+  "goalJudgmentMode": "DOM_ONLY",
+  "goalId": "refund",
+  "goal": "최근 구매한 상품의 환불 신청 화면 찾기",
+  "personaId": "novice-shopper",
+  "persona": "온라인 쇼핑몰 이용 경험이 적고 환불 절차에 익숙하지 않은 사용자",
+  "startPath": "/shop/home",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "limits": {
+    "maxSteps": 8,
+    "modelTimeoutMs": 30000,
+    "pageChangeTimeoutMs": 10000,
+    "runTimeoutMs": 180000,
+    "maxModelBackActions": 2,
+    "maxSystemBackActions": 1,
+    "maxSamePageVisits": 3
+  },
+  "thresholdConfig": {
+    "version": "threshold-v1",
+    "entropyThreshold": 0.8,
+    "minCandidateCount": 2,
+    "configuredAt": "2026-11-15T09:00:00+09:00",
+    "changeReason": "초기 사전 지정 기준"
+  },
+  "analysisVersion": "analysis-v1",
+  "referencePathConfig": {
+    "version": "refpath-v1",
+    "allowedPaths": [
+      [
+        "home",
+        "orders",
+        "refund"
+      ],
+      [
+        "home",
+        "mypage",
+        "refund"
+      ],
+      [
+        "home",
+        "mypage",
+        "orders",
+        "refund"
+      ]
+    ],
+    "shortestAllowedSteps": 2
+  },
+  "comparisonContext": {
+    "leakCheckPassed": true,
+    "initialBrowserStateId": "clean-context-v1",
+    "layoutVersion": "shop-layout-v1",
+    "candidatePolicyVersion": "candidate-v2"
+  },
+  "status": "SUCCESS",
+  "createdAt": "2026-11-16T10:00:00.000+09:00",
+  "startedAt": "2026-11-16T10:00:00.500+09:00",
+  "finishedAt": "2026-11-16T10:00:39.348+09:00",
+  "terminationReason": "GOAL_VERIFIED",
+  "progress": {
+    "stepRecordCount": 5,
+    "stepCount": 5,
+    "maxSteps": 8,
+    "currentPageKey": "refund",
+    "lastUpdatedAt": "2026-11-16T10:00:39.348+09:00"
+  },
+  "summary": {
+    "goalReached": true,
+    "stepCount": 5,
+    "stepRecordCount": 5,
+    "modelCallCount": 5,
+    "clickCount": 4,
+    "successfulNavigationClickCount": 3,
+    "modelBackCount": 1,
+    "systemBackCount": 0,
+    "backCount": 1,
+    "revisitCount": 1,
+    "referencePathDeviationCount": 0,
+    "navigationCost": 4,
+    "extraSteps": 1,
+    "extraNavigationCost": 2,
+    "attemptedExtraSteps": 3,
+    "executionTimeMs": 39347,
+    "path": [
+      {
+        "sequence": 0,
+        "pageKey": "home",
+        "pageSignature": "home_default",
+        "path": "/shop/home",
+        "enteredBy": null,
+        "visitCause": "RUN_START",
+        "stepId": null
+      },
+      {
+        "sequence": 1,
+        "pageKey": "mypage",
+        "pageSignature": "mypage_nochange",
+        "path": "/shop/mypage",
+        "enteredBy": "CLICK",
+        "visitCause": "MODEL_NAVIGATION",
+        "stepId": 1
+      },
+      {
+        "sequence": 2,
+        "pageKey": "home",
+        "pageSignature": "home_default",
+        "path": "/shop/home",
+        "enteredBy": "GO_BACK",
+        "visitCause": "MODEL_BACK",
+        "stepId": 3
+      },
+      {
+        "sequence": 3,
+        "pageKey": "orders",
+        "pageSignature": "orders_default",
+        "path": "/shop/orders",
+        "enteredBy": "CLICK",
+        "visitCause": "MODEL_NAVIGATION",
+        "stepId": 4
+      },
+      {
+        "sequence": 4,
+        "pageKey": "refund",
+        "pageSignature": "refund_default",
+        "path": "/shop/refund",
+        "enteredBy": "CLICK",
+        "visitCause": "MODEL_NAVIGATION",
+        "stepId": 5
+      }
+    ],
+    "detectedIssueTypes": []
+  },
+  "error": null,
+  "validity": "VALID",
+  "invalidReason": null,
+  "replacementRunId": null
+}
