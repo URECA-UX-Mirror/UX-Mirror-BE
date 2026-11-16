@@ -22,6 +22,8 @@ shop/
   server.py              # 쇼핑몰 서버 원본 (build_shop.py가 두 쇼핑몰에 복사)
   stitch_moro_market/    # Stitch 시안 원본 (쇼핑몰 수정은 여기 또는 build_shop.py에서)
   moro-before/, moro-after/  # 생성 결과 (직접 수정 금지). 서버: cd shop\moro-before 후 py -3.11 server.py
+api/             # 실행 API (FastAPI). 다른 모듈과의 연결은 api/integrations.py 한 곳
+config/presets.json  # 목표·페르소나 preset (성공 조건·허용 경로는 Backend 전용)
 tests/           # 모델 없이 도는 테스트
 vendor/trida-stack/  # 공식 코드 일부(Apache-2.0): 요청 인코딩·포인터 헤드·서버
 ```
@@ -43,6 +45,32 @@ copy .env.example .env
 .\.venv\Scripts\python scripts\run_a.py             # A1~A10
 .\.venv\Scripts\python scripts\run_a.py A2 A3       # 일부
 ```
+
+## 실행 API
+
+```powershell
+.\.venv\Scripts\python -m uvicorn api.main:app --port 8000
+```
+
+| Method | 주소 | 내용 |
+|---|---|---|
+| GET | `/api/presets` | 목표·페르소나 선택지 (`?includeTest=true`면 C3용 테스트 전용 목표 포함) |
+| POST | `/api/runs` | Run 생성 `{experimentKey, variant, goalId, personaId, maxSteps?, startPath?}` → `201` READY, 실행은 별도 스레드 |
+| GET | `/api/runs` | Run 목록 `?experimentKey=&variant=` (계약 밖 추가) |
+| GET | `/api/runs/{runId}` | 상태·요약 |
+| GET | `/api/runs/{runId}/steps` | 저장이 끝난 Step |
+| GET | `/api/runs/{runId}/issues` | UX 검토 후보 (`PENDING`/`COMPLETED`/`FAILED`) |
+| GET | `/api/runs/{runId}/screenshots/{stepId}?kind=original\|overlay` | 스크린샷 |
+| GET | `/api/comparisons/{experimentKey}` | Before/After 비교 (VALID 최종 Run, 두 Run의 Issue 분석이 모두 `COMPLETED`일 때만) |
+| GET | `/api/health` | 모델·브라우저·에이전트 준비 상태 |
+
+- 동시에 1개만 실행 (`409 RUN_ALREADY_ACTIVE`). 같은 `experimentKey`+`variant`에 VALID·진행 중 Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`. 무효(INVALID) Run만 다시 실행할 수 있고 원본의 `replacementRunId`에 연결된다.
+- 에이전트 루프(`uxm/agent.py`)나 브라우저(`uxm/browser.py`)가 없으면 `POST /api/runs`는 `503`.
+- Issue 분석(`detect_issues(run, steps, events)`)은 Run이 끝날 때 한 번만 돌고 `issues.json`을 쓴다. 조회 API는 파일을 쓰지 않는다. 분석 모듈이 없을 때 끝난 Run은 `PENDING`으로 남고, 비교는 `409 COMPARISON_NOT_READY`(분석 `FAILED`면 `500 ANALYSIS_ERROR`).
+- 나중에 분석하려면 `python scripts/analyze_runs.py --all` (`issues.json`만 쓰고 `run.json`은 건드리지 않음). 이렇게 분석한 Run은 저장된 `summary.detectedIssueTypes`가 비어 있을 수 있지만, `GET /api/runs/{runId}`와 비교 API는 완료된 `issues.json`에서 다시 계산한 값을 쓴다.
+- 목표마다 시작 화면이 정해져 있다 (`refund` = `/shop/home`, C3용 `refund-from-mypage-test` = `/shop/mypage`). 허용 경로가 시작 화면 기준이라 다른 화면에서는 실행하지 않는다. 생략하면 그 값을 쓰고 다르면 `422`.
+- `validity`·`invalidReason`은 루프가 넘긴 값을 쓰지 않고, 종료 시 `terminationReason`·`error.code`로 항상 다시 정한다 (계약 6.1 유효성 표).
+- `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
 
 ## 백엔드 선택 (.env)
 
