@@ -78,14 +78,14 @@ def environment(tmp_path_factory):
         pytest.skip("프론트 경로 미설정")
     sync_api = pytest.importorskip("playwright.sync_api")
     frontend = Path(FRONTEND).resolve()
-    if not (frontend / "node_modules" / ".bin" / "vite").exists():
+    if not (frontend / "node_modules" / "vite" / "bin" / "vite.js").is_file():
         pytest.fail("프론트 경로에서 npm ci를 먼저 실행하세요.")
     base = tmp_path_factory.mktemp("frontend-api")
     for case in ("complete", "missing_screen", "candidate_mismatch", "global_mismatch"):
         _pair(base, case)
     store = RunStore(str(base))
     for case in ("pending", "failed", "invalid", "nochange"):
-        run, _ = seed_run(store, case, invalid=case == "invalid")
+        run, _ = seed_run(store, "before", invalid=case == "invalid")
         _move(store, run, case + "_before", case)
         if case == "nochange":
             run["thresholdConfig"]["entropyThreshold"] = 0.7
@@ -104,21 +104,29 @@ def environment(tmp_path_factory):
                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         _wait(backend_port, processes[-1])
         env.update(VITE_USE_MOCK="false", VITE_API_BASE_URL=f"http://127.0.0.1:{backend_port}")
-        processes.append(subprocess.Popen(["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port",
+        npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
+        if not npm:
+            pytest.fail("npm 실행 파일을 찾을 수 없습니다.")
+        processes.append(subprocess.Popen([npm, "run", "dev", "--", "--host", "127.0.0.1", "--port",
                                            str(frontend_port), "--strictPort"], cwd=frontend, env=env,
-                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
+                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                          start_new_session=os.name != "nt"))
         _wait(frontend_port, processes[-1])
         with sync_api.sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             try:
-                yield f"http://127.0.0.1:{frontend_port}", browser
+                yield f"http://127.0.0.1:{frontend_port}", f"http://127.0.0.1:{backend_port}", browser
             finally:
                 browser.close()
     finally:
         for process in reversed(processes):
             if process.poll() is None:
                 if process is processes[-1] and len(processes) > 1:
-                    os.killpg(process.pid, 15)
+                    if os.name == "nt":
+                        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                    else:
+                        os.killpg(process.pid, 15)
                 else:
                     process.terminate()
             process.wait(timeout=5)
@@ -126,14 +134,14 @@ def environment(tmp_path_factory):
 
 @pytest.fixture
 def page(environment):
-    base, browser = environment
+    base, api, browser = environment
     page = browser.new_page()
-    yield base, page
+    yield base, api, page
     page.close()
 
 
 def test_result_evidence_links_even_without_navigation(page):
-    base, page = page
+    base, api, page = page
     page.goto(base + "/runs/nochange_before/result", wait_until="networkidle")
     expect = pytest.importorskip("playwright.sync_api").expect
     expect(page.get_by_text("MOCK", exact=True)).to_be_visible()
@@ -145,13 +153,24 @@ def test_result_evidence_links_even_without_navigation(page):
     expect(image).to_have_attribute("src", re.compile(r"/api/runs/nochange_before/screenshots/2"))
     assert image.evaluate("img => img.complete && img.naturalWidth > 0")
     page.get_by_role("button", name="Step 3 보기").click()
-    expect(page.get_by_alt_text("Step 3 근거 화면")).to_be_visible()
+    image3 = page.get_by_alt_text("Step 3 근거 화면")
+    expect(image3).to_be_visible()
+    assert image3.evaluate("img => img.decode().then(() => img.naturalWidth > 0).catch(() => false)")
+    response = page.request.get(api + "/api/runs/nochange_before/steps")
+    assert response.ok
+    step3 = next(step for step in response.json()["items"] if step["stepId"] == 3)
+    evidence = page.get_by_label("Step 3 근거")
+    candidates = evidence.locator(".candidate-probabilities li")
+    for index, candidate in enumerate(step3["candidateSet"]["candidates"]):
+        row = candidates.nth(index)
+        expect(row).to_contain_text(candidate["label"])
+        expect(row).to_contain_text(f'{candidate["probability"] * 100:.1f}%')
 
 
 @pytest.mark.parametrize("case,expected", [("pending", "분석 대기 중"), ("failed", "분석에 실패했습니다"),
                                           ("invalid", "무효 처리된 실행")])
 def test_result_statuses(page, case, expected):
-    base, page = page
+    base, api, page = page
     page.goto(base + f"/runs/{case}_before/result", wait_until="networkidle")
     pytest.importorskip("playwright.sync_api").expect(page.get_by_text(expected, exact=True).first).to_be_visible()
 
@@ -161,16 +180,44 @@ def test_result_statuses(page, case, expected):
     ("candidate_mismatch", "후보 구성이 달라 비교할 수 없습니다"),
     ("global_mismatch", "비교 조건이 일치하지 않습니다")])
 def test_comparison_states(page, case, expected):
-    base, page = page
+    base, api, page = page
     page.goto(base + f"/comparisons/{case}", wait_until="networkidle")
     expect = pytest.importorskip("playwright.sync_api").expect
     expect(page.get_by_text(expected, exact=False).first).to_be_visible()
     expect(page.get_by_text("MOCK", exact=True)).to_be_visible()
+    response = page.request.get(api + f"/api/comparisons/{case}")
+    assert response.ok
+    result = response.json()
+    page_key = {"candidate_mismatch": "mypage", "missing_screen": "orders"}.get(case, "home")
+    api_screen = next(screen for screen in result["screenComparisons"] if screen["pageKey"] == page_key)
+    card = page.locator("article.comparison-screen").filter(
+        has=page.get_by_role("heading", name=re.compile(rf"화면:\s*{page_key}")))
     if case == "complete":
-        expect(page.get_by_text("+2.0%p", exact=True).first).to_be_visible()
-        images = page.locator('img[src*="/screenshots/"]')
-        assert images.count() >= 2
-        assert "complete_before" in images.nth(0).get_attribute("src")
-        assert "complete_after" in images.nth(1).get_attribute("src")
+        candidate = api_screen["candidateComparisons"][0]
+        row = card.locator(".comparison-candidates tbody tr").nth(0)
+        cells = row.locator("td")
+        expect(cells.nth(0)).to_have_text(candidate["beforeLabel"])
+        expect(cells.nth(1)).to_have_text(f'{candidate["beforeProbability"] * 100:.1f}%')
+        expect(cells.nth(2)).to_have_text(candidate["afterLabel"])
+        expect(cells.nth(3)).to_have_text(f'{candidate["afterProbability"] * 100:.1f}%')
+        expect(cells.nth(4)).to_have_text(f'{candidate["deltaProbability"] * 100:+.1f}%p')
+        images = card.locator('img[src*="/screenshots/"]')
+        assert images.count() == 2
+        for index, variant in enumerate(("before", "after")):
+            image = images.nth(index)
+            assert f"complete_{variant}" in image.get_attribute("src")
+            assert image.evaluate("img => img.decode().then(() => img.naturalWidth > 0).catch(() => false)")
+    elif case == "missing_screen":
+        assert api_screen["reason"] == "NOT_VISITED_IN_AFTER" and api_screen["metrics"] is None
+        expect(card.get_by_text("지표 비교가 없습니다", exact=False)).to_be_visible()
+        assert card.locator('img[src*="/screenshots/"]').count() == 1
     elif case in ("candidate_mismatch", "global_mismatch"):
-        expect(page.get_by_text("계산 불가", exact=False).first).to_be_visible()
+        candidate = api_screen["candidateComparisons"][0]
+        assert candidate["deltaProbability"] is None
+        row = card.locator(".comparison-candidates tbody tr").nth(0)
+        expect(row.locator("td").nth(0)).to_have_text(candidate["beforeLabel"])
+        expect(row.locator("td").nth(4)).to_contain_text("계산 불가")
+        card.get_by_role("button", name="지표 표 펼치기").click()
+        assert api_screen["metrics"]["deltaNormalizedEntropy"] is None
+        metric_row = card.locator(".comparison-metrics tbody tr").nth(0)
+        expect(metric_row.locator("td").last).to_have_text("계산 불가")

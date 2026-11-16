@@ -86,7 +86,16 @@ copy .env.example .env
 UXM_FRONTEND_PATH="/path/to/UX-Mirror-FE" .venv/bin/python -m pytest -q tests/test_frontend_live_api.py
 ```
 
-변수를 지정하지 않은 일반 테스트에서는 이 연동 테스트를 건너뛴다.
+Windows PowerShell에서는 다음과 같이 실행한다.
+
+```powershell
+$env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
+.venv\Scripts\python.exe -m pytest -q tests/test_frontend_live_api.py
+```
+
+변수를 지정하지 않은 일반 테스트에서는 이 연동 테스트를 건너뛴다. GitHub Actions의
+`프론트 실제 API 연동` 수동 실행에서 프론트 ref를 지정해 검증할 수 있다. 실행에 사용한
+백엔드·프론트 커밋은 워크플로 로그에 남는다. 프론트 PR #22의 변경이 포함된 ref가 필요하다.
 
 ## 백엔드 선택 (.env)
 
