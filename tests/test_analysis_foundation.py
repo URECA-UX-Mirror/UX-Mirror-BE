@@ -93,15 +93,14 @@ def test_public_interfaces_without_mutating_inputs(sample_bundle, comparison_pai
     assert isinstance(analysis.detect_issues(*inputs), list)
     assert inputs == snapshot
     snapshot = copy.deepcopy(comparison_pair)
-    with pytest.raises(NotImplementedError):
-        analysis.compare(*comparison_pair)
+    assert isinstance(analysis.compare(*comparison_pair), dict)
     assert comparison_pair == snapshot
 
 
 def test_api_does_not_treat_stubs_as_ready():
     integrations = Integrations()
     assert integrations.detect_issues() is analysis.detect_issues
-    assert integrations.compare() is None
+    assert integrations.compare() is analysis.compare
 
 
 def test_functions_can_be_enabled_independently(monkeypatch):
@@ -111,4 +110,4 @@ def test_functions_can_be_enabled_independently(monkeypatch):
     monkeypatch.setattr(analysis, "detect_issues", implemented_detect)
     integrations = Integrations()
     assert integrations.detect_issues() is implemented_detect
-    assert integrations.compare() is None
+    assert integrations.compare() is analysis.compare
