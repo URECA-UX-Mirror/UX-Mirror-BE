@@ -170,6 +170,8 @@ def check_contract(result, store):
     counted = 0
     for s in steps:
         cs, d, a = s["candidateSet"], s["decision"], s["action"]
+        sig = s["page"]["pageSignature"]   # 계약 8.2 {pageSignature}_initial / _retry_{n}
+        assert cs["candidateSetId"] == f"{sig}_initial" or cs["candidateSetId"].startswith(f"{sig}_retry_")
         n = len(cs["candidates"])
         assert cs["candidateCountCollected"] == n + cs["excludedCandidateCount"]
         assert cs["candidateCountSent"] == n + (1 if cs["actionSetIncludesBack"] else 0)
