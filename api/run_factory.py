@@ -10,7 +10,7 @@ from api.timeutil import now_iso, now_stamp
 from uxm import config as uxm_config
 from uxm.prompts import PROMPT_VERSION
 
-SCHEMA_VERSION = "1.3.4"
+SCHEMA_VERSION = "1.3.5"
 
 # 비교 조건 계산용 버전 값 (계약 6.1 예시 값). 바꾸면 이전 Run과 비교 조건이 달라진다.
 SITE_VERSION = "shop-v1"

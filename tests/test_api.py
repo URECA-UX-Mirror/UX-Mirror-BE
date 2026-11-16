@@ -24,7 +24,7 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
 def make_step(run_id: str, step_id: int, page_key: str = "home") -> dict:
     return {
-        "schemaVersion": "1.3.4", "runId": run_id, "stepId": step_id,
+        "schemaVersion": "1.3.5", "runId": run_id, "stepId": step_id,
         "page": {"pageKey": page_key, "pageSignature": f"{page_key}_default", "path": f"/shop/{page_key}",
                  "screenshotRef": f"screenshots/{step_id}.png",
                  "overlayScreenshotRef": f"screenshots/{step_id}_overlay.png"},
