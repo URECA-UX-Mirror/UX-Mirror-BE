@@ -1,6 +1,6 @@
 """UX 분석·비교의 공개 인터페이스.
 
-완료된 Run에서 UX 검토 후보를 탐지한다. Before/After 비교는 후속 작업이다.
+완료된 Run에서 UX 검토 후보를 탐지하고 Before/After를 비교한다.
 """
 import copy
 import hashlib
@@ -193,10 +193,6 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
 
 
 def compare(before: dict, after: dict) -> dict:
-    """각 {run, steps, issues} 묶음을 비교한다 (구현 예정)."""
-    raise NotImplementedError("Before/After 비교는 아직 구현되지 않았습니다.")
-
-
-# API가 골격을 실제 분석기로 오인하지 않도록 각 함수의 준비 상태를 따로 표시한다.
-# 후속 작업에서 해당 함수의 구현과 테스트가 끝나면 그 함수의 표시만 제거한다.
-compare.__uxm_pending__ = True
+    """각 {run, steps, issues} 묶음으로 Before/After 결과를 계산한다."""
+    from uxm.comparison import compare as compare_bundles
+    return compare_bundles(before, after)
