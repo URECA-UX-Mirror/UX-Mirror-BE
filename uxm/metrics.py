@@ -2,6 +2,7 @@
 import math
 
 PROB_SUM_TOLERANCE = 0.02  # G0 실측 후 확정
+PROBABILITY_EPSILON = 1e-12
 
 
 def validate_probabilities(probs: dict, option_ids: list[str]) -> None:
@@ -48,11 +49,19 @@ def decision_metrics(probs: dict, back_option_id: str | None = None) -> dict:
     p_back = probs.get(back_option_id) if back_option_id else None
     click = [p for k, p in probs.items() if k != back_option_id]
     denom = sum(click)
-    click_norm = [p / denom for p in click] if denom > 0 else []
+    warnings = []
+    click_norm = []
+    if len(click) >= 2:
+        if denom <= PROBABILITY_EPSILON:
+            warnings.append({"code": "NO_CLICK_PROBABILITY_MASS",
+                             "message": "클릭 후보의 조건부 지표를 계산할 수 없습니다."})
+        else:
+            click_norm = [p / denom for p in click]
     return {
         "normalizedEntropy": normalized_entropy(all_ps),
         "top2Margin": top2_margin(all_ps),
         "goBackProbability": p_back,
-        "clickOnlyNormalizedEntropy": normalized_entropy(click_norm) if denom > 0 else None,
-        "clickOnlyTop2Margin": top2_margin(click_norm) if denom > 0 else None,
+        "clickOnlyNormalizedEntropy": normalized_entropy(click_norm),
+        "clickOnlyTop2Margin": top2_margin(click_norm),
+        "metricWarnings": warnings,
     }

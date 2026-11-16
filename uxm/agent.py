@@ -33,7 +33,6 @@ from uxm.screen_request import build_screen_request
 from uxm.status import STATUS_BY_REASON
 from uxm.storage import SCHEMA_VERSION, RunStore, StorageError, now_iso
 
-PROBABILITY_EPSILON = 1e-12
 CANDIDATE_SCOPE = ["상단 메뉴", "본문", "사이드 메뉴", "경로 표시", "하단"]
 FAILED_ACTION_REASON = "FAILED_ACTION"   # 다시 판단할 때 뺀 후보의 exclusionReasons 키
 
@@ -411,13 +410,6 @@ class _Loop:
 
     def _decision(self, choice, is_back, probs, back_id, cands, latency) -> dict:
         m = decision_metrics(probs, back_id)
-        click_ids = [c["optionId"] for c in cands]
-        mass = sum(probs[o] for o in click_ids)
-        warnings = []
-        if len(click_ids) >= 2 and mass <= PROBABILITY_EPSILON:   # 계약 12.3 판정 순서 2
-            m["clickOnlyNormalizedEntropy"] = m["clickOnlyTop2Margin"] = None
-            warnings.append({"code": "NO_CLICK_PROBABILITY_MASS",
-                             "message": "클릭 후보의 조건부 지표를 계산할 수 없습니다."})
         route = [v["pageKey"] for v in self.stack]
         nxt = {p[len(route)] for p in self.allowed if len(p) > len(route) and p[:len(route)] == route}
         hits = [probs[c["optionId"]] for c in cands if self.env.page_key(c["href"]) in nxt]
@@ -427,7 +419,7 @@ class _Loop:
             "modelGoalReached": None, "modelGoalYesProb": None, "verifiedGoalReached": False,
             "goalJudgmentMismatch": False, **m,
             "goalPathProbability": sum(hits) if hits else None,
-            "modelLatencyMs": latency, "metricWarnings": warnings,
+            "modelLatencyMs": latency,
         }
 
     def _step(self, step_id, here, extracted, cands, back_id, probs, choice, shot, decision, res, is_back,

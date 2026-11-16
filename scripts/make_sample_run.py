@@ -269,7 +269,7 @@ def main():
                 "modelGoalReached": None, "modelGoalYesProb": None, "verifiedGoalReached": False,
                 "goalJudgmentMismatch": False, **r4,
                 "goalPathProbability": goal_path_probability(cands, s["probs"], current_route),
-                "modelLatencyMs": s["latency"], "metricWarnings": [],
+                "modelLatencyMs": s["latency"],
             },
             "action": {
                 "selectedOptionId": s["choice"], "executedOptionId": s["choice"] if executed else None,
