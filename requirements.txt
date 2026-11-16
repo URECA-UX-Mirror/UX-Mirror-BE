@@ -6,6 +6,10 @@ safetensors
 requests
 python-dotenv
 pytest
+# 실행 API (api/main.py)
+fastapi
+uvicorn
+httpx
 # B~E (쇼핑몰 화면). 설치 후 브라우저 본체도 받아야 함: python -m playwright install chromium
 playwright
 # ZORO_DEVICE=cuda-4bit 를 쓸 때만
