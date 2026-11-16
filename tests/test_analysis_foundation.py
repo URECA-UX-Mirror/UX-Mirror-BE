@@ -85,13 +85,12 @@ def test_comparison_fixture_keeps_matching_candidates(comparison_pair):
     assert b[0]["label"] == "이용정보" and a[0]["label"] == "주문·환불"
 
 
-def test_public_interfaces_fail_explicitly_without_mutating_inputs(sample_bundle, comparison_pair, system_back_event):
+def test_public_interfaces_without_mutating_inputs(sample_bundle, comparison_pair, system_back_event):
     assert list(inspect.signature(analysis.detect_issues).parameters) == ["run", "steps", "events"]
     assert list(inspect.signature(analysis.compare).parameters) == ["before", "after"]
     inputs = (sample_bundle["run"], sample_bundle["steps"], sample_bundle["events"] + [system_back_event])
     snapshot = copy.deepcopy(inputs)
-    with pytest.raises(NotImplementedError):
-        analysis.detect_issues(*inputs)
+    assert isinstance(analysis.detect_issues(*inputs), list)
     assert inputs == snapshot
     snapshot = copy.deepcopy(comparison_pair)
     with pytest.raises(NotImplementedError):
@@ -101,7 +100,7 @@ def test_public_interfaces_fail_explicitly_without_mutating_inputs(sample_bundle
 
 def test_api_does_not_treat_stubs_as_ready():
     integrations = Integrations()
-    assert integrations.detect_issues() is None
+    assert integrations.detect_issues() is analysis.detect_issues
     assert integrations.compare() is None
 
 

@@ -112,14 +112,12 @@ def test_sort_priority_and_goal_not_reached_deduplication(run_and_step):
     assert merged[0]["occurrenceCount"] == 2 and merged[0]["reviewPriority"] == "PRIORITY_REVIEW"
 
 
-def test_invalid_run_cannot_generate_issue_and_incomplete_analysis_is_not_ready(run_and_step):
+def test_invalid_run_cannot_generate_issue_and_analysis_is_ready(run_and_step):
     run, step = run_and_step
     invalid = {**run, "validity": "INVALID"}
     assert issue(invalid, step) is None
     assert detect_issues(invalid, [step], []) == []
-    with pytest.raises(NotImplementedError):
-        detect_issues(run, [step], [])
-    assert Integrations().detect_issues() is None
+    assert Integrations().detect_issues() is detect_issues
 
 
 def test_unknown_type_and_wrong_run_are_rejected(run_and_step):

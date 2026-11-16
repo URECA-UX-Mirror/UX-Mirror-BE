@@ -1,7 +1,6 @@
 """UX 분석·비교의 공개 인터페이스.
 
-규칙과 비교 계산은 후속 작업에서 구현한다. 미구현 함수를 호출하면 빈 결과를
-정상적인 분석 결과로 오인하지 않도록 명시적으로 실패한다.
+완료된 Run에서 UX 검토 후보를 탐지한다. Before/After 비교는 후속 작업이다.
 """
 import copy
 import hashlib
@@ -104,10 +103,93 @@ def merge_issues(issues: list[dict | None]) -> list[dict]:
 
 
 def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict]:
-    """종료된 Run과 모델·시스템 이벤트에서 Issue를 탐지한다 (구현 예정)."""
+    """종료된 Run의 관찰 기록으로 Issue를 탐지하며 입력은 수정하지 않는다.
+
+    이력은 summary.path를 기준으로 복원한다. 시스템 BACK도 방문 이력에 반영하되
+    그 복귀 자체는 모델의 반복 방문 Issue로 만들지 않는다.
+    """
     if run.get("validity") == "INVALID":
         return []
-    raise NotImplementedError("UX Issue 탐지는 아직 구현되지 않았습니다.")
+    if run.get("validity") != "VALID" or run.get("status") in ("READY", "RUNNING"):
+        raise ValueError("종료된 유효 Run만 분석할 수 있습니다.")
+    summary = run["summary"]
+    if summary is None:
+        raise ValueError("유효 Run의 summary가 필요합니다.")
+    if any(step["runId"] != run["runId"] for step in steps):
+        raise ValueError("Step과 Run의 runId가 다릅니다.")
+    if any(event["runId"] != run["runId"] for event in events):
+        raise ValueError("Event와 Run의 runId가 다릅니다.")
+
+    found = []
+    threshold = run["thresholdConfig"]
+    # 계약 14.2는 재방문과 재판단을 포함한 각 Step을 독립적으로 판정한다.
+    for step in steps:
+        candidate_set, decision = step["candidateSet"], step["decision"]
+        entropy = decision["clickOnlyNormalizedEntropy"]
+        candidates = candidate_set["candidates"]
+        warnings = decision["metricWarnings"]
+        if (entropy is not None and entropy >= threshold["entropyThreshold"]
+                and len(candidates) >= threshold["minCandidateCount"]
+                and not any(w["code"] == "NO_CLICK_PROBABILITY_MASS" for w in warnings)):
+            found.append(create_issue(run, "CHOICE_AMBIGUITY", {
+                "clickOnlyNormalizedEntropy": entropy, "clickOnlyTop2Margin": decision["clickOnlyTop2Margin"],
+                "candidateCount": len(candidates), "entropyThreshold": threshold["entropyThreshold"],
+            }, step["timestamp"], step=step))
+
+    by_step = {step["stepId"]: step for step in steps}
+    route, visits, causes = [], {}, {}
+    allowed = run["referencePathConfig"]["allowedPaths"]
+    for visit in summary["path"]:
+        key, signature, cause = visit["pageKey"], visit["pageSignature"], visit["visitCause"]
+        if cause == "RUN_START":
+            route = [key]
+        elif cause == "MODEL_NAVIGATION":
+            route.append(key)
+        elif cause in ("MODEL_BACK", "SYSTEM_BACK_RECOVERY"):
+            # 같은 화면으로의 시스템 복구는 스택을 줄이지 않는다.
+            if cause != "SYSTEM_BACK_RECOVERY" or not route or route[-1] != key:
+                if len(route) < 2 or route[-2] != key:
+                    raise ValueError("BACK 방문이 이전 탐색 경로와 일치하지 않습니다.")
+                route.pop()
+        else:
+            raise ValueError(f"알 수 없는 visitCause: {cause}")
+        visits[signature] = visits.get(signature, 0) + 1
+        causes.setdefault(signature, []).append(cause)
+        if cause not in ("MODEL_NAVIGATION", "MODEL_BACK"):
+            continue
+        step = by_step.get(visit["stepId"])
+        if step is None:
+            raise ValueError("모델 방문에 연결된 Step이 없습니다.")
+        if visits[signature] > 1:
+            found.append(create_issue(run, "REPEATED_VISIT", {
+                "pageSignature": signature, "visitCount": visits[signature],
+                "visitCauses": list(causes[signature]),
+            }, step["timestamp"], step=step, destination_page=visit))
+        action = step["action"]
+        if (cause == "MODEL_NAVIGATION" and action["actionType"] == "CLICK"
+                and action["result"] == "NAVIGATED"
+                and not any(path[:len(route)] == route for path in allowed)):
+            selected = next((c for c in step["candidateSet"]["candidates"]
+                             if c["optionId"] == step["decision"]["selectedOptionId"]), None)
+            if selected is None:
+                raise ValueError("선택한 클릭 후보가 Step에 없습니다.")
+            found.append(create_issue(run, "REFERENCE_PATH_DEVIATION", {
+                "fromPageKey": step["page"]["pageKey"], "toPageKey": key,
+                "selectedSemanticKey": selected["semanticKey"], "selectedProbability": selected["probability"],
+            }, step["timestamp"], step=step))
+
+    reached = summary["goalReached"]
+    if reached and summary["extraSteps"] is not None and summary["extraSteps"] > 0:
+        found.append(create_issue(run, "EXTRA_STEPS", {
+            "successfulNavigationClickCount": summary["successfulNavigationClickCount"],
+            "shortestAllowedSteps": run["referencePathConfig"]["shortestAllowedSteps"],
+            "extraSteps": summary["extraSteps"],
+        }, run["finishedAt"]))
+    if not reached and run["status"] in ("MAX_STEPS", "BLOCKED"):
+        found.append(create_issue(run, "GOAL_NOT_REACHED", {
+            "status": run["status"], "terminationReason": run["terminationReason"], "stepCount": summary["stepCount"],
+        }, run["finishedAt"]))
+    return merge_issues(found)
 
 
 def compare(before: dict, after: dict) -> dict:
@@ -117,5 +199,4 @@ def compare(before: dict, after: dict) -> dict:
 
 # API가 골격을 실제 분석기로 오인하지 않도록 각 함수의 준비 상태를 따로 표시한다.
 # 후속 작업에서 해당 함수의 구현과 테스트가 끝나면 그 함수의 표시만 제거한다.
-detect_issues.__uxm_pending__ = True
 compare.__uxm_pending__ = True
