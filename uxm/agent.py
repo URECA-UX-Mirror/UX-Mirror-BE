@@ -29,6 +29,7 @@ from uxm.candidates import extract as extract_candidates
 from uxm.leak import assert_no_leak
 from uxm.metrics import decision_metrics, validate_probabilities
 from uxm.screen_request import build_screen_request
+from uxm.status import STATUS_BY_REASON
 from uxm.storage import SCHEMA_VERSION, RunStore, StorageError, now_iso
 
 PROBABILITY_EPSILON = 1e-12
@@ -38,13 +39,6 @@ FAILED_ACTION_REASON = "FAILED_ACTION"   # 다시 판단할 때 뺀 후보의 ex
 # 누르지 않았거나 화면이 그대로라 그 후보만 빼고 다시 판단하는 경우 (협의 5절)
 RETRY_REASONS = {"ELEMENT_NOT_FOUND", "ELEMENT_NOT_UNIQUE", "REJECTED_UNSAFE"}
 
-STATUS_BY_REASON = {
-    "GOAL_VERIFIED": "SUCCESS", "MAX_STEPS_REACHED": "MAX_STEPS",
-    "NO_VALID_CANDIDATES": "BLOCKED", "REVISIT_LIMIT_REACHED": "BLOCKED", "BACK_RECOVERY_FAILED": "BLOCKED",
-    "MODEL_TIMEOUT": "TIMEOUT", "RUN_TIMEOUT": "TIMEOUT",
-    "MODEL_ERROR": "ERROR", "BROWSER_ERROR": "ERROR", "OUT_OF_SCOPE_NAVIGATION": "ERROR",
-    "PAGE_LOAD_FAILED": "ERROR", "LEAK_CHECK_FAILED": "ERROR", "STORAGE_FAILED": "ERROR",
-}
 ERROR_MESSAGES = {
     "MODEL_TIMEOUT": "모델이 제한 시간 안에 응답하지 않았습니다.",
     "MODEL_UNAVAILABLE": "모델 서버에 연결하지 못했습니다.",
@@ -82,6 +76,23 @@ def default_env() -> Env:
 
 def run_agent(settings: dict, backend, page, env: Env | None = None) -> dict:
     return _Loop(settings, backend, page, env or default_env()).run()
+
+
+def agent_settings(run: dict, goal: dict, run_dir: str, start_url: str, shop_base_url: str) -> dict:
+    """run_agent에 넘기는 설정. 실행 API(api/runner.py)와 scripts/run_c.py가 같이 쓴다.
+
+    run: READY Run(run.json), goal: config/presets.json의 목표 preset.
+    성공 조건·허용 경로는 채점용이라 모델 요청에 넣지 않는다 (계약 9.3).
+    """
+    v = goal["verification"]
+    return {
+        "run": run, "runId": run["runId"], "runDir": run_dir, "shopBaseUrl": shop_base_url,
+        "startUrl": start_url, "startPath": run["startPath"], "goalId": run["goalId"], "goal": run["goal"],
+        "persona": run["persona"], "successCondition": {"path": v["path"], "text": v["text"]},
+        "referencePathConfig": run["referencePathConfig"], "limits": run["limits"], "viewport": run["viewport"],
+        "goalJudgmentMode": run["goalJudgmentMode"], "temperature": run["temperature"],
+        "promptVersion": run["promptVersion"], "resultOrigin": run["resultOrigin"],
+    }
 
 
 def _norm(url_or_path: str) -> str:

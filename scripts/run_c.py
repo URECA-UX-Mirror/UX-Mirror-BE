@@ -22,8 +22,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from api import run_factory  # noqa: E402  (fastapi 없이 import 됨)
-from api.presets import Presets, success_condition  # noqa: E402
-from uxm.agent import run_agent  # noqa: E402
+from api.presets import Presets  # noqa: E402
+from uxm.agent import agent_settings, run_agent  # noqa: E402
+from uxm.mock import MockBackend  # noqa: E402
+from uxm.storage import RunStore  # noqa: E402
 
 # api/runner.py와 같은 값 (runner는 fastapi를 불러와서 여기서 import하지 않는다)
 SHOP_URLS = {
@@ -31,8 +33,6 @@ SHOP_URLS = {
     "after": os.getenv("SHOP_AFTER_URL", "http://127.0.0.1:8002"),
 }
 AGENT_RESULT_FIELDS = ("status", "terminationReason", "progress", "summary", "error", "finishedAt")
-from uxm.mock import MockBackend  # noqa: E402
-from uxm.storage import RunStore  # noqa: E402
 
 try:
     from uxm.browser import close_browser, open_browser  # 1번 (PR #2)
@@ -78,13 +78,7 @@ def main(argv=None) -> int:
     store.create(run)
 
     start_url = SHOP_URLS[a.variant] + run["startPath"] + (f"?testMode={a.test_mode}" if a.test_mode else "")
-    settings = {"run": run, "runId": run["runId"], "runDir": store.dir, "shopBaseUrl": SHOP_URLS[a.variant],
-                "startUrl": start_url, "startPath": run["startPath"], "goalId": run["goalId"], "goal": run["goal"],
-                "persona": run["persona"], "successCondition": success_condition(goal),
-                "referencePathConfig": run["referencePathConfig"], "limits": run["limits"],
-                "viewport": run["viewport"], "goalJudgmentMode": run["goalJudgmentMode"],
-                "temperature": run["temperature"], "promptVersion": run["promptVersion"],
-                "resultOrigin": run["resultOrigin"]}
+    settings = agent_settings(run, goal, store.dir, start_url, SHOP_URLS[a.variant])
 
     run["status"], run["startedAt"] = "RUNNING", run_factory.now_iso()
     store.write_run(run)

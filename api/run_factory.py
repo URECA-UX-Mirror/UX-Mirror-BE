@@ -111,22 +111,8 @@ def build_run(req, goal: dict, persona: dict, settings: dict) -> dict:
 
 TERMINAL_STATUSES = ("SUCCESS", "BLOCKED", "MAX_STEPS", "TIMEOUT", "ERROR")
 
-# terminationReason → 고정 status (계약 4.14). PAGE_LOAD_FAILED는 v1.3.3부터 ERROR + INVALID(BROWSER_CRASH).
-STATUS_BY_REASON = {
-    "GOAL_VERIFIED": "SUCCESS",
-    "MAX_STEPS_REACHED": "MAX_STEPS",
-    "NO_VALID_CANDIDATES": "BLOCKED",
-    "REVISIT_LIMIT_REACHED": "BLOCKED",
-    "BACK_RECOVERY_FAILED": "BLOCKED",
-    "MODEL_TIMEOUT": "TIMEOUT",
-    "RUN_TIMEOUT": "TIMEOUT",
-    "MODEL_ERROR": "ERROR",
-    "BROWSER_ERROR": "ERROR",
-    "OUT_OF_SCOPE_NAVIGATION": "ERROR",
-    "PAGE_LOAD_FAILED": "ERROR",
-    "LEAK_CHECK_FAILED": "ERROR",
-    "STORAGE_FAILED": "ERROR",
-}
+# terminationReason → 고정 status (계약 4.14). 루프와 같은 표를 쓴다 (uxm/status.py, #7에서 한 곳으로 합침)
+from uxm.status import STATUS_BY_REASON  # noqa: E402
 
 INVALID_BY_REASON = {
     "BROWSER_ERROR": "BROWSER_CRASH",

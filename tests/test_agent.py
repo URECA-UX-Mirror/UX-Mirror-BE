@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from api import run_factory  # noqa: E402
 from api.presets import Presets, success_condition  # noqa: E402
-from uxm.agent import Env, run_agent  # noqa: E402
+from uxm.agent import Env, agent_settings, run_agent  # noqa: E402
 from uxm.mock import MockBackend  # noqa: E402
 from uxm.storage import RunStore, StorageError  # noqa: E402
 
@@ -142,12 +142,16 @@ def start_run(tmp_path, goal_id="refund", **limits):
     run["limits"].update(limits)
     store = RunStore(run["runId"], runs_dir=str(tmp_path))
     store.create(run)
-    settings = {"run": run, "runId": run["runId"], "runDir": store.dir, "startPath": run["startPath"],
-                "goalId": goal_id, "goal": run["goal"], "persona": run["persona"],
-                "successCondition": success_condition(goal), "referencePathConfig": run["referencePathConfig"],
-                "limits": run["limits"], "viewport": run["viewport"], "goalJudgmentMode": "DOM_ONLY",
-                "temperature": 1.52, "promptVersion": run["promptVersion"], "resultOrigin": "MOCK"}
+    settings = agent_settings(run, goal, store.dir, BASE + run["startPath"], BASE)
     return settings, store
+
+
+def test_agent_settings_matches_api_presets(tmp_path):
+    """실행 API(api/runner.py)도 agent_settings를 쓴다. 성공 조건은 preset의 verification과 같아야 한다."""
+    settings, store = start_run(tmp_path)
+    goal = Presets().goal("refund")
+    assert settings["successCondition"] == success_condition(goal)
+    assert (settings["runDir"], settings["startPath"], settings["resultOrigin"]) == (store.dir, "/shop/home", "MOCK")
 
 
 def go(tmp_path, answers, page=None, env=None, delay=0.0, **limits):
