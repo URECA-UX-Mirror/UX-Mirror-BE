@@ -2,6 +2,10 @@
 
     .venv\\Scripts\\python scripts\\capture_sample_screens.py
 
+샘플 Run은 testMode=nochange로 시작한 Run이라, 홈을 `?testMode=nochange`로 연 뒤 같은 탭에서 이동하며 찍는다
+(쇼핑몰이 sessionStorage로 모드를 유지, #11). 그래서 마이페이지는 쿠폰함 링크가 살아 있는 실제 nochange 화면이다.
+다른 화면은 nochange의 영향을 받지 않아 일반 화면과 같다.
+
 저장: results/screenshots/sample_raw/
   before_<page>.png   원본 스크린샷 (1440x900, 스크롤 없음)
   before_<page>.json  같은 화면 상태에서 뽑은 후보 (extract 결과). 사진과 bbox가 어긋나지 않게 함께 저장
@@ -30,6 +34,7 @@ def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_context(viewport=VIEWPORT).new_page()
+        page.goto(f"{args.base}/shop/home?testMode=nochange", wait_until="networkidle")   # sessionStorage에 모드 저장
         for name in PAGES:
             page.goto(f"{args.base}/shop/{name}", wait_until="networkidle")
             page.evaluate("() => document.fonts.ready")   # 글꼴이 다 적용된 뒤 (글자 폭이 바뀌지 않게)

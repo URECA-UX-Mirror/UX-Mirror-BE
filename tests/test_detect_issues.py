@@ -54,7 +54,7 @@ def test_d2_equal_allowed_candidates_is_general_review(record):
                                       "candidateCount": 2, "entropyThreshold": 0.8}
 
 
-@pytest.mark.parametrize("mode", ["low", "null", "warning", "few", "retry"])
+@pytest.mark.parametrize("mode", ["low", "null", "warning", "few"])
 def test_ambiguity_negative_cases(record, mode):
     run, step = simple(record)
     step["decision"]["clickOnlyNormalizedEntropy"] = 0.9
@@ -67,19 +67,24 @@ def test_ambiguity_negative_cases(record, mode):
     elif mode == "few":
         step["candidateSet"]["candidates"] = step["candidateSet"]["candidates"][:1]
         step["candidateSet"]["actionSetIncludesBack"] = True
-    else:
-        step["candidateSet"]["candidateSetChanged"] = True
     assert "CHOICE_AMBIGUITY" not in types(detect_issues(run, [step], []))
 
 
-def test_ambiguity_uses_first_full_set_only_and_run_threshold(record):
+def test_ambiguity_checks_each_step_and_merges_observations(record):
     run, step = simple(record)
     run["thresholdConfig"]["entropyThreshold"] = 0.95
     step["decision"]["clickOnlyNormalizedEntropy"] = 0.94
     later = copy.deepcopy(step)
     later["stepId"] = 2
     later["decision"]["clickOnlyNormalizedEntropy"] = 1.0
-    assert "CHOICE_AMBIGUITY" not in types(detect_issues(run, [step, later], []))
+    retry = copy.deepcopy(later)
+    retry["stepId"] = 3
+    retry["candidateSet"]["candidateSetChanged"] = True
+    issues = detect_issues(run, [step, later, retry], [])
+    ambiguity = next(i for i in issues if i["issueType"] == "CHOICE_AMBIGUITY")
+    assert ambiguity["stepId"] == 2
+    assert ambiguity["relatedStepIds"] == [2, 3] and ambiguity["occurrenceCount"] == 2
+    assert ambiguity["evidence"]["entropyThreshold"] == 0.95
 
 
 def test_deviation_uses_current_stack_after_back(record):

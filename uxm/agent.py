@@ -33,7 +33,6 @@ from uxm.screen_request import build_screen_request
 from uxm.status import STATUS_BY_REASON
 from uxm.storage import SCHEMA_VERSION, RunStore, StorageError, now_iso
 
-PROBABILITY_EPSILON = 1e-12
 CANDIDATE_SCOPE = ["상단 메뉴", "본문", "사이드 메뉴", "경로 표시", "하단"]
 FAILED_ACTION_REASON = "FAILED_ACTION"   # 다시 판단할 때 뺀 후보의 exclusionReasons 키
 
@@ -67,18 +66,12 @@ class Env:
 
 
 def browser_module():
-    """1번 uxm/browser.py (PR #2). 그 파일이 아직 없을 때만 임시 함수(_browser_stub, 협의 6절)를 쓴다.
+    """1번 uxm/browser.py (PR #2).
 
-    browser.py가 있는데 그 안에서 import가 실패하면 오류를 그대로 낸다 (임시 함수로 조용히 넘어가지 않게, #8 리뷰).
-    `from uxm import browser`는 파일이 없을 때도 일반 ImportError(name='uxm')를 내서 구분이 안 되므로
-    import_module로 불러와 ModuleNotFoundError.name을 본다.
+    실제로 실행할 때만 불러온다. browser.py는 playwright를 바로 import하므로, 이 파일(uxm/agent.py) 맨 위에서
+    불러오면 playwright가 없는 환경에서 실행 API가 뜨지 못한다 (API는 그때 /api/health·503으로 알려 준다).
     """
-    try:
-        return importlib.import_module("uxm.browser")
-    except ModuleNotFoundError as e:
-        if e.name != "uxm.browser":
-            raise
-    return importlib.import_module("uxm._browser_stub")
+    return importlib.import_module("uxm.browser")
 
 
 def default_env() -> Env:
@@ -417,13 +410,6 @@ class _Loop:
 
     def _decision(self, choice, is_back, probs, back_id, cands, latency) -> dict:
         m = decision_metrics(probs, back_id)
-        click_ids = [c["optionId"] for c in cands]
-        mass = sum(probs[o] for o in click_ids)
-        warnings = []
-        if len(click_ids) >= 2 and mass <= PROBABILITY_EPSILON:   # 계약 12.3 판정 순서 2
-            m["clickOnlyNormalizedEntropy"] = m["clickOnlyTop2Margin"] = None
-            warnings.append({"code": "NO_CLICK_PROBABILITY_MASS",
-                             "message": "클릭 후보의 조건부 지표를 계산할 수 없습니다."})
         route = [v["pageKey"] for v in self.stack]
         nxt = {p[len(route)] for p in self.allowed if len(p) > len(route) and p[:len(route)] == route}
         hits = [probs[c["optionId"]] for c in cands if self.env.page_key(c["href"]) in nxt]
@@ -433,7 +419,7 @@ class _Loop:
             "modelGoalReached": None, "modelGoalYesProb": None, "verifiedGoalReached": False,
             "goalJudgmentMismatch": False, **m,
             "goalPathProbability": sum(hits) if hits else None,
-            "modelLatencyMs": latency, "metricWarnings": warnings,
+            "modelLatencyMs": latency,
         }
 
     def _step(self, step_id, here, extracted, cands, back_id, probs, choice, shot, decision, res, is_back,
