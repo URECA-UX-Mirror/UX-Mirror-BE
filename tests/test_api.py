@@ -53,6 +53,7 @@ class FakeIntegrations(Integrations):
         self.closed = 0
         self.issues_fail = False
         self.write_valid_then_raise = False
+        self.saved_validity = None   # 루프가 실행 중 run.json에 써 두는 validity (예: "VALID")
 
     def agent(self):
         if not self.has_agent:
@@ -72,6 +73,13 @@ class FakeIntegrations(Integrations):
                 raise RuntimeError("boom after save")
             if self.agent_raises:
                 raise RuntimeError("boom")
+            if self.saved_validity is not None:
+                path = os.path.join(settings["runDir"], "run.json")
+                with open(path, encoding="utf-8") as f:
+                    saved = json.load(f)
+                saved.update(validity=self.saved_validity, invalidReason=None)
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(saved, f)
             shots = os.path.join(settings["runDir"], "screenshots")
             for name in ("1.png", "1_overlay.png"):
                 with open(os.path.join(shots, name), "wb") as f:
@@ -249,11 +257,33 @@ def test_create_rejects_invalid_request(make_client, over):
     assert r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"
 
 
-def test_create_accepts_other_start_page(make_client):
+@pytest.mark.parametrize("start", ["/shop/mypage", "/shop/orders", "/shop/support", "/shop/refund"])
+def test_refund_goal_rejects_other_start_page(make_client, start):
+    """refund의 허용 경로는 모두 home에서 시작하므로 다른 화면에서는 실행하지 않는다."""
+    client, _, _ = make_client()
+    r = client.post("/api/runs", json=body(startPath=start))
+    assert r.status_code == 422 and r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"
+
+
+def test_refund_goal_starts_from_home(make_client):
     client, integ, app = make_client()
-    run = run_and_wait(client, app, startPath="/shop/mypage", variant="after")
-    assert run["startPath"] == "/shop/mypage"
-    assert integ.received_settings["startUrl"].endswith(":8002/shop/mypage")
+    run = run_and_wait(client, app, variant="after")   # startPath 생략 → /shop/home
+    assert run["startPath"] == "/shop/home"
+    assert integ.received_settings["startUrl"].endswith(":8002/shop/home")
+    assert all(p[0] == "home" for p in run["referencePathConfig"]["allowedPaths"])
+    run = run_and_wait(client, app, experimentKey="exp_002", startPath="/shop/home/")
+    assert run["startPath"] == "/shop/home"
+
+
+def test_presets_require_start_path_matching_allowed_paths(tmp_path):
+    base = json.load(open(os.path.join(ROOT, "config", "presets.json"), encoding="utf-8"))
+    for broken in ({"startPath": "/shop/mypage"}, {"startPath": None}):
+        data = json.loads(json.dumps(base))
+        data["goals"][0].update(broken)
+        path = tmp_path / "presets.json"
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with pytest.raises(ValueError):
+            Presets(str(path))
 
 
 def test_create_returns_503_when_agent_missing(make_client):
@@ -316,6 +346,41 @@ def test_termination_maps_to_validity(make_client, result, status, validity, inv
     client, _, app = make_client(FakeIntegrations(agent_result=result, issues=[]))
     run = run_and_wait(client, app)
     assert (run["status"], run["validity"], run["invalidReason"]) == (status, validity, invalid)
+
+
+@pytest.mark.parametrize("result,invalid", [
+    ({"status": "ERROR", "terminationReason": "LEAK_CHECK_FAILED"}, "LEAK_CHECK_FAILED"),
+    ({"status": "ERROR", "terminationReason": "MODEL_ERROR", "error": {"code": "MODEL_UNAVAILABLE"}},
+     "INFRASTRUCTURE_FAILURE"),
+    ({"status": "ERROR", "terminationReason": "MODEL_ERROR", "error": {"code": "INVALID_CHOICE"}},
+     "CORRUPTED_RESPONSE"),
+    ({"status": "ERROR", "terminationReason": "BROWSER_ERROR"}, "BROWSER_CRASH"),
+    ({"status": "ERROR", "terminationReason": "STORAGE_FAILED"}, "STORAGE_FAILURE"),
+    ({"status": "SUCCESS", "terminationReason": "LEAK_CHECK_FAILED"}, "LEAK_CHECK_FAILED"),   # status도 사유로 확정
+])
+@pytest.mark.parametrize("where", ["result", "run.json"])
+def test_wrong_valid_from_agent_is_recomputed(make_client, result, invalid, where):
+    """루프가 결과나 run.json에 VALID를 넘겨도 종료 사유·error.code로 다시 정한다."""
+    integ = FakeIntegrations(issues=[])
+    if where == "result":
+        integ.agent_result = {**result, "validity": "VALID", "invalidReason": None}
+    else:
+        integ.agent_result = dict(result)
+        integ.saved_validity = "VALID"
+    client, _, app = make_client(integ)
+    run = run_and_wait(client, app)
+    assert (run["status"], run["validity"], run["invalidReason"]) == ("ERROR", "INVALID", invalid)
+    assert client.post("/api/runs", json=body()).status_code == 201   # 무효라서 다시 실행 가능
+    app.state.runner.wait(5)
+
+
+def test_wrong_invalid_from_agent_is_recomputed(make_client):
+    """정상 종료인데 루프가 INVALID를 넘겨도 VALID다 (결과가 기대와 다를 뿐인 실행은 재실행 금지)."""
+    result = {"status": "MAX_STEPS", "terminationReason": "MAX_STEPS_REACHED",
+              "validity": "INVALID", "invalidReason": "BROWSER_CRASH"}
+    client, _, app = make_client(FakeIntegrations(agent_result=result, issues=[]))
+    run = run_and_wait(client, app)
+    assert (run["status"], run["validity"], run["invalidReason"]) == ("MAX_STEPS", "VALID", None)
 
 
 def test_agent_exception_ends_run_as_error(make_client):

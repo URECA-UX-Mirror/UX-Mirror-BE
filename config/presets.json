@@ -4,6 +4,7 @@
     {
       "goalId": "refund",
       "goal": "최근 구매한 상품의 환불 신청 화면 찾기",
+      "startPath": "/shop/home",
       "verification": {
         "type": "PATH_AND_VISIBLE_TEXT",
         "path": "/shop/refund",

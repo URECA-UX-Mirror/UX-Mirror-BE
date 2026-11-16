@@ -75,12 +75,13 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
         if req.promptVersion is not None and req.promptVersion != PROMPT_VERSION:
             raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
                            f"서버의 promptVersion은 {PROMPT_VERSION}입니다. 다른 버전은 실행할 수 없습니다.")
-        if goal.get("startPath"):   # 시작 화면이 정해진 목표 (예: C3 테스트 전용 목표는 /shop/mypage)
-            if "startPath" not in req.model_fields_set:
-                req.startPath = goal["startPath"]
-            elif req.startPath.rstrip("/") != goal["startPath"]:
-                raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
-                               f"goalId={req.goalId}는 startPath={goal['startPath']}로만 실행할 수 있습니다.")
+        # 목표마다 시작 화면이 정해져 있다 (refund는 /shop/home, C3 테스트 전용 목표는 /shop/mypage).
+        # 허용 경로가 시작 화면 기준이므로 다른 화면에서는 실행하지 않는다.
+        if "startPath" not in req.model_fields_set:
+            req.startPath = goal["startPath"]
+        elif req.startPath.rstrip("/") != goal["startPath"]:
+            raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
+                           f"goalId={req.goalId}는 startPath={goal['startPath']}로만 실행할 수 있습니다.")
         page = req.startPath.rstrip("/").removeprefix("/shop/")
         if not req.startPath.startswith("/shop/") or page not in SHOP_PAGES:
             raise ApiError(422, "CONTRACT_VALIDATION_ERROR",

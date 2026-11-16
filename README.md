@@ -68,7 +68,8 @@ copy .env.example .env
 - 에이전트 루프(`uxm/agent.py`)나 브라우저(`uxm/browser.py`)가 없으면 `POST /api/runs`는 `503`.
 - Issue 분석(`detect_issues(run, steps, events)`)은 Run이 끝날 때 한 번만 돌고 `issues.json`을 쓴다. 조회 API는 파일을 쓰지 않는다. 분석 모듈이 없을 때 끝난 Run은 `PENDING`으로 남고, 비교는 `409 COMPARISON_NOT_READY`(분석 `FAILED`면 `500 ANALYSIS_ERROR`).
 - 나중에 분석하려면 `python scripts/analyze_runs.py --all` (`issues.json`만 쓰고 `run.json`은 건드리지 않음). 이렇게 분석한 Run은 저장된 `summary.detectedIssueTypes`가 비어 있을 수 있지만, `GET /api/runs/{runId}`와 비교 API는 완료된 `issues.json`에서 다시 계산한 값을 쓴다.
-- `startPath`가 정해진 목표(C3용 `refund-from-mypage-test` = `/shop/mypage`)는 그 화면에서만 시작한다. 생략하면 그 값을 쓰고 다르면 `422`.
+- 목표마다 시작 화면이 정해져 있다 (`refund` = `/shop/home`, C3용 `refund-from-mypage-test` = `/shop/mypage`). 허용 경로가 시작 화면 기준이라 다른 화면에서는 실행하지 않는다. 생략하면 그 값을 쓰고 다르면 `422`.
+- `validity`·`invalidReason`은 루프가 넘긴 값을 쓰지 않고, 종료 시 `terminationReason`·`error.code`로 항상 다시 정한다 (계약 6.1 유효성 표).
 - `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
 
 ## 백엔드 선택 (.env)

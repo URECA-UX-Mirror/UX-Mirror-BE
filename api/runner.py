@@ -22,8 +22,8 @@ SHOP_URLS = {
 }
 
 # run_agent 결과에서 Run에 반영하는 필드. 나머지(설정·버전 값)는 생성 때 값을 그대로 둔다.
-AGENT_RESULT_FIELDS = ("status", "terminationReason", "progress", "summary", "error",
-                       "validity", "invalidReason", "finishedAt")
+# validity·invalidReason은 받지 않는다. 종료 시 finalize()가 terminationReason·error.code로 정한다.
+AGENT_RESULT_FIELDS = ("status", "terminationReason", "progress", "summary", "error", "finishedAt")
 
 ISSUE_ORDER = ["GOAL_NOT_REACHED", "REFERENCE_PATH_DEVIATION", "REPEATED_VISIT", "EXTRA_STEPS", "CHOICE_AMBIGUITY"]
 
@@ -130,9 +130,6 @@ class Runner:
         run["status"] = "ERROR"
         run["terminationReason"] = reason
         run["error"] = error_detail(code, message)
-        # 루프가 실패 전에 VALID를 저장했어도 실패 사유로 다시 정한다 (finalize가 재계산)
-        run["validity"] = None
-        run["invalidReason"] = None
 
     def _run_agent(self, run: dict, goal: dict) -> dict:
         run_agent = self.integrations.agent()

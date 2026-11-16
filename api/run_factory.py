@@ -154,13 +154,14 @@ def decide_validity(status: str, reason: str | None, error: dict | None) -> tupl
 
 
 def finalize(run: dict) -> dict:
-    """종료 사유에 맞춰 status·validity를 확정한다. 이미 확정된 유효성은 덮어쓰지 않는다."""
+    """종료 사유에 맞춰 status·validity·invalidReason을 확정한다.
+
+    루프가 돌려주거나 run.json에 써 둔 validity는 믿지 않고 항상 terminationReason·error.code로 다시 정한다.
+    (예: LEAK_CHECK_FAILED인데 VALID가 넘어와도 INVALID가 된다)
+    """
     reason = run.get("terminationReason")
     if reason in STATUS_BY_REASON:
         run["status"] = STATUS_BY_REASON[reason]
-    if run.get("validity") is None:
-        run["validity"], run["invalidReason"] = decide_validity(run["status"], reason, run.get("error"))
-    if run["validity"] == "VALID":
-        run["invalidReason"] = None
+    run["validity"], run["invalidReason"] = decide_validity(run["status"], reason, run.get("error"))
     run["finishedAt"] = run.get("finishedAt") or now_iso()
     return run
