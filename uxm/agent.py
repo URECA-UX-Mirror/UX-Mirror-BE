@@ -97,11 +97,10 @@ def agent_settings(run: dict, goal: dict, run_dir: str, start_url: str, shop_bas
     run: READY Run(run.json), goal: config/presets.json의 목표 preset.
     성공 조건·허용 경로는 채점용이라 모델 요청에 넣지 않는다 (계약 9.3).
     """
-    v = goal["verification"]
     return {
         "run": run, "runId": run["runId"], "runDir": run_dir, "shopBaseUrl": shop_base_url,
         "startUrl": start_url, "startPath": run["startPath"], "goalId": run["goalId"], "goal": run["goal"],
-        "persona": run["persona"], "successCondition": {"path": v["path"], "text": v["text"]},
+        "persona": run["persona"], "successCondition": goal_mod.success_condition(goal),
         "referencePathConfig": run["referencePathConfig"], "limits": run["limits"], "viewport": run["viewport"],
         "goalJudgmentMode": run["goalJudgmentMode"], "temperature": run["temperature"],
         "promptVersion": run["promptVersion"], "resultOrigin": run["resultOrigin"],
