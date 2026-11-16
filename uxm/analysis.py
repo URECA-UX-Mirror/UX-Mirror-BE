@@ -33,11 +33,13 @@ def _issue_key(run_id: str, issue_type: str, page_signature: str | None, evidenc
 
 
 def create_issue(run: dict, issue_type: str, evidence: dict, created_at: str, *,
-                 step: dict | None = None) -> dict | None:
+                 step: dict | None = None, destination_page: dict | None = None) -> dict | None:
     """이미 관찰된 근거를 계약 Issue로 변환한다. 입력 데이터는 변경하지 않는다.
 
     created_at은 관찰 시각(또는 Run 종료 시각)이다. 동일 입력에 동일 ID를
     만들며, 여러 관찰은 merge_issues에 발생 순서대로 전달한다.
+    REPEATED_VISIT의 화면은 도착 화면이다. step은 재방문을 만든 원본 Step이고,
+    destination_page는 PathVisit 등의 pageKey/pageSignature/path를 받는다.
     """
     if run.get("validity") == "INVALID":
         return None
@@ -46,17 +48,21 @@ def create_issue(run: dict, issue_type: str, evidence: dict, created_at: str, *,
     if not created_at:
         raise ValueError("Issue 관찰 시각이 필요합니다.")
     if issue_type in RUN_ISSUES:
-        if step is not None:
+        if step is not None or destination_page is not None:
             raise ValueError("Run 전체 Issue에는 Step을 지정하지 않습니다.")
         step_id = page_path = page_key = page_signature = None
     else:
         if step is None:
             raise ValueError("화면 Issue에는 관련 Step이 필요합니다.")
-        page = step["page"]
+        if destination_page is not None and issue_type != "REPEATED_VISIT":
+            raise ValueError("도착 화면은 반복 방문 Issue에만 지정합니다.")
+        page = destination_page if destination_page is not None else step["page"]
         step_id, page_path = step["stepId"], page["path"]
         page_key, page_signature = page["pageKey"], page["pageSignature"]
         if step["runId"] != run["runId"]:
             raise ValueError("Step과 Run의 runId가 다릅니다.")
+        if issue_type == "REPEATED_VISIT" and evidence.get("pageSignature") != page_signature:
+            raise ValueError("반복 방문 근거와 도착 화면의 pageSignature가 일치해야 합니다.")
     key = _issue_key(run["runId"], issue_type, page_signature, evidence)
     digest = hashlib.sha256(json.dumps(key, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()[:24]
     title, description, priority = ISSUE_METADATA[issue_type]
@@ -116,14 +122,9 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
 
     found = []
     threshold = run["thresholdConfig"]
-    # 화면 상태별 최초 전체 후보 집합만 판정한다. 실패 후보를 뺀 재판단은 제외한다.
-    evaluated = set()
+    # 계약 14.2는 재방문과 재판단을 포함한 각 Step을 독립적으로 판정한다.
     for step in steps:
-        signature = step["page"]["pageSignature"]
         candidate_set, decision = step["candidateSet"], step["decision"]
-        if candidate_set["candidateSetChanged"] or signature in evaluated:
-            continue
-        evaluated.add(signature)
         entropy = decision["clickOnlyNormalizedEntropy"]
         candidates = candidate_set["candidates"]
         warnings = decision["metricWarnings"]
@@ -160,13 +161,10 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
         if step is None:
             raise ValueError("모델 방문에 연결된 Step이 없습니다.")
         if visits[signature] > 1:
-            # 재방문 Issue의 위치는 행동 전 화면이 아니라 다시 들어간 화면이다.
-            destination_step = {**step, "page": {**step["page"], "pageKey": key,
-                                                   "pageSignature": signature, "path": visit["path"]}}
             found.append(create_issue(run, "REPEATED_VISIT", {
                 "pageSignature": signature, "visitCount": visits[signature],
                 "visitCauses": list(causes[signature]),
-            }, step["timestamp"], step=destination_step))
+            }, step["timestamp"], step=step, destination_page=visit))
         action = step["action"]
         if (cause == "MODEL_NAVIGATION" and action["actionType"] == "CLICK"
                 and action["result"] == "NAVIGATED"

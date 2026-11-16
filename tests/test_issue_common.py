@@ -76,18 +76,36 @@ def test_deviations_distinguish_destination_branches(run_and_step):
 
 def test_repeated_visit_merge_keeps_visit_count_and_causes(run_and_step):
     run, step = run_and_step
-    first = issue(run, step, "REPEATED_VISIT", {"visitCount": 2, "visitCauses": ["MODEL_BACK"]})
-    second = issue(run, step, "REPEATED_VISIT", {"visitCount": 3, "visitCauses": ["MODEL_NAVIGATION"]})
+    destination = {"pageKey": "home", "pageSignature": "home_default", "path": "/shop/home"}
+    first_step = copy.deepcopy(step)
+    first_step["stepId"] = 2
+    first_step["page"].update(pageKey="orders", pageSignature="orders_default", path="/shop/orders")
+    second_step = copy.deepcopy(first_step)
+    second_step["stepId"] = 4
+    second_step["page"].update(pageKey="mypage", pageSignature="mypage_default", path="/shop/mypage")
+    first_evidence = {"pageSignature": "home_default", "visitCount": 2, "visitCauses": ["MODEL_BACK"]}
+    second_evidence = {"pageSignature": "home_default", "visitCount": 3, "visitCauses": ["MODEL_NAVIGATION"]}
+    original = copy.deepcopy((first_step, second_step, destination, first_evidence, second_evidence))
+    first = create_issue(run, "REPEATED_VISIT", first_evidence, step["timestamp"],
+                         step=first_step, destination_page=destination)
+    second = create_issue(run, "REPEATED_VISIT", second_evidence, step["timestamp"],
+                          step=second_step, destination_page=destination)
     result = merge_issues([first, second])[0]
-    assert result["evidence"] == {"visitCount": 3, "visitCauses": ["MODEL_BACK", "MODEL_NAVIGATION"]}
-    assert first["evidence"] == {"visitCount": 2, "visitCauses": ["MODEL_BACK"]}
+    assert result["pageKey"] == "home" and result["pagePath"] == "/shop/home"
+    assert result["pageSignature"] == "home_default" and result["stepId"] == 2
+    assert result["relatedStepIds"] == [2, 4] and result["occurrenceCount"] == 2
+    assert result["evidence"] == {"pageSignature": "home_default", "visitCount": 3,
+                                  "visitCauses": ["MODEL_BACK", "MODEL_NAVIGATION"]}
+    assert (first_step, second_step, destination, first_evidence, second_evidence) == original
+    with pytest.raises(ValueError):
+        create_issue(run, "REPEATED_VISIT", first_evidence, step["timestamp"], step=first_step)
 
 
 def test_sort_priority_and_goal_not_reached_deduplication(run_and_step):
     run, step = run_and_step
     goal = create_issue(run, "GOAL_NOT_REACHED", {"status": "BLOCKED"}, run["finishedAt"])
     extra = create_issue(run, "EXTRA_STEPS", {"extraSteps": 1}, run["finishedAt"])
-    repeated = issue(run, step, "REPEATED_VISIT", {"visitCount": 2})
+    repeated = issue(run, step, "REPEATED_VISIT", {"pageSignature": step["page"]["pageSignature"], "visitCount": 2})
     choice = issue(run, step)
     merged = merge_issues([choice, extra, goal, repeated, goal])
     assert [i["issueType"] for i in merged] == ["GOAL_NOT_REACHED", "REPEATED_VISIT", "EXTRA_STEPS", "CHOICE_AMBIGUITY"]
