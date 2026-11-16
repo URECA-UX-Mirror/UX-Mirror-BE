@@ -205,10 +205,12 @@ class Runner:
             self.store.save_issues(run_id, _issues_doc(run_id, "FAILED", []))
             return
         items.sort(key=lambda i: ISSUE_ORDER.index(i["issueType"]) if i.get("issueType") in ISSUE_ORDER else 99)
-        self.store.save_issues(run_id, _issues_doc(run_id, "COMPLETED", items))
+        # run.json 요약을 먼저 저장하고 issues.json(COMPLETED)을 나중에 쓴다.
+        # 비교는 COMPLETED를 본 뒤에만 하므로 그 사이에 비교 요청이 와도 요약이 어긋나지 않는다.
         if update_run and run.get("summary") is not None:
-            run["summary"]["detectedIssueTypes"] = [t for t in ISSUE_ORDER if any(i.get("issueType") == t for i in items)]
+            run["summary"]["detectedIssueTypes"] = issue_types(items)
             self.store.save_run(run)
+        self.store.save_issues(run_id, _issues_doc(run_id, "COMPLETED", items))
 
     # ---- 서버 시작 시 정리
     def recover_interrupted(self) -> list[str]:
@@ -228,6 +230,24 @@ class _RunFailure(Exception):
     def __init__(self, reason: str, code: str, message: str):
         super().__init__(message)
         self.reason, self.code, self.message = reason, code, message
+
+
+def issue_types(items: list) -> list[str]:
+    """Issue 목록 → summary.detectedIssueTypes (14.4 정렬 순서)."""
+    return [t for t in ISSUE_ORDER if any(i.get("issueType") == t for i in items)]
+
+
+def with_detected_types(run: dict, issues_doc: dict | None) -> dict:
+    """응답·비교용 Run. 분석이 COMPLETED면 detectedIssueTypes를 issues.json에서 다시 계산한 값으로 쓴다.
+
+    scripts/analyze_runs.py로 나중에 분석한 Run은 run.json을 고치지 않으므로, 저장된 요약 대신
+    완료된 Issue 목록을 기준으로 맞춘다. 파일은 바꾸지 않는다.
+    """
+    if not issues_doc or issues_doc.get("analysisStatus") != "COMPLETED" or run.get("summary") is None:
+        return run
+    out = dict(run)
+    out["summary"] = dict(run["summary"], detectedIssueTypes=issue_types(issues_doc.get("items", [])))
+    return out
 
 
 def _issues_doc(run_id: str, status: str, items: list) -> dict:

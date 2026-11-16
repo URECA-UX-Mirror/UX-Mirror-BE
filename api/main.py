@@ -22,7 +22,7 @@ from api.errors import (AnalysisError, ApiError, analysis_error_handler, api_err
                         http_error_handler, unexpected_error_handler, validation_error_handler)
 from api.integrations import Integrations
 from api.presets import Presets
-from api.runner import Runner
+from api.runner import Runner, with_detected_types
 from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateRunRequest
 from api.store import DEFAULT_RESULTS_DIR, RunStore, is_safe_id
 from api.timeutil import now_iso
@@ -75,6 +75,12 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
         if req.promptVersion is not None and req.promptVersion != PROMPT_VERSION:
             raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
                            f"서버의 promptVersion은 {PROMPT_VERSION}입니다. 다른 버전은 실행할 수 없습니다.")
+        if goal.get("startPath"):   # 시작 화면이 정해진 목표 (예: C3 테스트 전용 목표는 /shop/mypage)
+            if "startPath" not in req.model_fields_set:
+                req.startPath = goal["startPath"]
+            elif req.startPath.rstrip("/") != goal["startPath"]:
+                raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
+                               f"goalId={req.goalId}는 startPath={goal['startPath']}로만 실행할 수 있습니다.")
         page = req.startPath.rstrip("/").removeprefix("/shop/")
         if not req.startPath.startswith("/shop/") or page not in SHOP_PAGES:
             raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
@@ -107,7 +113,7 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
     # ---- 17.3
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str):
-        return load_run_or_404(run_id)
+        return with_detected_types(load_run_or_404(run_id), store.load_issues(run_id))
 
     # ---- 17.4
     @app.get("/api/runs/{run_id}/steps")

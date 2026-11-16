@@ -182,6 +182,15 @@ def test_c3_test_preset_runs_from_mypage(make_client):
     assert integ.received_settings["successCondition"] == GOALS["refund"]
 
 
+def test_c3_test_preset_fixes_start_path(make_client):
+    client, integ, app = make_client()
+    r = client.post("/api/runs", json=body(goalId="refund-from-mypage-test", startPath="/shop/home"))
+    assert r.status_code == 422 and r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"
+    run = run_and_wait(client, app, goalId="refund-from-mypage-test")   # startPath 생략 → preset 값
+    assert run["startPath"] == "/shop/mypage"
+    assert integ.received_settings["startUrl"].endswith(":8001/shop/mypage")
+
+
 # ---- 생성·실행
 
 def test_create_returns_ready_and_runs_to_success(make_client):
@@ -348,6 +357,51 @@ def test_get_issues_never_writes_files(make_client, tmp_path):
         "runId": run["runId"], "analysisStatus": "PENDING", "items": []}
     after = {p.name: p.stat().st_mtime_ns for p in run_dir.iterdir() if p.is_file()}
     assert before == after and "issues.json" not in after
+
+
+def test_run_summary_saved_before_issues_completed(make_client, tmp_path):
+    integ = FakeIntegrations(issues=[{"issueType": "EXTRA_STEPS"}])
+    client, _, app = make_client(integ)
+    store = app.state.store
+    original = store.save_issues
+    seen = {}
+
+    def save_issues(run_id, doc):   # COMPLETED를 쓰는 순간 run.json 요약이 이미 맞아야 한다
+        if doc["analysisStatus"] == "COMPLETED":
+            seen["types"] = store.load_run(run_id)["summary"]["detectedIssueTypes"]
+        original(run_id, doc)
+    store.save_issues = save_issues
+    run_and_wait(client, app)
+    assert seen["types"] == ["EXTRA_STEPS"]
+
+
+def test_post_hoc_analysis_keeps_summary_consistent(make_client, tmp_path, monkeypatch):
+    integ = FakeIntegrations()   # 실행할 때는 분석 모듈 없음
+    client, _, app = make_client(integ)
+    before = run_and_wait(client, app)
+    run_and_wait(client, app, variant="after")
+
+    import scripts.analyze_runs as analyze_runs
+    monkeypatch.setattr(analyze_runs, "Integrations",
+                        lambda: FakeIntegrations(issues=[{"issueType": "CHOICE_AMBIGUITY"}, {"issueType": "EXTRA_STEPS"}]))
+    assert analyze_runs.main(["--all", "--results-dir", str(tmp_path)]) == 0
+
+    stored = json.loads((tmp_path / "runs" / before["runId"] / "run.json").read_text(encoding="utf-8"))
+    assert stored["summary"]["detectedIssueTypes"] == []   # 원본 run.json은 그대로
+    shown = client.get(f"/api/runs/{before['runId']}").json()
+    assert shown["summary"]["detectedIssueTypes"] == ["EXTRA_STEPS", "CHOICE_AMBIGUITY"]
+
+    captured = {}
+
+    def compare_spy():
+        def compare(b, a):
+            captured["before"] = b["run"]["summary"]["detectedIssueTypes"]
+            captured["after"] = a["run"]["summary"]["detectedIssueTypes"]
+            return {"experimentKey": "exp_001"}
+        return compare
+    integ.compare = compare_spy
+    assert client.get("/api/comparisons/exp_001").status_code == 200
+    assert captured == {"before": ["EXTRA_STEPS", "CHOICE_AMBIGUITY"], "after": ["EXTRA_STEPS", "CHOICE_AMBIGUITY"]}
 
 
 def test_analyze_script_writes_only_issues(make_client, tmp_path, monkeypatch):

@@ -25,6 +25,7 @@
       "goalId": "refund-from-mypage-test",
       "goal": "최근 구매한 상품의 환불 신청 화면 찾기",
       "testOnly": true,
+      "startPath": "/shop/mypage",
       "verification": {
         "type": "PATH_AND_VISIBLE_TEXT",
         "path": "/shop/refund",

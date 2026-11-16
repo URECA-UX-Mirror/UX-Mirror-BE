@@ -3,6 +3,8 @@
 `config/presets.json`이 원본이다. `verification`과 `referencePathConfig`는 Backend 전용이라
 `public_view()`에서 빼고 내보낸다. 모델 요청에도 넣지 않는다.
 
+`startPath`가 있는 목표는 그 화면에서만 시작한다 (생략하면 그 값을 쓰고, 다르면 422).
+
 `testOnly: true` 목표(예: C3용 `refund-from-mypage-test`)는 개발 테스트 전용이다.
 `POST /api/runs`로는 실행할 수 있지만 `GET /api/presets` 기본 응답에서는 뺀다 (E 실행·시연에서 고르지 않게).
 """

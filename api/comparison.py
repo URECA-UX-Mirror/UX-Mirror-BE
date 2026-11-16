@@ -5,6 +5,7 @@
 """
 from api.errors import AnalysisError, ApiError
 from api.integrations import Integrations
+from api.runner import with_detected_types
 from api.store import RunStore
 
 
@@ -56,7 +57,8 @@ def require_analyzed(store: RunStore, before: dict, after: dict) -> None:
 
 def _bundle(store: RunStore, run: dict) -> dict:
     issues = store.load_issues(run["runId"]) or {}
-    return {"run": run, "steps": store.load_steps(run["runId"]), "issues": issues.get("items", [])}
+    return {"run": with_detected_types(run, issues), "steps": store.load_steps(run["runId"]),
+            "issues": issues.get("items", [])}
 
 
 def build_comparison(store: RunStore, integrations: Integrations, experiment_key: str) -> dict:
