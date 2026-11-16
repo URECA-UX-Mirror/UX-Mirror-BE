@@ -149,10 +149,13 @@ def start_run(tmp_path, goal_id="refund", **limits):
 def test_importing_loop_does_not_load_playwright():
     """루프를 불러오기만 해서는 playwright를 불러오지 않는다 (playwright 없는 PC에서 실행 API가 떠야 함, #12·#14).
 
+    실제로 루프를 불러오는 실행 API(`api.main` → `api.runner`)까지 확인한다 (#17 리뷰).
+    `api.main`은 fastapi가 필요하므로 fastapi가 있을 때만 포함한다.
     이 테스트 프로세스에는 이미 playwright가 올라와 있을 수 있어서 새 파이썬으로 확인한다.
     """
     import subprocess
-    code = ("import sys; import uxm.agent, api.run_factory; "
+    code = ("import sys, importlib.util; import uxm.agent, api.run_factory\n"
+            "if importlib.util.find_spec('fastapi'): import api.main, api.runner\n"
             "print(any(m == 'playwright' or m.startswith('playwright.') for m in sys.modules))")
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "False", out.stderr

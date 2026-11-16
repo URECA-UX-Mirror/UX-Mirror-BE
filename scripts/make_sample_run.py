@@ -75,7 +75,8 @@ def probs_by_key(cands: list[dict], weights: dict, back: bool) -> dict:
     missing = [k for k in weights if k not in ids]
     assert not missing, f"샘플 화면에 없는 후보: {missing}"
     rest = [k for k in ids if k not in weights]
-    share = (1.0 - sum(weights.values())) / len(rest)
+    # 다른 값처럼 소수 4자리로 (파이썬 3.12부터 sum()의 보정 합산 때문에 버전마다 끝자리가 달라져 의미 없는 diff가 생김, #17 리뷰)
+    share = round((1.0 - sum(weights.values())) / len(rest), 4)
     return {ids[k]: weights.get(k, share) for k in ids}
 
 
@@ -153,6 +154,16 @@ def build_steps():
 # ---------------------------------------------------------------- 생성
 
 def main():
+    # 입력(사진·후보)을 먼저 다 읽고 확인한 뒤에 기존 샘플을 지운다.
+    # 순서가 반대면 capture를 안 했을 때 커밋된 샘플만 지워지고 오류가 난다 (#17 리뷰).
+    needed = [os.path.join(SHOTS, f"before_{n}.{ext}") for n in ("home", "mypage", "orders") for ext in ("png", "json")]
+    needed.append(os.path.join(SHOTS, "before_refund.png"))
+    missing = [p for p in needed if not os.path.isfile(p)]
+    if missing:
+        raise SystemExit("샘플 입력이 없어요. 먼저 scripts/capture_sample_screens.py를 실행하세요:\n  "
+                         + "\n  ".join(missing))
+    steps = build_steps()
+
     target = os.path.join(RUNS_DIR, RUN_ID)
     if os.path.isdir(target):
         shutil.rmtree(target)
@@ -203,7 +214,7 @@ def main():
     history, step_count, counters = [], 0, dict(model_calls=0, clicks=0, nav_clicks=0, model_back=0)
     metric_rows = []
 
-    for step_id, s in enumerate(build_steps(), 1):
+    for step_id, s in enumerate(steps, 1):
         cands = s["page"]["candidates"]
         req, meta = build_screen_request(s["page"], history=history,
                                          failed=[{"steps": [f]} for f in s.get("failed", [])], go_back=s["back"])

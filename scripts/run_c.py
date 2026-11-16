@@ -136,7 +136,10 @@ def main(argv=None) -> int:
     try:
         result = run_agent(settings, backend, session["page"], env)
         if a.watch:
-            input("끝났어요. 브라우저를 닫으려면 Enter를 누르세요...")
+            try:   # 창을 닫으려고 Ctrl+C를 눌러도 아래 결과 반영(finalize)은 하도록 (#17 리뷰)
+                input("끝났어요. 브라우저를 닫으려면 Enter를 누르세요...")
+            except (EOFError, KeyboardInterrupt):
+                pass
     finally:
         close_browser(session)
 
