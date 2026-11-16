@@ -19,10 +19,11 @@ START_PATH = "/shop/home"          # 상단 공통 메뉴를 후보로 넣는 �
 GLOBAL_NAV_REGION = "상단 메뉴"
 
 DANGEROUS_WORDS = ("회원 탈퇴", "회원탈퇴", "로그아웃", "접수하기", "결제하기", "삭제", "탈퇴")
+CLICKABLE_SELECTOR = "a, button, [role=button], input[type=submit]"   # domIndex 기준. browser.py와 공유
 
 _JS = r"""
 (args) => {
-  const [vw, vh, dangerous] = args;
+  const [vw, vh, dangerous, selector] = args;
   const isIcon = (n) => n && n.closest && n.closest('.material-symbols-outlined');
   const isBreadcrumb = (el) => {
     if (el.closest('nav[aria-label="Breadcrumb" i], [aria-label="breadcrumb" i]')) return true;
@@ -74,7 +75,7 @@ _JS = r"""
   };
   const here = location.pathname.replace(/\/$/, '');
   const out = [];
-  document.querySelectorAll('a, button, [role=button], input[type=submit]').forEach((el, domIndex) => {
+  document.querySelectorAll(selector).forEach((el, domIndex) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     const label = labelOf(el);
@@ -96,10 +97,14 @@ _JS = r"""
 """
 
 
-def extract(page) -> dict:
-    """현재 페이지에서 후보와 제외 목록을 뽑는다. 페이지는 수정하지 않는다."""
+def extract(page, keep_dom_index: bool = False) -> dict:
+    """현재 페이지에서 후보와 제외 목록을 뽑는다. 페이지는 수정하지 않는다.
+
+    keep_dom_index=True는 browser.click 전용: 클릭 직전 다시 뽑은 후보에 요소 순번(domIndex)을 붙인다.
+    domIndex는 브라우저 런타임 전용이라 기본 출력(Step·후보 JSON·API·모델)에는 넣지 않는다 (계약 8.1).
+    """
     vp = page.viewport_size
-    raw = page.evaluate(_JS, [vp["width"], vp["height"], list(DANGEROUS_WORDS)])
+    raw = page.evaluate(_JS, [vp["width"], vp["height"], list(DANGEROUS_WORDS), CLICKABLE_SELECTOR])
     path = urlsplit(page.url).path.rstrip("/")
     candidates, excluded, seen = [], [], {}
     for el in raw:
@@ -120,6 +125,8 @@ def extract(page) -> dict:
             "bbox": el["bbox"],
             "semanticKey": f"{base}#{seen[base]}",   # 백엔드 전용
         })
+        if keep_dom_index:
+            candidates[-1]["domIndex"] = el["domIndex"]
     return {"url": page.url, "title": page.title(), "candidates": candidates, "excluded": excluded}
 
 
