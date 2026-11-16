@@ -1,52 +1,16 @@
 """browser.py 테스트. 모델 없이 쇼핑몰 서버만 띄워서 돈다.
 
-테스트가 Before/After 쇼핑몰을 직접 띄우고 끈다 (개발용 8001/8002와 겹치지 않게 18001/18002).
+쇼핑몰 서버는 tests/conftest.py의 shops fixture가 띄우고 끈다 (18001/18002).
 Playwright가 없으면 건너뛴다.
 
     .venv/bin/python -m pytest -q tests/test_browser.py
 """
-import os
-import socket
-import subprocess
-import sys
-import time
-
 import pytest
 
 pytest.importorskip("playwright")
 
 from uxm import browser  # noqa: E402
 from uxm.candidates import extract  # noqa: E402
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PORTS = {"before": 18001, "after": 18002}
-
-
-def _wait_port(port, timeout=10):
-    end = time.time() + timeout
-    while time.time() < end:
-        with socket.socket() as s:
-            if s.connect_ex(("127.0.0.1", port)) == 0:
-                return
-        time.sleep(0.1)
-    raise RuntimeError(f"shop server on {port} did not start")
-
-
-@pytest.fixture(scope="module")
-def shops():
-    procs = []
-    for variant, port in PORTS.items():
-        cwd = os.path.join(ROOT, "shop", f"moro-{variant}")
-        procs.append(subprocess.Popen([sys.executable, "server.py", "--port", str(port)], cwd=cwd,
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    try:
-        for port in PORTS.values():
-            _wait_port(port)
-        yield {v: f"http://127.0.0.1:{p}" for v, p in PORTS.items()}
-    finally:
-        for p in procs:
-            p.terminate()
-            p.wait(timeout=5)
 
 
 @pytest.fixture
