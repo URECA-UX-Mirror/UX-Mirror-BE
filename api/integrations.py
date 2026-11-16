@@ -19,7 +19,7 @@ def _load(module: str, *names: str):
         mod = importlib.import_module(module)
     except ImportError:
         return None
-    if not all(hasattr(mod, n) for n in names):
+    if not all(hasattr(mod, n) and not getattr(getattr(mod, n), "__uxm_pending__", False) for n in names):
         return None
     return tuple(getattr(mod, n) for n in names)
 
