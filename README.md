@@ -11,6 +11,8 @@ uxm/
   scenarios.py   # A1~A10 정의. semanticKey는 백엔드 전용
   backends.py    # http(/v1/decide 서버) | local(transformers로 같은 헤드 직접 실행)
   metrics.py     # 정규화 엔트로피, Top-2, GO_BACK 조건부 재정규화 (기획안 8.2)
+  candidates.py  # 화면에서 클릭 후보 추출(semanticKey·bbox), 확률 배지 그리기
+  browser.py     # 브라우저 조작: open/close, click, go_back, reload, capture, page_key, page_signature (예외 대신 ActionResult)
   leak.py        # T-LEAK: 모델 입력에 variant/testMode/정답 마커 차단
   config.py      # .env 로딩
 scripts/run_a.py # A 실행기 → results/json/a/, results/run_log.md
@@ -22,6 +24,7 @@ shop/
   server.py              # 쇼핑몰 서버 원본 (build_shop.py가 두 쇼핑몰에 복사)
   stitch_moro_market/    # Stitch 시안 원본 (쇼핑몰 수정은 여기 또는 build_shop.py에서)
   moro-before/, moro-after/  # 생성 결과 (직접 수정 금지). 서버: cd shop\moro-before 후 py -3.11 server.py
+                             # 테스트 모드: 첫 주소에 ?testMode=nochange(마이페이지 쿠폰함 눌러도 안 바뀜) | deadend(고객센터 배송 현황 확인 숨김)
 api/             # 실행 API (FastAPI). 다른 모듈과의 연결은 api/integrations.py 한 곳
 config/presets.json  # 목표·페르소나 preset (성공 조건·허용 경로는 Backend 전용)
 tests/           # 모델 없이 도는 테스트

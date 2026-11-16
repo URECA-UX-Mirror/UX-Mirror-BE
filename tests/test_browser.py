@@ -147,15 +147,45 @@ def test_click_go_back_candidate_without_bbox_is_not_clicked(session):
     assert (r["result"], r["executed"]) == ("CLICK_FAILED", False)
 
 
-def test_click_no_change(session):
-    """눌러도 주소가 안 바뀌는 링크 (testMode=nochange 쿠폰함이 생기기 전 임시 재현)."""
-    page = session["page"]
-    page.evaluate("""() => { const a = document.createElement('a'); a.href = '/shop/coupons'; a.textContent = '쿠폰함';
-        Object.assign(a.style, {position: 'fixed', left: '20px', top: '300px', zIndex: 99999, background: '#fff'});
-        a.addEventListener('click', e => e.preventDefault()); document.querySelector('main').append(a); }""")
-    r = browser.click(page, _candidate(page, "쿠폰함"), timeout_ms=1000)
-    assert (r["result"], r["reason"], r["executed"]) == ("NO_CHANGE", None, True)
-    assert r["toPath"] == "/shop/home"
+def _by_key(page, key):
+    return next((c for c in extract(page)["candidates"] if c["semanticKey"] == key), None)
+
+
+@pytest.mark.parametrize("variant", ["before", "after"])
+def test_test_mode_nochange_coupon_kept_across_navigation(shops, variant):
+    """C6: 홈에서 켠 testMode가 내부 이동 뒤 마이페이지에서도 유지되고, 쿠폰함은 눌러도 안 바뀐다."""
+    s = browser.open_browser(shops[variant] + "/shop/home?testMode=nochange")
+    try:
+        page = s["page"]
+        assert browser.click(page, _by_key(page, "상단 메뉴>/shop/mypage#1"))["result"] == "NAVIGATED"
+        assert browser.page_signature(page) == "mypage_nochange"
+        coupon = _by_key(page, "사이드 메뉴>/shop/coupons#1")
+        assert coupon and coupon["label"].startswith("쿠폰함")
+        r = browser.click(page, coupon, timeout_ms=1000)
+        assert (r["result"], r["reason"], r["executed"], r["toPath"]) == ("NO_CHANGE", None, True, "/shop/mypage")
+    finally:
+        browser.close_browser(s)
+
+
+def test_test_mode_deadend_hides_delivery_status(shops):
+    s = browser.open_browser(shops["before"] + "/shop/support?testMode=deadend")
+    try:
+        page = s["page"]
+        assert browser.page_signature(page) == "support_deadend"
+        assert _by_key(page, "본문>/shop/orders#1") is None
+    finally:
+        browser.close_browser(s)
+
+
+def test_without_test_mode_pages_unchanged(shops):
+    s = browser.open_browser(shops["before"] + "/shop/mypage")
+    try:
+        page = s["page"]
+        assert _by_key(page, "사이드 메뉴>/shop/coupons#1") is None
+        page.goto(shops["before"] + "/shop/support")
+        assert _by_key(page, "본문>/shop/orders#1")["label"] == "배송 현황 확인"
+    finally:
+        browser.close_browser(s)
 
 
 # ---------------------------------------------------------------- 뒤로 가기 (완료 기준 3)

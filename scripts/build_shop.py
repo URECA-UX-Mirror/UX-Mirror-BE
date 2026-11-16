@@ -12,6 +12,10 @@
   3. (삭제) data-test-goal 마커는 넣지 않는다. 도착 판정은 주소 + 보이는 글자 (uxm/goal.py)
   4. mypage 로그아웃 옆에 '회원 탈퇴' 버튼 (B4 위험 버튼 제외 확인용)
   5. 상단 메뉴 칸 폭 고정 (B2 bbox 동일, 기획안 '메뉴 박스 폭 동일')
+  6. testMode 스크립트 (계약 v1.3.5). 첫 URL의 ?testMode=를 sessionStorage에 두고 내부 이동 동안 유지.
+     내부 링크는 바꾸지 않고, 모드가 없으면 화면을 건드리지 않는다.
+       nochange: mypage 사이드 메뉴 '쿠폰함' → href=/shop/coupons, 눌러도 이동 안 함 (C6, NO_CHANGE)
+       deadend:  support '배송 현황 확인' 숨김 (막다른 화면)
 """
 import difflib
 import os
@@ -93,6 +97,31 @@ def fix_nav_width(html: str) -> str:
     return html.replace("</head>", NAV_FIXED_WIDTH_CSS + "</head>", 1)
 
 
+TEST_MODE_JS = r"""<script id="uxm-test-mode">
+(() => {
+  const q = new URLSearchParams(location.search).get('testMode');
+  if (q) sessionStorage.setItem('testMode', q);
+  const mode = sessionStorage.getItem('testMode');
+  const path = location.pathname.replace(/\/$/, '');
+  const find = (sel, text) => [...document.querySelectorAll(sel)].find(a => a.textContent.includes(text));
+  if (mode === 'nochange' && path === '/shop/mypage') {
+    const a = find('aside a[href="#"]', '쿠폰함');
+    a.setAttribute('href', '/shop/coupons');
+    a.addEventListener('click', e => e.preventDefault());
+  }
+  if (mode === 'deadend' && path === '/shop/support') {
+    find('a[href="/shop/orders"]', '배송 현황 확인').style.display = 'none';
+  }
+})();
+</script>"""
+TEST_MODE_TARGETS = {"mypage": "쿠폰함", "support": "배송 현황 확인"}   # 스크립트가 찾는 글자가 페이지에 있어야 한다
+
+
+def add_test_mode(html: str, key: str) -> str:
+    assert TEST_MODE_TARGETS.get(key, "") in html, f"testMode target missing on {key}"
+    return html.replace("</body>", TEST_MODE_JS + "</body>", 1)
+
+
 def add_title(html: str, title: str) -> str:
     assert "<title>" not in html
     return html.replace("</head>", f"<title>{title}</title></head>", 1)
@@ -117,6 +146,7 @@ def build_page(src_dir: str, prefix: str, key: str) -> str:
     html = fix_nav_width(html)
     if key == "mypage":
         html = add_withdraw_button(html)
+    html = add_test_mode(html, key)
     return html
 
 
