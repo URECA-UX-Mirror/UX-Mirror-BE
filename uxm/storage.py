@@ -1,4 +1,4 @@
-"""실행 기록 저장 (2번 소유). 계약 v1.3.4 18장 저장 계약.
+"""실행 기록 저장 (2번 소유). 계약 v1.3.5 18장 저장 계약.
 
 results/runs/<runId>/
 ├ run.json        Run 1개. 임시 파일에 쓴 뒤 원자적으로 교체
@@ -17,7 +17,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 
-SCHEMA_VERSION = "1.3.4"
+SCHEMA_VERSION = "1.3.5"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNS_DIR = os.path.join(ROOT, "results", "runs")
 
