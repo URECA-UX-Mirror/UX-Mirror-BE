@@ -138,7 +138,8 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
 
     by_step = {step["stepId"]: step for step in steps}
     route, visits, causes = [], {}, {}
-    allowed = run["referencePathConfig"]["allowedPaths"]
+    ref = run.get("referencePathConfig")   # 직접 입력한 목표는 None → 경로 이탈·추가 단계 판정 안 함
+    allowed = ref["allowedPaths"] if ref else None
     for visit in summary["path"]:
         key, signature, cause = visit["pageKey"], visit["pageSignature"], visit["visitCause"]
         if cause == "RUN_START":
@@ -166,7 +167,7 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
                 "visitCauses": list(causes[signature]),
             }, step["timestamp"], step=step, destination_page=visit))
         action = step["action"]
-        if (cause == "MODEL_NAVIGATION" and action["actionType"] == "CLICK"
+        if (allowed is not None and cause == "MODEL_NAVIGATION" and action["actionType"] == "CLICK"
                 and action["result"] == "NAVIGATED"
                 and not any(path[:len(route)] == route for path in allowed)):
             selected = next((c for c in step["candidateSet"]["candidates"]
@@ -179,7 +180,7 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
             }, step["timestamp"], step=step))
 
     reached = summary["goalReached"]
-    if reached and summary["extraSteps"] is not None and summary["extraSteps"] > 0:
+    if ref and reached and summary["extraSteps"] is not None and summary["extraSteps"] > 0:
         found.append(create_issue(run, "EXTRA_STEPS", {
             "successfulNavigationClickCount": summary["successfulNavigationClickCount"],
             "shortestAllowedSteps": run["referencePathConfig"]["shortestAllowedSteps"],

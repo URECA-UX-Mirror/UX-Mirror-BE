@@ -21,11 +21,12 @@ from api.comparison import build_comparison
 from api.errors import (AnalysisError, ApiError, analysis_error_handler, api_error_handler,
                         http_error_handler, unexpected_error_handler, validation_error_handler)
 from api.integrations import Integrations
-from api.presets import Presets
+from api.presets import Presets, _check_verification, normalize_verification
 from api.runner import Runner, with_detected_types
 from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateRunRequest
 from api.store import DEFAULT_RESULTS_DIR, RunStore, is_safe_id
 from api.timeutil import now_iso
+from uxm.leak import FORBIDDEN
 from uxm.prompts import PROMPT_VERSION
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
@@ -67,19 +68,15 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
     # ---- 17.2
     @app.post("/api/runs", status_code=201)
     def create_run(req: CreateRunRequest):
-        goal, persona = presets.goal(req.goalId), presets.persona(req.personaId)
-        if goal is None:
-            raise ApiError(422, "CONTRACT_VALIDATION_ERROR", f"등록되지 않은 goalId입니다: {req.goalId}")
-        if persona is None:
-            raise ApiError(422, "CONTRACT_VALIDATION_ERROR", f"등록되지 않은 personaId입니다: {req.personaId}")
+        goal, persona = _resolve_goal(req, presets), _resolve_persona(req, presets)
         if req.promptVersion is not None and req.promptVersion != PROMPT_VERSION:
             raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
                            f"서버의 promptVersion은 {PROMPT_VERSION}입니다. 다른 버전은 실행할 수 없습니다.")
-        # 목표마다 시작 화면이 정해져 있다 (refund는 /shop/home, C3 테스트 전용 목표는 /shop/mypage).
-        # 허용 경로가 시작 화면 기준이므로 다른 화면에서는 실행하지 않는다.
-        if "startPath" not in req.model_fields_set:
+        # preset 목표는 시작 화면이 정해져 있다 (refund는 /shop/home, C3 테스트 전용 목표는 /shop/mypage).
+        # 허용 경로가 시작 화면 기준이므로 다른 화면에서는 실행하지 않는다. 직접 입력한 목표는 요청 값(기본 /shop/home).
+        if goal["startPath"] and "startPath" not in req.model_fields_set:
             req.startPath = goal["startPath"]
-        elif req.startPath.rstrip("/") != goal["startPath"]:
+        elif goal["startPath"] and req.startPath.rstrip("/") != goal["startPath"]:
             raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
                            f"goalId={req.goalId}는 startPath={goal['startPath']}로만 실행할 수 있습니다.")
         page = req.startPath.rstrip("/").removeprefix("/shop/")
@@ -172,6 +169,60 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
         }
 
     return app
+
+
+def _invalid(message: str) -> ApiError:
+    return ApiError(422, "CONTRACT_VALIDATION_ERROR", message)
+
+
+def _sentence(text: str, field: str) -> str:
+    """직접 입력한 문장 정리. 빈 값과 모델 입력 누출 검사(T-LEAK)에 걸릴 글자는 실행 전에 거부한다.
+
+    그대로 받으면 실행 중 LEAK_CHECK_FAILED로 Run이 무효가 된다. 검사 기준은 루프와 같은 `FORBIDDEN`.
+    """
+    text = text.strip()
+    if not text:
+        raise _invalid(f"{field}가 비어 있습니다.")
+    words = [w for w in FORBIDDEN if w in text]
+    if words:
+        raise _invalid(f"{field}에 쓸 수 없는 글자가 있습니다: {', '.join(words)}")
+    return text
+
+
+def _resolve_goal(req: CreateRunRequest, presets: Presets) -> dict:
+    """{goalId, goal, startPath, verification, referencePathConfig}. preset ID 또는 직접 입력 중 하나."""
+    if (req.goalId is None) == (req.goal is None):
+        raise _invalid("goalId와 goal 중 하나만 보내야 합니다.")
+    if req.goalId is not None:
+        if req.verification is not None:
+            raise _invalid("goalId로 실행할 때는 verification을 보내지 않습니다 (preset 값을 씁니다).")
+        preset = presets.goal(req.goalId)
+        if preset is None:
+            raise _invalid(f"등록되지 않은 goalId입니다: {req.goalId}")
+        return {"goalId": preset["goalId"], "goal": preset["goal"], "startPath": preset["startPath"],
+                "verification": preset["verification"],
+                "referencePathConfig": preset["referencePathConfig"]}
+    if req.verification is None:
+        raise _invalid("goal을 직접 입력할 때는 성공 조건(verification)이 필요합니다.")
+    try:
+        goal = {"goalId": None, "goal": _sentence(req.goal, "goal"), "startPath": None,
+                "verification": normalize_verification(req.verification.model_dump()),
+                "referencePathConfig": None}
+        _check_verification(goal)   # preset 로드 때와 같은 검사 (#35)
+    except ValueError as e:
+        raise _invalid(str(e)) from e
+    return goal
+
+
+def _resolve_persona(req: CreateRunRequest, presets: Presets) -> dict:
+    if (req.personaId is None) == (req.persona is None):
+        raise _invalid("personaId와 persona 중 하나만 보내야 합니다.")
+    if req.personaId is not None:
+        persona = presets.persona(req.personaId)
+        if persona is None:
+            raise _invalid(f"등록되지 않은 personaId입니다: {req.personaId}")
+        return {"personaId": persona["personaId"], "persona": persona["persona"]}
+    return {"personaId": None, "persona": _sentence(req.persona, "persona")}
 
 
 def _importable(module: str) -> bool:

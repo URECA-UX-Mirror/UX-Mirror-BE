@@ -36,6 +36,8 @@ _OUTCOME = ("goalReached", "stepCount", "successfulNavigationClickCount", "model
 
 def _get(obj, path):
     for part in path.split("."):
+        if obj is None:   # 예: 직접 입력한 목표의 referencePathConfig=None
+            return None
         obj = obj[part]
     return obj
 

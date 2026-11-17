@@ -177,3 +177,8 @@ def test_actual_api_comparison_is_saved(pair, tmp_path):
         assert response.json()["comparisonStatus"] == "COMPLETED"
         saved = json.loads((tmp_path / "comparisons" / (b["run"]["experimentKey"] + ".json")).read_text())
         assert saved == response.json()
+
+
+def test_get_returns_none_through_null_reference_path():
+    from uxm.comparison import _get
+    assert _get({"referencePathConfig": None}, "referencePathConfig.version") is None

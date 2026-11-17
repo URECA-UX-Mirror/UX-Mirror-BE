@@ -168,3 +168,29 @@ def test_existing_mock_run_and_api_analysis_are_consistent(record, tmp_path):
     assert issues_doc["analysisStatus"] == "COMPLETED"
     assert issues_doc["items"] == result
     assert store.load_run(run["runId"])["summary"]["detectedIssueTypes"] == types(result)
+
+
+def test_no_reference_path_skips_path_rules(record):
+    """직접 입력한 목표는 허용 경로가 없다(referencePathConfig=None) → 경로 이탈·추가 단계는 판정하지 않는다."""
+    run, step = simple(record)
+    step["decision"]["selectedOptionId"] = "option_02"  # support: 허용 경로가 있으면 이탈
+    run["summary"]["path"].append(visit(1, "support", "MODEL_NAVIGATION", 1))
+    run["summary"]["extraSteps"] = None
+    run["referencePathConfig"] = None
+    assert types(detect_issues(run, [step], [])) == []
+
+
+def test_no_reference_path_keeps_other_rules(record):
+    """허용 경로가 없어도 경로와 무관한 규칙(선택 모호·재방문·목표 미도달)은 그대로 생성된다."""
+    run, step = simple(record)
+    run["referencePathConfig"] = None
+    run["status"], run["terminationReason"] = "MAX_STEPS", "MAX_STEPS_REACHED"
+    run["summary"].update(goalReached=False, extraSteps=None)
+    step["decision"].update(selectedOptionId="option_02", clickOnlyNormalizedEntropy=1.0, clickOnlyTop2Margin=0.0)
+    back = copy.deepcopy(step)
+    back["stepId"] = 2
+    back["page"].update(pageKey="support", pageSignature="support_default", path="/shop/support")
+    back["action"].update(actionType="GO_BACK", result="NAVIGATED")
+    run["summary"]["path"] += [visit(1, "support", "MODEL_NAVIGATION", 1), visit(2, "home", "MODEL_BACK", 2)]
+    found = set(types(detect_issues(run, [step, back], [])))
+    assert found == {"CHOICE_AMBIGUITY", "REPEATED_VISIT", "GOAL_NOT_REACHED"}
