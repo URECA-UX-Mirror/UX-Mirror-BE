@@ -221,7 +221,7 @@ def test_create_returns_ready_and_runs_to_success(make_client):
     assert integ.closed == 1
 
     s = integ.received_settings
-    assert s["successCondition"] == {"path": "/shop/refund", "text": "환불 / 반품 신청"}
+    assert s["successCondition"] == {"path": "/shop/refund", "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
     assert s["startUrl"].endswith(":8001/shop/home")
 
     assert integ.received_events == [{"eventId": "event_01", "eventType": "BACK_EXECUTED",
