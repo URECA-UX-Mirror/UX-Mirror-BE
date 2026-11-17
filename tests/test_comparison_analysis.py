@@ -267,6 +267,31 @@ def test_site_map_file_hash_and_distances_are_verified(site_map_pair, tmp_path):
     assert result["runComparison"]["before"]["extraSteps"] == 2
 
 
+def test_unreadable_unrelated_map_does_not_block_verified_map(site_map_pair, tmp_path):
+    write_site_map(site_map_pair, tmp_path)
+    (tmp_path / "000-unreadable.json").write_text("{")
+    (tmp_path / "other-invalid.json").write_text("[]")
+    check = condition(compare(*site_map_pair), "REFERENCE_PATH_CONFIG_MATCHED")
+    assert check["matched"] and check["message"] is None
+
+
+def test_unreadable_map_without_matching_version_is_unverifiable(site_map_pair, tmp_path):
+    (tmp_path / "unknown.json").write_text("{")
+    check = condition(compare(*site_map_pair), "REFERENCE_PATH_CONFIG_MATCHED")
+    assert not check["matched"] and "읽을 수 없는" in check["message"]
+
+
+def test_map_file_hash_and_run_hash_failures_have_distinct_messages(site_map_pair, tmp_path):
+    path, data = write_site_map(site_map_pair, tmp_path)
+    site_map_pair[1]["run"]["referencePathConfig"]["siteMapHash"] = "sha256:other"
+    check = condition(compare(*site_map_pair), "REFERENCE_PATH_CONFIG_MATCHED")
+    assert "저장된 Run과" in check["message"]
+    data["siteMapHash"] = "sha256:invalid"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    check = condition(compare(*site_map_pair), "REFERENCE_PATH_CONFIG_MATCHED")
+    assert "지도 파일의 해시가 내용과" in check["message"]
+
+
 def test_site_map_comparison_through_api_and_saved(site_map_pair, tmp_path):
     store = RunStore(str(tmp_path / "results"))
     for bundle in site_map_pair:

@@ -36,16 +36,21 @@ def _normalized_pages(pages):
 def _verify_map_file(value):
     """같은 버전의 파일이 없으면 None, 실패하면 오류 메시지를 반환한다."""
     found = []
+    unreadable = False
     for path in sorted(SITE_MAP_DIRECTORY.glob("*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
-            return "사이트 지도 파일을 읽을 수 없습니다."
+            unreadable = True
+            continue
         if not isinstance(data, dict):
-            return "사이트 지도 파일 형식이 올바르지 않습니다."
+            unreadable = True
+            continue
         if data.get("siteMapVersion") == value["siteMapVersion"]:
             found.append(data)
     if not found:
+        if unreadable:
+            return "읽을 수 없는 지도 파일이 있어 같은 버전의 사이트 지도를 확인할 수 없습니다."
         return None
     if len(found) != 1:
         return "동일한 버전의 사이트 지도 파일이 여러 개입니다."
@@ -54,7 +59,9 @@ def _verify_map_file(value):
         pages = _normalized_pages(data.get("pages"))
         encoded = json.dumps(pages, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         digest = "sha256:" + hashlib.sha256(encoded).hexdigest()
-        if digest != data.get("siteMapHash") or digest != value["siteMapHash"]:
+        if digest != data.get("siteMapHash"):
+            return "사이트 지도 파일의 해시가 내용과 일치하지 않습니다."
+        if digest != value["siteMapHash"]:
             return "사이트 지도 해시가 저장된 Run과 일치하지 않습니다."
         goal = value["goalPageKey"]
         if goal not in pages:
