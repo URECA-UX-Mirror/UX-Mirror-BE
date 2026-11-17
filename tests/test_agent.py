@@ -185,9 +185,14 @@ def test_default_preset_request_is_unchanged(tmp_path):
 
 
 def test_model_request_uses_run_goal_and_persona(tmp_path):
-    """#39: 모델 요청에는 상수가 아니라 Run의 목표·사용자 유형이 들어간다."""
+    """#39: 모델 요청에는 상수가 아니라 Run의 목표·사용자 유형이 들어간다.
+
+    Run 원본 값을 바꾼 뒤 agent_settings()로 설정을 만들어, Run → 설정 → 모델 요청 경로 전체를 확인한다 (PR #40 리뷰).
+    """
     settings, store = start_run(tmp_path)
-    settings.update(goal="주문한 상품의 배송 상태 확인하기", persona="온라인 쇼핑에 익숙한 30대 직장인")
+    run = dict(settings["run"], goal="주문한 상품의 배송 상태 확인하기", persona="온라인 쇼핑에 익숙한 30대 직장인")
+    settings = agent_settings(run, Presets().goal("refund"), store.dir, BASE + run["startPath"], BASE)
+    assert (settings["goal"], settings["persona"]) == (run["goal"], run["persona"])
     result = run_agent(settings, MockBackend([HOME_ORDERS, REFUND]), FakePage("/shop/home"), fake_env())
     assert result["status"] == "SUCCESS" and result["comparisonContext"]["leakCheckPassed"] is True
     reqs = _requests(store)
