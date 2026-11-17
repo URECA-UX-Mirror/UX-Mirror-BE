@@ -13,6 +13,7 @@
         "scope": "page"
       },
       "referencePathConfig": {
+        "basis": "ALLOWED_PATHS",
         "version": "refpath-v1",
         "allowedPaths": [
           ["home", "orders", "refund"],
@@ -35,6 +36,7 @@
         "scope": "page"
       },
       "referencePathConfig": {
+        "basis": "ALLOWED_PATHS",
         "version": "refpath-mypage-test-v1",
         "allowedPaths": [
           ["mypage", "refund"],

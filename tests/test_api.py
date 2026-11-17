@@ -15,7 +15,9 @@ from api.comparison import final_run  # noqa: E402
 from api.integrations import Integrations  # noqa: E402
 from api.main import create_app  # noqa: E402
 from api.presets import Presets, success_condition  # noqa: E402
+from api import run_factory  # noqa: E402
 from api.run_factory import decide_validity  # noqa: E402
+from uxm import sitemap  # noqa: E402
 from uxm.goal import GOALS  # noqa: E402
 from uxm.prompts import GOAL, PERSONA  # noqa: E402
 
@@ -184,7 +186,7 @@ def test_c3_test_preset_runs_from_mypage(make_client):
     client, integ, app = make_client()
     run = run_and_wait(client, app, goalId="refund-from-mypage-test", startPath="/shop/mypage")
     assert run["goalId"] == "refund-from-mypage-test" and run["goal"] == GOAL
-    assert run["referencePathConfig"] == {"version": "refpath-mypage-test-v1",
+    assert run["referencePathConfig"] == {"basis": "ALLOWED_PATHS", "version": "refpath-mypage-test-v1",
                                           "allowedPaths": [["mypage", "refund"], ["mypage", "orders", "refund"]],
                                           "shortestAllowedSteps": 1}
     assert integ.received_settings["successCondition"] == GOALS["refund"]
@@ -278,9 +280,83 @@ def test_direct_input_is_normalized_and_saved(make_client):
         None, "주문 내역 화면 찾기", None, "쇼핑몰을 처음 쓰는 사용자")
     assert run["verification"] == {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/orders",
                                    "text": "주문/배송 조회", "exact": False, "scope": "page"}
-    assert run["referencePathConfig"] is None and run["startPath"] == "/shop/home"
+    assert run["referencePathConfig"]["basis"] == "SITE_MAP" and run["startPath"] == "/shop/home"
     assert integ.received_settings["successCondition"] == {
         "path": "/shop/orders", "text": "주문/배송 조회", "exact": False, "scope": "page"}
+
+
+# ---- 경로 기준: preset은 ALLOWED_PATHS, 직접 입력은 SITE_MAP (설계 v2.1 4.1, #50)
+
+VP = {"width": 1440, "height": 900}
+
+
+def _site_map(**over) -> dict:
+    with open(run_factory.SITE_MAP_PATH, encoding="utf-8") as f:
+        data = {**json.load(f), **over}
+    data["siteMapHash"] = sitemap.site_map_hash(data["pages"])
+    return data
+
+
+def _write_map(tmp_path, data) -> str:
+    path = tmp_path / "map.json"
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return str(path)
+
+
+def test_direct_input_saves_site_map_reference(make_client):
+    client, _, app = make_client()
+    r = client.post("/api/runs", json=direct())
+    assert r.status_code == 201, r.text
+    app.state.runner.wait(5)
+    ref = client.get(f"/api/runs/{r.json()['runId']}").json()["referencePathConfig"]
+    assert {k: ref[k] for k in ("basis", "startPageKey", "goalPageKey", "shortestSteps")} == {
+        "basis": "SITE_MAP", "startPageKey": "home", "goalPageKey": "orders", "shortestSteps": 1}
+    site_map = sitemap.load_site_map(run_factory.SITE_MAP_PATH)
+    assert (ref["siteMapVersion"], ref["siteMapHash"]) == (site_map["siteMapVersion"], site_map["siteMapHash"])
+    assert ref["distances"] == sitemap.distances(site_map["pages"], "orders")
+
+
+def test_preset_reference_keeps_allowed_paths():
+    ref = Presets().goal("refund")["referencePathConfig"]
+    assert ref["basis"] == "ALLOWED_PATHS" and ref["shortestAllowedSteps"] == 2
+
+
+def test_site_map_shortest_steps_matches_preset():
+    """같은 환불 목표면 지도 최단 거리가 preset 허용 경로 최단(2)과 같다 (설계 2.2 검증 4)."""
+    ref = run_factory.site_map_reference("/shop/home", {"path": "/shop/refund"}, VP)
+    assert ref["shortestSteps"] == Presets().goal("refund")["referencePathConfig"]["shortestAllowedSteps"]
+
+
+@pytest.mark.parametrize("data,start,goal_path", [
+    (None, "/shop/home", "/shop/orders"),                          # 지도 파일 없음
+    ({"siteMapHash": "sha256:bad"}, "/shop/home", "/shop/orders"),  # 해시 불일치 (아래에서 덮어씀)
+    ({"siteVersion": "shop-v2"}, "/shop/home", "/shop/orders"),    # 사이트 다름
+    ({"candidatePolicyVersion": "candidate-v1"}, "/shop/home", "/shop/orders"),
+    ({"viewport": {"width": 375, "height": 812}}, "/shop/home", "/shop/orders"),
+    ({}, "/shop/mypage", "/shop/orders"),                          # 지도 시작 화면이 아님
+    ({}, "/shop/home", "/shop/cart"),                              # 도착 화면이 지도에 없음
+])
+def test_site_map_error_runs_without_reference(tmp_path, data, start, goal_path):
+    if data is None:
+        path = str(tmp_path / "missing.json")
+    else:
+        built = _site_map(**data)
+        if "siteMapHash" in data:
+            built["siteMapHash"] = data["siteMapHash"]
+        path = _write_map(tmp_path, built)
+    assert run_factory.site_map_reference(start, {"path": goal_path}, VP, path) is None
+
+
+def test_unreachable_goal_rejected_before_run(make_client, tmp_path, monkeypatch):
+    pages = _site_map()["pages"]
+    for page in pages.values():   # support로 들어가는 간선을 모두 없앤 지도
+        page["edges"] = [e for e in page["edges"] if e["to"] != "support"]
+    monkeypatch.setattr(run_factory, "SITE_MAP_PATH", _write_map(tmp_path, _site_map(pages=pages)))
+    client, _, app = make_client()
+    r = client.post("/api/runs", json=direct(verification={"path": "/shop/support", "text": "고객센터"}))
+    assert r.status_code == 422, r.text
+    assert "경로가 없습니다" in r.json()["error"]["message"]
+    assert app.state.store.list_runs() == []
 
 
 def test_preset_run_copies_verification(make_client):
