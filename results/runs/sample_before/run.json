@@ -13,6 +13,13 @@
   "goalJudgmentMode": "DOM_ONLY",
   "goalId": "refund",
   "goal": "최근 구매한 상품의 환불 신청 화면 찾기",
+  "verification": {
+    "type": "PATH_AND_VISIBLE_TEXT",
+    "path": "/shop/refund",
+    "text": "환불 / 반품 신청",
+    "exact": false,
+    "scope": "page"
+  },
   "personaId": "novice-shopper",
   "persona": "온라인 쇼핑몰 이용 경험이 적고 환불 절차에 익숙하지 않은 사용자",
   "startPath": "/shop/home",
