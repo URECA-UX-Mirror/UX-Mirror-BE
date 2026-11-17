@@ -3,6 +3,8 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
+from uxm.goal import SCOPES
+
 
 _CONDITIONS = (
     ("MODEL_VERSION_MATCHED", ("modelVersion",)),
@@ -85,7 +87,7 @@ def _verification(run):
     if (value["type"] != "PATH_AND_VISIBLE_TEXT" or not isinstance(value["path"], str)
             or not value["path"].startswith("/shop/") or not isinstance(value["text"], str)
             or not value["text"].strip() or not isinstance(value["exact"], bool)
-            or value["scope"] not in ("page", "main")):
+            or value["scope"] not in SCOPES):
         return None
     return tuple(value[k] for k in _VERIFICATION_FIELDS)
 

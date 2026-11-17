@@ -19,8 +19,6 @@ def pair():
     folder = Path(__file__).resolve().parents[1] / "results/runs/sample_before"
     before = {"run": json.loads((folder / "run.json").read_text()),
               "steps": read_jsonl(str(folder / "steps.jsonl")), "issues": []}
-    before["run"]["verification"] = {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund",
-                                     "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
     after = copy.deepcopy(before)
     after["run"].update(runId="sample_after", variant="after")
     for step in after["steps"]:

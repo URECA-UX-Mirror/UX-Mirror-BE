@@ -43,6 +43,9 @@ T0 = datetime(2026, 11, 16, 10, 0, 0, tzinfo=KST)
 CANDIDATE_SCOPE = ["상단 메뉴", "본문", "사이드 메뉴", "경로 표시", "하단"]
 ALLOWED_PATHS = [["home", "orders", "refund"], ["home", "mypage", "refund"], ["home", "mypage", "orders", "refund"]]
 SHORTEST = 2
+# 이 MOCK 샘플을 생성할 때 실제로 사용한 목표 도착 판정. 기존 LIVE Run은 변경하지 않는다.
+SAMPLE_VERIFICATION = {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund",
+                       "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
 COUPON = "사이드 메뉴>/shop/coupons#1"          # nochange 화면에만 있는 쿠폰함 (#11)
 MYPAGE_REFUND = "사이드 메뉴>/shop/refund#1"    # 취소/교환/반품 내역
 MYPAGE_ORDERS = "사이드 메뉴>/shop/orders#1"    # 주문/배송 조회
@@ -174,6 +177,7 @@ def main():
         "resultOrigin": "MOCK", "siteVersion": "shop-v1", "modelVersion": None, "modelEndpointId": "mock",
         "promptVersion": P.PROMPT_VERSION, "temperature": 1.52, "decisionMode": "DIRECT",
         "goalJudgmentMode": "DOM_ONLY", "goalId": "refund", "goal": P.GOAL,
+        "verification": dict(SAMPLE_VERIFICATION),
         "personaId": "novice-shopper", "persona": P.PERSONA, "startPath": "/shop/home",
         "viewport": {"width": 1440, "height": 900},
         "limits": {"maxSteps": 8, "modelTimeoutMs": 30000, "pageChangeTimeoutMs": 10000, "runTimeoutMs": 180000,
