@@ -1,6 +1,7 @@
 """Run에 기록된 경로 기준을 확인한다. 입력과 지도 파일은 수정하지 않는다."""
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from uxm import sitemap
 
@@ -65,6 +66,21 @@ def reference(run):
         if (distances.get(value["goalPageKey"]) != 0
                 or distances.get(value["startPageKey"]) != value["shortestSteps"]):
             return False, None, "사이트 지도 시작·목표 거리의 정합성이 맞지 않습니다."
+        verification = run.get("verification")
+        start_path = run.get("startPath")
+        goal_path = verification.get("path") if isinstance(verification, dict) else None
+        if not all(isinstance(path, str) and path for path in (start_path, goal_path)):
+            return False, None, "Run의 시작·목표 화면을 확인할 수 없습니다."
+        def page_key(url):
+            path = urlsplit(url).path.rstrip("/") or "/"
+            return path.rsplit("/", 1)[-1] if path.startswith("/shop/") else path
+        try:
+            matches_run = (page_key(start_path) == value["startPageKey"]
+                           and page_key(goal_path) == value["goalPageKey"])
+        except ValueError:
+            matches_run = False
+        if not matches_run:
+            return False, None, "사이트 지도 시작·목표 화면이 Run과 맞지 않습니다."
         verification = _verify_map_file(value)
         if verification:
             return False, None, verification

@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 
+from uxm.reference import reference
 
 ISSUE_ORDER = (
     "GOAL_NOT_REACHED", "REFERENCE_PATH_DEVIATION", "REPEATED_VISIT",
@@ -141,7 +142,6 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
     ref = run.get("referencePathConfig")
     basis = ref.get("basis", "ALLOWED_PATHS") if isinstance(ref, dict) else None
     if basis == "SITE_MAP":
-        from uxm.reference import reference
         if not reference(run)[0]:
             basis = None
     allowed = ref.get("allowedPaths") if basis == "ALLOWED_PATHS" else None

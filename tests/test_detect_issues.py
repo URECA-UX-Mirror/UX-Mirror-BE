@@ -199,6 +199,7 @@ def test_no_reference_path_keeps_other_rules(record):
 @pytest.mark.parametrize("extra,expected", [(2, True), (0, False), (None, False)])
 def test_site_map_extra_steps_without_allowed_path_issues(record, extra, expected):
     run, step = simple(record)
+    run["verification"]["path"] = "/shop/orders"
     run["referencePathConfig"] = {"basis": "SITE_MAP", "siteMapVersion": "fixture-v1",
                                   "siteMapHash": "fixture-hash", "startPageKey": "home",
                                   "goalPageKey": "orders", "shortestSteps": 1,
@@ -230,5 +231,18 @@ def test_invalid_site_map_does_not_generate_extra_steps(record, tmp_path, monkey
                                   "siteMapHash": "fixture-hash", "startPageKey": "home",
                                   "goalPageKey": "orders", "shortestSteps": 1,
                                   "distances": {"home": 2, "mypage": 1, "orders": 0}}
+    run["summary"]["extraSteps"] = 2
+    assert "EXTRA_STEPS" not in types(detect_issues(run, [step], []))
+
+
+def test_site_map_goal_mismatch_does_not_generate_extra_steps(record, tmp_path, monkeypatch):
+    import uxm.reference as reference
+    monkeypatch.setattr(reference, "SITE_MAP_DIRECTORY", tmp_path)
+    run, step = simple(record)
+    run["referencePathConfig"] = {"basis": "SITE_MAP", "siteMapVersion": "fixture-v1",
+                                  "siteMapHash": "fixture-hash", "startPageKey": "home",
+                                  "goalPageKey": "orders", "shortestSteps": 1,
+                                  "distances": {"home": 1, "orders": 0}}
+    run["verification"]["path"] = "/shop/refund"
     run["summary"]["extraSteps"] = 2
     assert "EXTRA_STEPS" not in types(detect_issues(run, [step], []))

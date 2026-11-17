@@ -193,6 +193,7 @@ def site_map_pair(pair, monkeypatch, tmp_path):
     import uxm.reference as reference
     monkeypatch.setattr(reference, "SITE_MAP_DIRECTORY", tmp_path)
     for bundle in pair:
+        bundle["run"]["verification"]["path"] = "/shop/orders"
         bundle["run"]["referencePathConfig"] = {
             "basis": "SITE_MAP", "siteMapVersion": "fixture-v1", "siteMapHash": "fixture-hash",
             "startPageKey": "home", "goalPageKey": "orders", "shortestSteps": 1,
@@ -210,6 +211,22 @@ def test_site_map_equal_and_missing_file_is_disclosed(site_map_pair):
     assert check["matched"] and "재검증하지 않았습니다" in check["message"]
     assert result["runComparison"]["before"]["detourMoveCount"] == 1
     assert site_map_pair == snapshot
+
+
+@pytest.mark.parametrize("field,value", [("startPath", "/shop/mypage"),
+                                        ("startPath", None), ("goal", "/shop/refund"),
+                                        ("goal", None)])
+def test_site_map_must_match_run_start_and_goal(site_map_pair, field, value):
+    before, after = site_map_pair
+    if field == "goal":
+        after["run"]["verification"]["path"] = value
+    else:
+        after["run"][field] = value
+    result = compare(before, after)
+    check = condition(result, "REFERENCE_PATH_CONFIG_MATCHED")
+    assert not check["matched"] and check["message"]
+    assert result["runComparison"]["after"]["extraSteps"] is None
+    assert screen(result, "home")["metrics"]["afterGoalPathProbability"] is None
 
 
 @pytest.mark.parametrize("field,value", [
@@ -275,6 +292,7 @@ def test_committed_site_map_integration(site_map_pair, monkeypatch, goal):
     data = sitemap.load_site_map(str(folder / "sitemap-shop-v1.json"))
     distances = sitemap.distances(data["pages"], goal)
     for bundle in site_map_pair:
+        bundle["run"]["verification"]["path"] = f"/shop/{goal}"
         bundle["run"]["referencePathConfig"] = {
             "basis": "SITE_MAP", "siteMapVersion": data["siteMapVersion"], "siteMapHash": data["siteMapHash"],
             "startPageKey": "home", "goalPageKey": goal, "shortestSteps": distances["home"],
