@@ -19,6 +19,8 @@ def pair():
     folder = Path(__file__).resolve().parents[1] / "results/runs/sample_before"
     before = {"run": json.loads((folder / "run.json").read_text()),
               "steps": read_jsonl(str(folder / "steps.jsonl")), "issues": []}
+    before["run"]["verification"] = {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund",
+                                     "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
     after = copy.deepcopy(before)
     after["run"].update(runId="sample_after", variant="after")
     for step in after["steps"]:
@@ -182,3 +184,95 @@ def test_actual_api_comparison_is_saved(pair, tmp_path):
 def test_get_returns_none_through_null_reference_path():
     from uxm.comparison import _get
     assert _get({"referencePathConfig": None}, "referencePathConfig.version") is None
+
+
+def condition(result, code):
+    return next(check for check in result["conditionChecks"] if check["code"] == code)
+
+
+@pytest.mark.parametrize("before_id,after_id", [(None, None), ("preset-a", None), ("preset-a", "preset-b")])
+def test_same_content_matches_despite_different_ids(pair, before_id, after_id):
+    before, after = pair
+    before["run"].update(goalId=before_id, personaId=before_id)
+    after["run"].update(goalId=after_id, personaId=after_id)
+    result = compare(before, after)
+    assert condition(result, "GOAL_MATCHED")["matched"]
+    assert condition(result, "PERSONA_MATCHED")["matched"]
+    assert result["conditionsMatched"] and result["comparisonStatus"] == "COMPLETED"
+
+
+@pytest.mark.parametrize("field,value,code", [("goal", "다른 목표", "GOAL_MATCHED"),
+                                                ("persona", "다른 사용자", "PERSONA_MATCHED")])
+def test_different_input_text_disables_comparison(pair, field, value, code):
+    before, after = pair
+    after["run"][field] = value
+    result = compare(before, after)
+    assert condition(result, code)["matched"] is False
+    assert result["comparisonStatus"] == "PARTIAL"
+    home = screen(result, "home")
+    assert home["reason"] == "GLOBAL_CONDITIONS_MISMATCH"
+    assert all(c["deltaProbability"] is None for c in home["candidateComparisons"])
+    assert all(v is None for k, v in home["metrics"].items() if k.startswith("delta"))
+
+
+@pytest.mark.parametrize("field,value", [("type", "UNKNOWN"), ("path", "/shop/orders"),
+                                          ("text", "다른 문구"), ("exact", True), ("scope", "main")])
+def test_verification_field_changes_prevent_goal_match(pair, field, value):
+    before, after = pair
+    after["run"]["verification"][field] = value
+    result = compare(before, after)
+    assert condition(result, "GOAL_MATCHED")["matched"] is False
+    assert result["comparisonStatus"] == "PARTIAL"
+
+
+@pytest.mark.parametrize("side", ["before", "after", "both"])
+@pytest.mark.parametrize("invalid", ["missing", "null", "incomplete"])
+def test_legacy_or_incomplete_verification_cannot_be_assumed_equal(pair, side, invalid):
+    before, after = pair
+    for bundle in ([before, after] if side == "both" else [before if side == "before" else after]):
+        if invalid == "missing":
+            del bundle["run"]["verification"]
+        elif invalid == "null":
+            bundle["run"]["verification"] = None
+        else:
+            del bundle["run"]["verification"]["scope"]
+    snapshot = copy.deepcopy(pair)
+    result = compare(before, after)
+    check = condition(result, "GOAL_MATCHED")
+    assert check["matched"] is False and "확인할 수 없습니다" in check["message"]
+    assert result["comparisonStatus"] == "PARTIAL"
+    assert pair == snapshot
+
+
+@pytest.mark.parametrize("case,matched", [("both_null", True), ("one_null", False),
+                                           ("same", True), ("version", False),
+                                           ("paths", False), ("shortest", False), ("missing", False)])
+def test_reference_configuration_compares_full_setting(pair, case, matched):
+    before, after = pair
+    if case == "both_null":
+        for bundle in pair:
+            bundle["run"]["referencePathConfig"] = None
+            bundle["run"]["summary"].update(extraSteps=None, extraNavigationCost=None,
+                                           referencePathDeviationCount=None)
+            for step in bundle["steps"]:
+                step["decision"]["goalPathProbability"] = None
+    elif case == "one_null":
+        after["run"]["referencePathConfig"] = None
+    elif case == "version":
+        after["run"]["referencePathConfig"]["version"] = "different"
+    elif case == "paths":
+        after["run"]["referencePathConfig"]["allowedPaths"].pop()
+    elif case == "shortest":
+        after["run"]["referencePathConfig"]["shortestAllowedSteps"] += 1
+    elif case == "missing":
+        del after["run"]["referencePathConfig"]
+    result = compare(before, after)
+    assert condition(result, "REFERENCE_PATH_CONFIG_MATCHED")["matched"] is matched
+    if case == "both_null":
+        assert result["conditionsMatched"] and result["comparisonStatus"] == "COMPLETED"
+        for outcome in result["runComparison"].values():
+            assert outcome["extraSteps"] is None and outcome["referencePathDeviationCount"] is None
+        assert screen(result, "home")["metrics"]["deltaGoalPathProbability"] is None
+    elif not matched:
+        assert result["comparisonStatus"] == "PARTIAL"
+        assert screen(result, "home")["metrics"]["deltaNormalizedEntropy"] is None

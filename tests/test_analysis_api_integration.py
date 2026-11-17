@@ -23,6 +23,8 @@ def seed_run(store, variant, *, missing_orders=False, candidate_mismatch=False,
     """저장된 MOCK 실행을 독립된 임시 결과 폴더에 복제한다."""
     run = json.loads((SAMPLE / "run.json").read_text(encoding="utf-8"))
     run.update(runId=f"integration_{variant}", variant=variant, experimentKey="integration_pair")
+    run["verification"] = {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund",
+                           "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
     if system_back_limit is not None:
         run["limits"]["maxSystemBackActions"] = system_back_limit
     if temperature is not None:

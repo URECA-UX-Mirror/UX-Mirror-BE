@@ -9,8 +9,8 @@ _CONDITIONS = (
     ("MODEL_ENDPOINT_MATCHED", ("modelEndpointId",)),
     ("DECISION_MODE_MATCHED", ("decisionMode",)),
     ("PROMPT_VERSION_MATCHED", ("promptVersion",)),
-    ("GOAL_MATCHED", ("goalId", "goal")),
-    ("PERSONA_MATCHED", ("personaId", "persona")),
+    ("GOAL_MATCHED", ("goal",)),
+    ("PERSONA_MATCHED", ("persona",)),
     ("GOAL_JUDGMENT_MODE_MATCHED", ("goalJudgmentMode",)),
     ("MAX_STEPS_MATCHED", ("limits.maxSteps",)),
     ("BACK_LIMITS_MATCHED", ("limits.maxModelBackActions", "limits.maxSystemBackActions")),
@@ -23,7 +23,7 @@ _CONDITIONS = (
     ("TEMPERATURE_MATCHED", ("temperature",)),
     ("THRESHOLD_CONFIG_MATCHED", ("thresholdConfig.version",)),
     ("ANALYSIS_VERSION_MATCHED", ("analysisVersion",)),
-    ("REFERENCE_PATH_CONFIG_MATCHED", ("referencePathConfig.version",)),
+    ("REFERENCE_PATH_CONFIG_MATCHED", ("referencePathConfig",)),
     ("CANDIDATE_POLICY_MATCHED", ("comparisonContext.candidatePolicyVersion",)),
     ("RESULT_ORIGIN_MATCHED", ("resultOrigin",)),
 )
@@ -73,10 +73,70 @@ def _boxes_match(before, after):
     return True
 
 
+_VERIFICATION_FIELDS = ("type", "path", "text", "exact", "scope")
+_REFERENCE_FIELDS = ("version", "allowedPaths", "shortestAllowedSteps")
+
+
+def _verification(run):
+    """저장된 성공 조건만 사용한다. 미완성·과거 Run은 비교 가능하다고 가정하지 않는다."""
+    value = run.get("verification")
+    if not isinstance(value, dict) or any(k not in value for k in _VERIFICATION_FIELDS):
+        return None
+    if (value["type"] != "PATH_AND_VISIBLE_TEXT" or not isinstance(value["path"], str)
+            or not value["path"].startswith("/shop/") or not isinstance(value["text"], str)
+            or not value["text"].strip() or not isinstance(value["exact"], bool)
+            or value["scope"] not in ("page", "main")):
+        return None
+    return tuple(value[k] for k in _VERIFICATION_FIELDS)
+
+
+def _reference(run):
+    """명시적 null과 누락·불완전한 설정을 구별한다."""
+    if "referencePathConfig" not in run:
+        return False, None
+    value = run["referencePathConfig"]
+    if value is None:
+        return True, None
+    if not isinstance(value, dict) or any(k not in value for k in _REFERENCE_FIELDS):
+        return False, None
+    if (not isinstance(value["version"], str) or not value["version"]
+            or not isinstance(value["allowedPaths"], list) or not value["allowedPaths"]
+            or not all(isinstance(path, list) and path and all(isinstance(key, str) and key for key in path)
+                       for path in value["allowedPaths"])
+            or type(value["shortestAllowedSteps"]) is not int or value["shortestAllowedSteps"] < 0):
+        return False, None
+    return True, tuple(value[k] for k in _REFERENCE_FIELDS)
+
+
 def _conditions(b, a, bs, ass):
     checks = []
     for code, paths in _CONDITIONS:
-        bv, av = [_get(b, path) for path in paths], [_get(a, path) for path in paths]
+        if code == "GOAL_MATCHED":
+            before_goal, after_goal = b.get("goal"), a.get("goal")
+            before_verification, after_verification = _verification(b), _verification(a)
+            if (not isinstance(before_goal, str) or not before_goal.strip()
+                    or not isinstance(after_goal, str) or not after_goal.strip()
+                    or before_verification is None or after_verification is None):
+                checks.append({"code": code, "matched": False,
+                               "message": "목표 문장 또는 저장된 성공 조건을 확인할 수 없습니다."})
+                continue
+            bv, av = [before_goal, before_verification], [after_goal, after_verification]
+        elif code == "PERSONA_MATCHED":
+            bv, av = [b.get("persona")], [a.get("persona")]
+            if any(not isinstance(value, str) or not value.strip() for value in (bv[0], av[0])):
+                checks.append({"code": code, "matched": False,
+                               "message": "저장된 사용자 유형 문장을 확인할 수 없습니다."})
+                continue
+        elif code == "REFERENCE_PATH_CONFIG_MATCHED":
+            before_known, before_ref = _reference(b)
+            after_known, after_ref = _reference(a)
+            if not before_known or not after_known:
+                checks.append({"code": code, "matched": False,
+                               "message": "저장된 허용 경로 설정을 확인할 수 없습니다."})
+                continue
+            bv, av = [before_ref], [after_ref]
+        else:
+            bv, av = [_get(b, path) for path in paths], [_get(a, path) for path in paths]
         matched = bv == av
         if code == "MODEL_PAYLOAD_LEAK_CHECK_PASSED":
             matched = bv[0] is True and av[0] is True
