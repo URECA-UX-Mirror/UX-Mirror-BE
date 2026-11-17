@@ -286,6 +286,50 @@ def test_presets_require_start_path_matching_allowed_paths(tmp_path):
             Presets(str(path))
 
 
+@pytest.mark.parametrize("broken", [
+    {"scope": "body"}, {"scope": None}, {"exact": "false"}, {"type": "PATH_ONLY"},
+    {"path": "refund"}, {"path": None}, {"text": ""}, {"text": "  "},
+])
+def test_presets_reject_invalid_verification(tmp_path, broken):
+    """잘못된 목표 판정 조건은 실행 중이 아니라 preset 로드(서버 시작) 때 실패한다 (#35)."""
+    base = json.load(open(os.path.join(ROOT, "config", "presets.json"), encoding="utf-8"))
+    data = json.loads(json.dumps(base))
+    data["goals"][0]["verification"].update(broken)
+    path = tmp_path / "presets.json"
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(ValueError):
+        Presets(str(path))
+
+
+def test_presets_require_allowed_paths_ending_at_goal(tmp_path):
+    """허용 경로의 마지막 화면과 도착 판정 주소가 다르면 로드 실패 (#36 리뷰)."""
+    base = json.load(open(os.path.join(ROOT, "config", "presets.json"), encoding="utf-8"))
+    for change in ({"verification": {"path": "/shop/orders"}}, {"allowedPaths": [["home", "orders"]]}):
+        data = json.loads(json.dumps(base))
+        goal = data["goals"][0]
+        if "verification" in change:
+            goal["verification"].update(change["verification"])
+        else:
+            goal["referencePathConfig"]["allowedPaths"] = change["allowedPaths"]
+        path = tmp_path / "presets.json"
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        with pytest.raises(ValueError, match="도착 화면"):
+            Presets(str(path))
+
+
+def test_presets_allow_missing_exact_and_scope(tmp_path):
+    """exact·scope는 생략할 수 있고 기본값(exact=false, scope=page)으로 판정한다."""
+    base = json.load(open(os.path.join(ROOT, "config", "presets.json"), encoding="utf-8"))
+    data = json.loads(json.dumps(base))
+    for g in data["goals"]:
+        g["verification"].pop("exact", None)
+        g["verification"].pop("scope", None)
+    path = tmp_path / "presets.json"
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    goal = Presets(str(path)).goal("refund")
+    assert success_condition(goal) == {"path": "/shop/refund", "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
+
+
 def test_create_returns_503_when_agent_missing(make_client):
     client, _, _ = make_client(FakeIntegrations(has_agent=False))
     r = client.post("/api/runs", json=body())

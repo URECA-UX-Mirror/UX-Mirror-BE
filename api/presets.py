@@ -7,13 +7,18 @@
 허용 경로(`referencePathConfig.allowedPaths`)가 시작 화면 기준이라, 다른 화면에서 시작하면
 정상 탐색도 경로 이탈·추가 단계로 잘못 판정되기 때문이다. 다른 시작 화면이 필요하면 C3처럼 목표를 따로 둔다.
 
+목표 판정 조건(`verification`)도 로드할 때 검사한다. 잘못된 값이 실행 중에야 드러나 Run이 무효가 되지 않게
+서버 시작(`Presets()`)에서 바로 실패시킨다.
+
 `testOnly: true` 목표(예: C3용 `refund-from-mypage-test`)는 개발 테스트 전용이다.
 `POST /api/runs`로는 실행할 수 있지만 `GET /api/presets` 기본 응답에서는 뺀다 (E 실행·시연에서 고르지 않게).
 """
 import json
 import os
 
-from uxm.goal import success_condition  # noqa: F401  (루프와 같은 변환. 이전 경로 호환)
+from uxm.goal import SCOPES, success_condition  # success_condition: 루프와 같은 변환 (이전 import 경로 호환)
+
+GOAL_CHECK_TYPE = "PATH_AND_VISIBLE_TEXT"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRESETS_PATH = os.path.join(ROOT, "config", "presets.json")
@@ -26,6 +31,7 @@ class Presets:
         self.goals = {g["goalId"]: g for g in data["goals"]}
         for g in self.goals.values():
             _check_start_path(g)
+            _check_verification(g)
         self.personas = {p["personaId"]: p for p in data["personas"]}
 
     def goal(self, goal_id: str) -> dict | None:
@@ -51,3 +57,26 @@ def _check_start_path(goal: dict) -> None:
     paths = goal["referencePathConfig"]["allowedPaths"]
     if not paths or any(not p or p[0] != page for p in paths):
         raise ValueError(f"goalId={goal['goalId']}: 허용 경로는 모두 시작 화면 {page}에서 시작해야 합니다.")
+
+
+def _check_verification(goal: dict) -> None:
+    """목표 판정 조건이 계약 2.3 형식인지. 루프에 넘기는 변환(`success_condition`)도 여기서 한 번 돌려 본다."""
+    gid = goal["goalId"]
+    v = goal.get("verification")
+    if not isinstance(v, dict):
+        raise ValueError(f"goalId={gid}: verification이 필요합니다.")
+    if v.get("type") != GOAL_CHECK_TYPE:
+        raise ValueError(f"goalId={gid}: verification.type은 {GOAL_CHECK_TYPE}이어야 합니다.")
+    if not isinstance(v.get("path"), str) or not v["path"].startswith("/shop/"):
+        raise ValueError(f"goalId={gid}: verification.path는 /shop/...이어야 합니다.")
+    if not isinstance(v.get("text"), str) or not v["text"].strip():
+        raise ValueError(f"goalId={gid}: verification.text가 비어 있습니다.")
+    if "exact" in v and not isinstance(v["exact"], bool):
+        raise ValueError(f"goalId={gid}: verification.exact는 true/false여야 합니다.")
+    if "scope" in v and v["scope"] not in SCOPES:
+        raise ValueError(f"goalId={gid}: verification.scope는 {'/'.join(SCOPES)} 중 하나여야 합니다.")
+    # 허용 경로는 도착 화면에서 끝나야 extraSteps·경로 이탈이 맞게 계산된다
+    goal_page = v["path"].rstrip("/").removeprefix("/shop/")
+    if any(p[-1] != goal_page for p in goal["referencePathConfig"]["allowedPaths"]):
+        raise ValueError(f"goalId={gid}: 허용 경로는 모두 도착 화면 {goal_page}에서 끝나야 합니다.")
+    success_condition(goal)
