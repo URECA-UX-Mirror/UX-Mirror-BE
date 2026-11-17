@@ -84,17 +84,23 @@ def run_agent(settings: dict, backend, page, env: Env | None = None) -> dict:
     return _Loop(settings, backend, page, env or default_env()).run()
 
 
-def agent_settings(run: dict, goal: dict, run_dir: str, start_url: str, shop_base_url: str) -> dict:
+def agent_settings(run: dict, goal: dict | None, run_dir: str, start_url: str, shop_base_url: str) -> dict:
     """run_agent에 넘기는 설정. 실행 API(api/runner.py)와 scripts/run_c.py가 같이 쓴다.
 
-    run: READY Run(run.json), goal: config/presets.json의 목표 preset.
+    run: READY Run(run.json), goal: config/presets.json의 목표 preset (직접 입력한 목표면 None).
+    모델 요청의 목표·사용자 유형은 Run의 `goal`·`persona`를 쓴다 (#39).
+    성공 조건은 Run에 `verification`이 있으면 그것을, 없으면 목표 preset의 것을 쓴다.
+    허용 경로(`referencePathConfig`)는 없을 수 있다 (직접 입력한 목표) → 경로 지표는 null.
     성공 조건·허용 경로는 채점용이라 모델 요청에 넣지 않는다 (계약 9.3).
     """
+    source = run if run.get("verification") else goal
+    if not source:
+        raise ValueError(f"runId={run['runId']}: 성공 조건(verification)이 없습니다.")
     return {
         "run": run, "runId": run["runId"], "runDir": run_dir, "shopBaseUrl": shop_base_url,
-        "startUrl": start_url, "startPath": run["startPath"], "goalId": run["goalId"], "goal": run["goal"],
-        "persona": run["persona"], "successCondition": goal_mod.success_condition(goal),
-        "referencePathConfig": run["referencePathConfig"], "limits": run["limits"], "viewport": run["viewport"],
+        "startUrl": start_url, "startPath": run["startPath"], "goalId": run.get("goalId"), "goal": run["goal"],
+        "persona": run["persona"], "successCondition": goal_mod.success_condition(source),
+        "referencePathConfig": run.get("referencePathConfig"), "limits": run["limits"], "viewport": run["viewport"],
         "goalJudgmentMode": run["goalJudgmentMode"], "temperature": run["temperature"],
         "promptVersion": run["promptVersion"], "resultOrigin": run["resultOrigin"],
     }
@@ -124,8 +130,9 @@ class _Loop:
         self.store = RunStore.open_dir(settings["runDir"])
         self.origin = settings["resultOrigin"]
         self.success = settings["successCondition"]
-        self.allowed = settings["referencePathConfig"]["allowedPaths"]
-        self.shortest = settings["referencePathConfig"]["shortestAllowedSteps"]
+        ref = settings.get("referencePathConfig") or {}
+        self.allowed = ref.get("allowedPaths")          # None이면 경로 이탈·추가 단계·목표 경로 확률을 계산하지 않음
+        self.shortest = ref.get("shortestAllowedSteps")
         self.t0 = time.monotonic()
         self.pool = cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="uxm-model")
 
@@ -184,7 +191,8 @@ class _Loop:
         back_ok = (len(self.stack) > 1 and not self.back_failed
                    and self.n["model_back"] < self.limits["maxModelBackActions"])
         screen = {**extracted, "candidates": cands}
-        request, meta = build_screen_request(screen, history=self.history, failed=self.failed, go_back=back_ok)
+        request, meta = build_screen_request(screen, history=self.history, failed=self.failed, go_back=back_ok,
+                                             goal=self.s["goal"], persona=self.s["persona"])
         try:
             assert_no_leak(request)
         except RuntimeError as e:
@@ -356,7 +364,7 @@ class _Loop:
     def _push_new_screen(self, here: dict, label: str) -> dict:
         entered = self._enter("MODEL_NAVIGATION", "CLICK", self.step_id + 1)
         route = [v["pageKey"] for v in self.stack]
-        if not any(p[:len(route)] == route for p in self.allowed):
+        if self.allowed is not None and not any(p[:len(route)] == route for p in self.allowed):
             self.n["deviation"] += 1   # 계약 14.2 REFERENCE_PATH_DEVIATION과 같은 기준
         self.history.append({"steps": [f"{here['title']} 화면", f"{label} 선택"]})
         return entered
@@ -411,7 +419,7 @@ class _Loop:
     def _decision(self, choice, is_back, probs, back_id, cands, latency) -> dict:
         m = decision_metrics(probs, back_id)
         route = [v["pageKey"] for v in self.stack]
-        nxt = {p[len(route)] for p in self.allowed if len(p) > len(route) and p[:len(route)] == route}
+        nxt = {p[len(route)] for p in self.allowed or [] if len(p) > len(route) and p[:len(route)] == route}
         hits = [probs[c["optionId"]] for c in cands if self.env.page_key(c["href"]) in nxt]
         return {
             "selectedOptionId": choice, "selectedActionType": "GO_BACK" if is_back else "CLICK",
@@ -500,16 +508,18 @@ class _Loop:
         reached = reason == "GOAL_VERIFIED"
         n, back = self.n, self.n["model_back"] + self.n["system_back"]
         nav_cost = n["nav_clicks"] + back
+        extra = reached and self.shortest is not None   # 허용 경로가 없으면 추가 단계를 계산하지 않음
         return {
             "goalReached": reached, "stepCount": self.step_count, "stepRecordCount": self.step_id,
             "modelCallCount": n["model_calls"], "clickCount": n["clicks"],
             "successfulNavigationClickCount": n["nav_clicks"], "modelBackCount": n["model_back"],
             "systemBackCount": n["system_back"], "backCount": back,
             "revisitCount": sum(c - 1 for c in self.visit_count.values()),
-            "referencePathDeviationCount": n["deviation"], "navigationCost": nav_cost,
-            "extraSteps": max(0, n["nav_clicks"] - self.shortest) if reached else None,
-            "extraNavigationCost": max(0, nav_cost - self.shortest) if reached else None,
-            "attemptedExtraSteps": max(0, self.step_count - self.shortest) if reached else None,
+            "referencePathDeviationCount": n["deviation"] if self.allowed is not None else None,
+            "navigationCost": nav_cost,
+            "extraSteps": max(0, n["nav_clicks"] - self.shortest) if extra else None,
+            "extraNavigationCost": max(0, nav_cost - self.shortest) if extra else None,
+            "attemptedExtraSteps": max(0, self.step_count - self.shortest) if extra else None,
             "executionTimeMs": round((time.monotonic() - self.t0) * 1000), "path": self.visits,
             "detectedIssueTypes": [],   # Issue 분석은 실행 API가 Run 종료 후 채운다 (계약 14.2)
         }

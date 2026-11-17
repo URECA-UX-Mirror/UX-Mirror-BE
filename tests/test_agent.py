@@ -169,6 +169,82 @@ def test_agent_settings_matches_api_presets(tmp_path):
     assert (settings["runDir"], settings["startPath"], settings["resultOrigin"]) == (store.dir, "/shop/home", "MOCK")
 
 
+def _requests(store) -> list[dict]:
+    raw = store.path("raw")
+    names = sorted(n for n in os.listdir(raw) if n.startswith("model_request_step_"))
+    return [json.load(open(os.path.join(raw, n), encoding="utf-8")) for n in names]
+
+
+def test_default_preset_request_is_unchanged(tmp_path):
+    """#39: 기존 preset(환불·초보)은 모델 요청의 목표·사용자 유형 문장이 이전(prompts 상수)과 글자까지 같다."""
+    from uxm import prompts
+    result, store, _ = go(tmp_path, [HOME_ORDERS, REFUND])
+    assert result["status"] == "SUCCESS"
+    for req in _requests(store):
+        assert (req["state"]["goal"], req["state"]["persona"]) == (prompts.GOAL, prompts.PERSONA)
+
+
+def test_model_request_uses_run_goal_and_persona(tmp_path):
+    """#39: 모델 요청에는 상수가 아니라 Run의 목표·사용자 유형이 들어간다.
+
+    Run 원본 값을 바꾼 뒤 agent_settings()로 설정을 만들어, Run → 설정 → 모델 요청 경로 전체를 확인한다 (PR #40 리뷰).
+    """
+    settings, store = start_run(tmp_path)
+    run = dict(settings["run"], goal="주문한 상품의 배송 상태 확인하기", persona="온라인 쇼핑에 익숙한 30대 직장인")
+    settings = agent_settings(run, Presets().goal("refund"), store.dir, BASE + run["startPath"], BASE)
+    assert (settings["goal"], settings["persona"]) == (run["goal"], run["persona"])
+    result = run_agent(settings, MockBackend([HOME_ORDERS, REFUND]), FakePage("/shop/home"), fake_env())
+    assert result["status"] == "SUCCESS" and result["comparisonContext"]["leakCheckPassed"] is True
+    reqs = _requests(store)
+    assert len(reqs) == 2
+    for req in reqs:
+        assert req["state"]["goal"] == "주문한 상품의 배송 상태 확인하기"
+        assert req["state"]["persona"] == "온라인 쇼핑에 익숙한 30대 직장인"
+
+
+def _direct_input_run(tmp_path, verification, reference=None):
+    """직접 입력한 목표처럼 preset 없이 Run의 verification으로 판정하는 settings."""
+    settings, store = start_run(tmp_path)
+    run = dict(settings["run"], goalId=None, goal="주문 내역 화면 찾기", verification=verification,
+               referencePathConfig=reference)
+    return agent_settings(run, None, store.dir, BASE + run["startPath"], BASE), store
+
+
+def test_agent_settings_uses_run_verification_without_preset(tmp_path):
+    """#39: Run에 verification이 있으면 preset 없이도 그 성공 조건으로 판정한다. 허용 경로가 없으면 경로 지표는 null."""
+    v = {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/orders", "text": "주문/배송 조회"}
+    settings, store = _direct_input_run(tmp_path, v)
+    assert settings["successCondition"] == {"path": "/shop/orders", "text": "주문/배송 조회",
+                                            "exact": False, "scope": "page"}
+    result = run_agent(settings, MockBackend([HOME_ORDERS]), FakePage("/shop/home"), fake_env())
+    steps, _, _ = check_contract(result, store)
+    sm = result["summary"]
+    assert (result["status"], sm["stepCount"]) == ("SUCCESS", 1)
+    assert sm["referencePathDeviationCount"] is None
+    assert (sm["extraSteps"], sm["extraNavigationCost"], sm["attemptedExtraSteps"]) == (None, None, None)
+    assert steps[0]["decision"]["goalPathProbability"] is None
+    assert _requests(store)[0]["state"]["goal"] == "주문 내역 화면 찾기"
+
+
+def test_run_verification_wins_over_preset(tmp_path):
+    """#39: Run에 verification이 있으면 preset보다 Run 값을 쓴다 (허용 경로가 있으면 경로 지표는 그대로 계산)."""
+    v = {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/orders", "text": "주문/배송 조회"}
+    ref = {"version": "refpath-orders-test", "allowedPaths": [["home", "orders"]], "shortestAllowedSteps": 1}
+    settings, store = start_run(tmp_path)
+    run = dict(settings["run"], verification=v, referencePathConfig=ref)
+    settings = agent_settings(run, Presets().goal("refund"), store.dir, BASE + "/shop/home", BASE)
+    result = run_agent(settings, MockBackend([HOME_ORDERS]), FakePage("/shop/home"), fake_env())
+    assert result["status"] == "SUCCESS"
+    assert (result["summary"]["extraSteps"], result["summary"]["referencePathDeviationCount"]) == (0, 0)
+
+
+def test_agent_settings_requires_success_condition(tmp_path):
+    settings, store = start_run(tmp_path)
+    run = dict(settings["run"], goalId=None)
+    with pytest.raises(ValueError):
+        agent_settings(run, None, store.dir, BASE + "/shop/home", BASE)
+
+
 def go(tmp_path, answers, page=None, env=None, delay=0.0, **limits):
     settings, store = start_run(tmp_path, **limits)
     backend = MockBackend(answers, delay=delay)

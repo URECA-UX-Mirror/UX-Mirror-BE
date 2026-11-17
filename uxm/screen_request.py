@@ -6,13 +6,18 @@ from uxm import prompts as P
 
 
 def build_screen_request(extracted: dict, history: list | None = None, failed: list | None = None,
-                         go_back: bool = False) -> tuple[dict, dict]:
-    """(모델 요청, 백엔드 전용 메타). semanticKey·href·bbox는 메타에만 둔다."""
+                         go_back: bool = False, goal: str | None = None,
+                         persona: str | None = None) -> tuple[dict, dict]:
+    """(모델 요청, 백엔드 전용 메타). semanticKey·href·bbox는 메타에만 둔다.
+
+    goal·persona: Run의 목표·사용자 유형 문장 (#39). 루프는 Run 값을 넘기고,
+    A·B 스크립트처럼 넘기지 않으면 기본 문장(`prompts.GOAL`·`PERSONA`)을 쓴다.
+    """
     state = {
         "pageTitle": extracted["title"],
         "currentPath": urlsplit(extracted["url"]).path,   # 쿼리(testMode 등)는 버린다
-        "goal": P.GOAL,
-        "persona": P.PERSONA,
+        "goal": P.GOAL if goal is None else goal,
+        "persona": P.PERSONA if persona is None else persona,
         "recentActions": [P.describe_history(h) for h in (history or [])],
         "previousFailedActions": [P.describe_history(h) for h in (failed or [])],
     }
