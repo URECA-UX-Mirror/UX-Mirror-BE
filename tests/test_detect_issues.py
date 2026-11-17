@@ -194,3 +194,55 @@ def test_no_reference_path_keeps_other_rules(record):
     run["summary"]["path"] += [visit(1, "support", "MODEL_NAVIGATION", 1), visit(2, "home", "MODEL_BACK", 2)]
     found = set(types(detect_issues(run, [step, back], [])))
     assert found == {"CHOICE_AMBIGUITY", "REPEATED_VISIT", "GOAL_NOT_REACHED"}
+
+
+@pytest.mark.parametrize("extra,expected", [(2, True), (0, False), (None, False)])
+def test_site_map_extra_steps_without_allowed_path_issues(record, extra, expected):
+    run, step = simple(record)
+    run["verification"]["path"] = "/shop/orders"
+    run["referencePathConfig"] = {"basis": "SITE_MAP", "siteMapVersion": "fixture-v1",
+                                  "siteMapHash": "fixture-hash", "startPageKey": "home",
+                                  "goalPageKey": "orders", "shortestSteps": 1,
+                                  "distances": {"home": 1, "mypage": 1, "orders": 0}}
+    run["summary"].update(extraSteps=extra, detourMoveCount=1)
+    run["summary"]["path"].append(visit(1, "support", "MODEL_NAVIGATION", 1))
+    snapshot = copy.deepcopy(run)
+    result = detect_issues(run, [step], [])
+    assert ("EXTRA_STEPS" in types(result)) == expected
+    assert "REFERENCE_PATH_DEVIATION" not in types(result)
+    if expected:
+        evidence = next(i for i in result if i["issueType"] == "EXTRA_STEPS")["evidence"]
+        assert evidence["basis"] == "SITE_MAP" and evidence["shortestSteps"] == 1
+    assert run == snapshot
+
+
+def test_legacy_allowed_path_issue_evidence_includes_basis(record):
+    run, step = simple(record)
+    run["summary"]["extraSteps"] = 1
+    issue = next(i for i in detect_issues(run, [step], []) if i["issueType"] == "EXTRA_STEPS")
+    assert issue["evidence"]["basis"] == "ALLOWED_PATHS"
+
+
+def test_invalid_site_map_does_not_generate_extra_steps(record, tmp_path, monkeypatch):
+    import uxm.reference as reference
+    monkeypatch.setattr(reference, "SITE_MAP_DIRECTORY", tmp_path)
+    run, step = simple(record)
+    run["referencePathConfig"] = {"basis": "SITE_MAP", "siteMapVersion": "fixture-v1",
+                                  "siteMapHash": "fixture-hash", "startPageKey": "home",
+                                  "goalPageKey": "orders", "shortestSteps": 1,
+                                  "distances": {"home": 2, "mypage": 1, "orders": 0}}
+    run["summary"]["extraSteps"] = 2
+    assert "EXTRA_STEPS" not in types(detect_issues(run, [step], []))
+
+
+def test_site_map_goal_mismatch_does_not_generate_extra_steps(record, tmp_path, monkeypatch):
+    import uxm.reference as reference
+    monkeypatch.setattr(reference, "SITE_MAP_DIRECTORY", tmp_path)
+    run, step = simple(record)
+    run["referencePathConfig"] = {"basis": "SITE_MAP", "siteMapVersion": "fixture-v1",
+                                  "siteMapHash": "fixture-hash", "startPageKey": "home",
+                                  "goalPageKey": "orders", "shortestSteps": 1,
+                                  "distances": {"home": 1, "orders": 0}}
+    run["verification"]["path"] = "/shop/refund"
+    run["summary"]["extraSteps"] = 2
+    assert "EXTRA_STEPS" not in types(detect_issues(run, [step], []))
