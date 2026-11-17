@@ -168,3 +168,13 @@ def test_existing_mock_run_and_api_analysis_are_consistent(record, tmp_path):
     assert issues_doc["analysisStatus"] == "COMPLETED"
     assert issues_doc["items"] == result
     assert store.load_run(run["runId"])["summary"]["detectedIssueTypes"] == types(result)
+
+
+def test_no_reference_path_skips_path_rules(record):
+    """직접 입력한 목표는 허용 경로가 없다(referencePathConfig=None) → 경로 이탈·추가 단계는 판정하지 않는다."""
+    run, step = simple(record)
+    step["decision"]["selectedOptionId"] = "option_02"  # support: 허용 경로가 있으면 이탈
+    run["summary"]["path"].append(visit(1, "support", "MODEL_NAVIGATION", 1))
+    run["summary"]["extraSteps"] = None
+    run["referencePathConfig"] = None
+    assert types(detect_issues(run, [step], [])) == []
