@@ -201,3 +201,37 @@ def test_compare_with_steps_finds_mismatch_and_skips_test_mode_and_retry():
     problems = sitemap.compare_with_steps(site_map, SHOP, [ok, wrong, test_mode, retry, unknown])
     assert len(problems) == 2
     assert "지도에만" in problems[0] and "'cart'" in problems[1]
+
+
+# ---------------------------------------------------------------- 사이트 설정 파일 (다른 사이트 대비)
+
+SITE = {"name": "t", "pages": {"start": "/app/start", "goal": "/app/goal"}, "startPage": "start",
+        "pathPrefix": "/app/", "variants": {"main": "https://example.com"}, "siteMapVersion": "t-v1",
+        "out": "config/sitemaps/t.json"}
+
+
+def test_shop_config_comes_from_site_file():
+    assert SHOP.name == "moro-market" and SHOP.start_page == "home" and SHOP.path_prefix == "/shop/"
+    assert set(SHOP.variants) == {"before", "after"} and SHOP.preset_check is True
+    assert SHOP.out == "config/sitemaps/sitemap-shop-v1.json" and SHOP.site_map_version == "sitemap-v1"
+
+
+@pytest.mark.parametrize("change,word", [
+    ({"startPage": "nope"}, "시작 화면"), ({"pages": {}}, "pages"), ({"variants": {}}, "variants"),
+    ({"pathPrefix": "/app"}, "'/'로 끝나야"), ({"pages": {"start": "/app/start", "x": "/other/x"}}, "밖의 화면"),
+])
+def test_site_config_rejects_invalid(change, word):
+    with pytest.raises(SiteMapError) as e:
+        sitemap.site_config_from_dict({**SITE, **change})
+    assert any(word in r for r in e.value.reasons)
+    with pytest.raises(SiteMapError):
+        sitemap.site_config_from_dict({k: v for k, v in SITE.items() if k != "out"})
+
+
+def test_other_site_with_one_variant_and_no_preset_check():
+    config = sitemap.site_config_from_dict({**SITE, "allowedHosts": ["example.com"]})
+    assert config.preset_check is False
+    extracted = {"main": {"start": [cand("본문>/app/goal#1", "https://example.com/app/goal")], "goal": []}}
+    data = sitemap.build_site_map(config, extracted, version="t-v1", generated_at=NOW)
+    assert data["pages"]["start"]["edges"] == [{"semanticKey": "본문>/app/goal#1", "to": "goal"}]
+    assert sitemap.distances(data["pages"], "goal") == {"start": 1, "goal": 0}

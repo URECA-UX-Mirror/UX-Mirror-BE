@@ -6,7 +6,7 @@
 
 이 모듈은 브라우저를 열지 않는다. 후보 추출은 `scripts/build_sitemap.py`가 하고 여기에 넘긴다.
 
-지도 파일 (`config/sitemaps/<siteMapVersion>.json`)
+지도 파일 (`config/sitemaps/*.json`, 예: `sitemap-shop-v1.json`. 파일 이름이 아니라 안의 `siteMapVersion`으로 찾는다)
     {siteMapVersion, siteMapHash, siteVersion, layoutVersion, candidatePolicyVersion, initialBrowserStateId,
      viewport, startPageKey, generatedAt, pages: {pageKey: {path, edges: [{semanticKey, to}]}}}
 
@@ -19,6 +19,7 @@
 """
 import hashlib
 import json
+import os
 from collections import deque
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -34,13 +35,21 @@ class SiteMapError(Exception):
 
 @dataclass(frozen=True)
 class SiteConfig:
-    """지도를 만들 사이트 설정. 실제 사이트를 추가할 때는 이 설정만 바꾼다 (링크 따라가기 수집은 범위 밖)."""
+    """지도를 만들 사이트 설정. 실제 사이트를 추가할 때는 설정 파일(`config/sites/*.json`)만 새로 만든다.
+
+    화면 목록은 사람이 적는다(링크 따라가기 수집은 범위 밖). 후보 추출 규칙(`uxm/candidates.py`)은 아직
+    쇼핑몰(`/shop/`, 시작 화면 `/shop/home`)에 묶여 있어, 다른 사이트는 그 규칙을 사이트별로 바꾼 뒤에 지도가 나온다.
+    """
     name: str
     pages: dict[str, str]                 # pageKey → path (지원 화면 목록)
     start_page: str                       # 시작 화면 pageKey (상단 메뉴는 이 화면에서만 후보)
     path_prefix: str                      # 이 접두어 아래 경로만 지도에 넣는다 (허용 범위)
     meta: dict = field(default_factory=dict)   # siteVersion 등 지도 파일에 남길 고정 조건
     allowed_hosts: tuple[str, ...] = ()   # 허용 도메인(host[:port]). 비어 있으면 상대 경로(`/shop/...`)만 허용
+    variants: dict[str, str] = field(default_factory=dict)   # 지도를 만들 사이트 주소 {이름: 기본 URL}. 1개 이상
+    site_map_version: str = "sitemap-v1"
+    out: str = ""                         # 지도 파일 경로 (저장소 루트 기준)
+    preset_check: bool = False            # config/presets.json 허용 경로와 대조할지 (그 사이트용 preset이 있을 때만)
 
     def page_key(self, href: str | None) -> str | None:
         """후보 href → 지원 화면 pageKey. 쿼리·끝 `/`는 무시. 지원 화면이 아니면 None."""
@@ -58,15 +67,44 @@ class SiteConfig:
         return None
 
 
-SHOP = SiteConfig(
-    name="moro-market",
-    pages={"home": "/shop/home", "mypage": "/shop/mypage", "orders": "/shop/orders",
-           "support": "/shop/support", "refund": "/shop/refund"},
-    start_page="home",
-    path_prefix="/shop/",
-    meta={"siteVersion": "shop-v1", "layoutVersion": "shop-layout-v1", "candidatePolicyVersion": "candidate-v2",
-          "initialBrowserStateId": "clean-context-v1", "viewport": {"width": 1440, "height": 900}},
-)
+SITES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "sites")
+SITE_FIELDS = ("name", "pages", "startPage", "pathPrefix", "variants", "siteMapVersion", "out")
+
+
+def site_config_from_dict(data: dict) -> SiteConfig:
+    """사이트 설정 파일 내용 → SiteConfig. 빠진 필드·잘못된 값이면 SiteMapError."""
+    reasons = [f"사이트 설정 필드 '{f}' 없음" for f in SITE_FIELDS if f not in data]
+    if not reasons:
+        if not isinstance(data["pages"], dict) or not data["pages"]:
+            reasons.append("pages가 비어 있음")
+        elif data["startPage"] not in data["pages"]:
+            reasons.append(f"시작 화면 '{data['startPage']}'이 pages에 없음")
+        if not isinstance(data["variants"], dict) or not data["variants"]:
+            reasons.append("variants(사이트 주소)가 비어 있음")
+        if not str(data["pathPrefix"]).endswith("/"):
+            reasons.append("pathPrefix는 '/'로 끝나야 함 (예: /shop/)")
+        elif any(not (p.rstrip("/") + "/").startswith(data["pathPrefix"]) for p in data["pages"].values()):
+            reasons.append(f"pathPrefix '{data['pathPrefix']}' 밖의 화면이 pages에 있음")
+    if reasons:
+        raise SiteMapError(reasons)
+    return SiteConfig(name=data["name"], pages=dict(data["pages"]), start_page=data["startPage"],
+                      path_prefix=data["pathPrefix"], meta=dict(data.get("meta", {})),
+                      allowed_hosts=tuple(data.get("allowedHosts", ())), variants=dict(data["variants"]),
+                      site_map_version=data["siteMapVersion"], out=data["out"],
+                      preset_check=bool(data.get("presetCheck", False)))
+
+
+def load_site_config(path: str) -> SiteConfig:
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        raise SiteMapError([f"사이트 설정을 읽을 수 없음: {path} ({e})"]) from e
+    return site_config_from_dict(data)
+
+
+# 테스트 쇼핑몰 (MORO MARKET). 설정 원본은 config/sites/moro-market.json
+SHOP = load_site_config(os.path.join(SITES_DIR, "moro-market.json"))
 
 
 # ---------------------------------------------------------------- 간선·정규화·해시

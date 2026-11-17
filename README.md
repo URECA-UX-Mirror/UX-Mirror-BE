@@ -22,6 +22,7 @@ scripts/show_candidates.py  # 후보·도착 판정 확인 (모델 없음) → r
 results/README.md        # 남겨둔 결과별 의미
 scripts/build_shop.py  # shop/stitch_moro_market → shop/moro-before(8001), shop/moro-after(8002) 생성 + 라벨 1개 차이 검사
 scripts/build_sitemap.py  # 쇼핑몰 화면 5개(Before·After)에서 후보를 뽑아 사이트 지도 생성·검증 → config/sitemaps/ (쇼핑몰 서버 필요)
+config/sites/moro-market.json        # 사이트 지도용 사이트 설정 (화면 목록·시작 화면·경로 범위·허용 도메인·주소)
 config/sitemaps/sitemap-shop-v1.json  # 고정한 사이트 지도 (siteMapVersion·siteMapHash)
 shop/
   server.py              # 쇼핑몰 서버 원본 (build_shop.py가 두 쇼핑몰에 복사)
@@ -164,6 +165,7 @@ $env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
 - `siteMapHash`: `pages`만(메타데이터 제외), pageKey 순·`{path, edges}`만, 간선은 `{semanticKey, to}`만 중복 제거 후 `(semanticKey, to)` 순, `json.dumps(ensure_ascii=False, sort_keys=True, separators=(",", ":"))` → UTF-8 → SHA-256, `"sha256:"` + hex.
 - 현재 지도(`sitemap-v1`): home → mypage·orders·support, mypage → home·orders·refund·support, orders → home·refund, refund → home·orders, support → orders. 저장된 LIVE Run Step 76개와 대조해 불일치 0.
 - 루프·API·분석은 아직 이 지도를 쓰지 않는다(SITE_MAP 3단계 이후).
+- **다른 사이트**: `config/sites/`에 설정 파일(화면 목록, `startPage`, `pathPrefix`, `allowedHosts`, `variants` 주소, `siteMapVersion`, `out`, `presetCheck`)을 만들고 `--site 파일 --url 이름=주소`로 실행한다. 주소는 하나여도 된다(A/B가 아니면). 단, 후보 추출 규칙(`uxm/candidates.py`)이 아직 쇼핑몰(`/shop/`, 시작 화면 `/shop/home`)에 묶여 있어 그 규칙을 사이트별로 바꾸기 전에는 후보가 나오지 않는다.
 
 ## 확인된 모델 API (trida-stack 코드 기준)
 
