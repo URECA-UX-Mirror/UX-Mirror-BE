@@ -321,3 +321,23 @@ def test_collect_run_steps_reports_problems_and_keeps_complete_lines(tmp_path):
 def test_collect_run_steps_empty_is_visible(tmp_path):
     steps, problems = sitemap.collect_run_steps([], "shop-v1")
     assert (steps, problems) == ([], [])   # 스크립트는 Step 0개면 대조 실패로 처리하고 지도를 저장하지 않음
+
+
+# ---------------------------------------------------------------- Run에 넣을 SITE_MAP 설정 (#49)
+
+def test_site_map_reference_from_committed_map():
+    data = sitemap.load_site_map(MAP_FILE)
+    ref = sitemap.site_map_reference(data, "refund", "home")
+    assert ref["basis"] == "SITE_MAP" and ref["shortestSteps"] == 2 and ref["goalPageKey"] == "refund"
+    assert set(ref["distances"]) == set(SHOP.pages)   # 지원 화면 전부 (#47 재검증이 사전 전체 비교)
+    assert (ref["siteMapVersion"], ref["siteMapHash"]) == (data["siteMapVersion"], data["siteMapHash"])
+    assert sitemap.site_map_reference(data, "orders")["shortestSteps"] == 1
+
+
+def test_site_map_reference_rejects_other_start_or_unreachable_goal():
+    data = build()
+    with pytest.raises(SiteMapError):
+        sitemap.site_map_reference(data, "refund", "mypage")   # 지도는 home 시작 규칙으로 만들어짐
+    pages = {**data["pages"], "island": {"path": "/shop/island", "edges": []}}
+    with pytest.raises(SiteMapError):
+        sitemap.site_map_reference({**data, "pages": pages}, "island")
