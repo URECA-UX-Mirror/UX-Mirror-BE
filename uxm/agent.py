@@ -144,24 +144,59 @@ class PathBasis:
 NO_PATH_BASIS = PathBasis()
 
 
-def _path_basis(ref) -> PathBasis:
-    """Run의 `referencePathConfig` → PathBasis. 형식이 맞지 않으면 기준 없음 (경로 지표 null, 실행은 계속).
+def _path_basis(ref, start_page: str | None = None, goal_page: str | None = None) -> PathBasis:
+    """Run의 `referencePathConfig` → PathBasis. 형식·정합성이 맞지 않으면 기준 없음 (경로 지표 null, 실행은 계속).
 
     `basis`가 없는 과거 Run은 ALLOWED_PATHS로 읽는다 (설계 4.1).
+    start_page·goal_page: 이 Run의 실제 시작 화면과 성공 조건 도착 화면. 설정이 다른 화면을 기준으로 하면 쓰지 않는다.
+    #47 분석·비교(`uxm/reference.py`)와 같은 기준으로 검사해 Run 요약과 분석 결과가 어긋나지 않게 한다 (#50 리뷰).
     """
     if not isinstance(ref, dict):
         return NO_PATH_BASIS
     kind = ref.get("basis", "ALLOWED_PATHS")
-    if kind == "ALLOWED_PATHS":
-        allowed, shortest = ref.get("allowedPaths"), ref.get("shortestAllowedSteps")
-        if isinstance(allowed, list) and allowed and type(shortest) is int and shortest >= 0:
-            return PathBasis(kind, allowed_paths=allowed, shortest=shortest)
-    elif kind == "SITE_MAP":
-        dist, shortest = ref.get("distances"), ref.get("shortestSteps")
-        if (isinstance(dist, dict) and dist and type(shortest) is int and shortest >= 0
-                and all(isinstance(k, str) and (v is None or (type(v) is int and v >= 0)) for k, v in dist.items())):
-            return PathBasis(kind, shortest=shortest, distances=dist)
+    if kind == "ALLOWED_PATHS" and _allowed_paths_consistent(ref, start_page):
+        return PathBasis(kind, allowed_paths=ref["allowedPaths"], shortest=ref["shortestAllowedSteps"])
+    if kind == "SITE_MAP" and _site_map_consistent(ref, start_page, goal_page):
+        return PathBasis(kind, shortest=ref["shortestSteps"], distances=ref["distances"])
     return NO_PATH_BASIS
+
+
+def _nonempty_str(value) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _allowed_paths_consistent(ref: dict, start_page: str | None) -> bool:
+    """ALLOWED_PATHS: `version` 문자열, `allowedPaths`는 빈 값 없는 pageKey 목록들, `shortestAllowedSteps` 0 이상 정수.
+    실제 시작 화면을 알면 허용 경로가 모두 그 화면에서 시작해야 한다 (preset 로드의 `_check_start_path`와 같은 규칙).
+    """
+    allowed, shortest = ref.get("allowedPaths"), ref.get("shortestAllowedSteps")
+    if not (_nonempty_str(ref.get("version")) and type(shortest) is int and shortest >= 0):
+        return False
+    if not (isinstance(allowed, list) and allowed
+            and all(isinstance(path, list) and path and all(_nonempty_str(k) for k in path) for path in allowed)):
+        return False
+    return start_page is None or all(path[0] == start_page for path in allowed)
+
+
+def _site_map_consistent(ref: dict, start_page: str | None, goal_page: str | None) -> bool:
+    """SITE_MAP: 형식과 정합성.
+
+    - `siteMapVersion`·`siteMapHash`·`startPageKey`·`goalPageKey`: 빈 값 아닌 문자열
+    - `distances`: {빈 값 아닌 pageKey: 0 이상 정수 또는 None}, `shortestSteps`: 0 이상 정수
+    - `distances[goalPageKey] == 0`, `distances[startPageKey] == shortestSteps`
+    - 실제 시작 화면·성공 조건 도착 화면을 알면 `startPageKey`·`goalPageKey`와 같아야 한다
+    """
+    dist, shortest = ref.get("distances"), ref.get("shortestSteps")
+    start, goal = ref.get("startPageKey"), ref.get("goalPageKey")
+    if not all(_nonempty_str(ref.get(k)) for k in ("siteMapVersion", "siteMapHash", "startPageKey", "goalPageKey")):
+        return False
+    if not (isinstance(dist, dict) and dist and type(shortest) is int and shortest >= 0):
+        return False
+    if not all(_nonempty_str(k) and (v is None or (type(v) is int and v >= 0)) for k, v in dist.items()):
+        return False
+    if dist.get(goal) != 0 or dist.get(start) != shortest:
+        return False
+    return (start_page is None or start == start_page) and (goal_page is None or goal == goal_page)
 
 
 class _Loop:
@@ -171,7 +206,9 @@ class _Loop:
         self.store = RunStore.open_dir(settings["runDir"])
         self.origin = settings["resultOrigin"]
         self.success = settings["successCondition"]
-        self.path = _path_basis(settings.get("referencePathConfig"))   # 경로 기준 (#49)
+        # 경로 기준 (#49). 설정이 이 Run의 실제 시작 화면·성공 조건 도착 화면과 다른 화면 기준이면 쓰지 않는다
+        self.path = _path_basis(settings.get("referencePathConfig"), env.page_key(settings["startPath"]),
+                                env.page_key(self.success["path"]))
         self.off_map = False        # SITE_MAP: 지도에 없는 화면으로 이동하면 우회 이동·추가 단계를 계산하지 않음
         self.t0 = time.monotonic()
         self.pool = cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="uxm-model")
