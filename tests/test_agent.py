@@ -480,3 +480,127 @@ def test_storage_failure_ends_run(tmp_path, monkeypatch):
 def test_run_timeout(tmp_path):
     result, _, _ = go(tmp_path, [HOME_MYPAGE, CRUMB_HOME], delay=0.02, runTimeoutMs=10)
     assert (result["status"], result["terminationReason"]) == ("TIMEOUT", "RUN_TIMEOUT")
+
+
+# ---------------------------------------------------------------- 사이트 지도 기준 경로 지표 (#49)
+
+def site_map_run(tmp_path, answers, goal_page, distances, shortest=None, goal_text="목표 화면 찾기"):
+    """직접 입력 Run에 SITE_MAP 설정을 넣어 루프를 돌린다 (API 연결 전: Run에 설정 주입)."""
+    settings, store = start_run(tmp_path)
+    ref = {"basis": "SITE_MAP", "siteMapVersion": "sitemap-v1", "siteMapHash": "sha256:test",
+           "startPageKey": "home", "goalPageKey": goal_page,
+           "shortestSteps": distances["home"] if shortest is None else shortest, "distances": distances}
+    run = dict(settings["run"], goalId=None, goal=goal_text, referencePathConfig=ref,
+               verification={"type": "PATH_AND_VISIBLE_TEXT", "path": f"/shop/{goal_page}", "text": goal_page})
+    settings = agent_settings(run, None, store.dir, BASE + "/shop/home", BASE)
+    result = run_agent(settings, MockBackend(answers), FakePage("/shop/home"), fake_env())
+    return result, store
+
+
+def click_probs(step) -> dict[str, float]:
+    return {c["href"].rsplit("/", 1)[-1]: c["probability"] for c in step["candidateSet"]["candidates"]}
+
+
+# 지도 sitemap-v1의 주문 목표 거리 + 가짜 쇼핑몰의 쿠폰함(지도에 없음)
+ORDERS_DIST = {"home": 1, "mypage": 1, "orders": 0, "refund": 1, "support": 1}
+
+
+def test_site_map_orders_goal_v1_detour_and_extra_steps(tmp_path):
+    """주문 목표 v1 home→mypage→orders: 추가 단계 1, 우회 1 (home 1 → mypage 1, 거리가 줄지 않음)."""
+    result, store = site_map_run(tmp_path, [HOME_MYPAGE, MYPAGE_ORDERS], "orders", ORDERS_DIST)
+    steps, _, _ = check_contract(result, store)
+    sm = result["summary"]
+    assert result["status"] == "SUCCESS"
+    assert (sm["extraSteps"], sm["detourMoveCount"], sm["referencePathDeviationCount"]) == (1, 1, None)
+    assert (sm["extraNavigationCost"], sm["attemptedExtraSteps"]) == (1, 1)
+    # home(d1): 거리를 줄이는 후보는 orders(d0)뿐
+    assert steps[0]["decision"]["goalPathProbability"] == pytest.approx(click_probs(steps[0])["orders"])
+    # mypage: 쿠폰함(coupons)이 지도에 없음 → 부분합을 내지 않고 null
+    assert steps[1]["decision"]["goalPathProbability"] is None
+
+
+def test_site_map_orders_goal_v2_no_detour(tmp_path):
+    result, store = site_map_run(tmp_path, [HOME_ORDERS], "orders", ORDERS_DIST)
+    sm = result["summary"]
+    assert (result["status"], sm["extraSteps"], sm["detourMoveCount"]) == ("SUCCESS", 0, 0)
+
+
+def test_site_map_goal_path_probability_zero_and_sum(tmp_path):
+    """모든 후보 거리를 알고 줄이는 후보가 없으면 0, 있으면 그 후보 확률 합."""
+    dist = {"home": 1, "orders": 1, "support": 1, "mypage": 2, "coupons": 2, "refund": 0}
+    result, store = site_map_run(tmp_path, [HOME_MYPAGE, MYPAGE_ORDERS, REFUND], "refund", dist)
+    steps, _, _ = check_contract(result, store)
+    sm = result["summary"]
+    assert result["status"] == "SUCCESS"
+    assert steps[0]["decision"]["goalPathProbability"] == 0   # home(d1): orders·support(1), mypage(2) → 줄이는 후보 없음
+    p = click_probs(steps[1])                                  # mypage(d2): home·orders(1)가 줄임, coupons(2)는 아님
+    assert steps[1]["decision"]["goalPathProbability"] == pytest.approx(p["home"] + p["orders"])
+    assert steps[2]["decision"]["goalPathProbability"] == pytest.approx(click_probs(steps[2])["refund"])
+    # 우회: home(1)→mypage(2) 1회. mypage(2)→orders(1), orders(1)→refund(0)은 줄어듦. 추가 단계 = 3 − 1
+    assert (sm["detourMoveCount"], sm["extraSteps"]) == (1, 2)
+
+
+def test_site_map_back_is_not_detour(tmp_path):
+    """모델 GO_BACK은 우회 이동으로 세지 않는다 (navigationCost에는 그대로 들어감)."""
+    result, store = site_map_run(tmp_path, [HOME_MYPAGE, "GO_BACK", HOME_ORDERS], "orders",
+                                 {**ORDERS_DIST, "coupons": 2})
+    sm = result["summary"]
+    assert result["status"] == "SUCCESS" and sm["modelBackCount"] == 1
+    assert (sm["detourMoveCount"], sm["extraSteps"], sm["navigationCost"]) == (1, 1, 3)
+
+
+def test_site_map_off_map_page_makes_path_metrics_null(tmp_path):
+    dist = {k: v for k, v in ORDERS_DIST.items() if k != "mypage"}   # mypage가 지도에 없음
+    result, store = site_map_run(tmp_path, [HOME_MYPAGE, MYPAGE_ORDERS], "orders", dist)
+    sm = result["summary"]
+    assert result["status"] == "SUCCESS"
+    assert (sm["detourMoveCount"], sm["extraSteps"], sm["extraNavigationCost"], sm["attemptedExtraSteps"]) == (
+        None, None, None, None)
+
+
+def test_site_map_unreachable_distance_is_not_unknown(tmp_path):
+    """distances 값 null(도착 화면으로 갈 수 없는 화면)은 모르는 값이 아니라 거리를 줄이지 않는 화면이다."""
+    dist = {**ORDERS_DIST, "support": None}
+    result, store = site_map_run(tmp_path, [HOME_ORDERS], "orders", dist)
+    steps, _, _ = check_contract(result, store)
+    assert steps[0]["decision"]["goalPathProbability"] == pytest.approx(click_probs(steps[0])["orders"])
+
+
+def test_site_map_goal_not_reached_has_null_extra_steps(tmp_path):
+    result, store = site_map_run(tmp_path, [HOME_MYPAGE, CRUMB_HOME], "orders", {**ORDERS_DIST, "coupons": 2},
+                                 )
+    sm = result["summary"]
+    assert result["status"] != "SUCCESS"
+    assert sm["extraSteps"] is None and sm["detourMoveCount"] == 2   # home→mypage(1→1), mypage→home(1→1)
+
+
+@pytest.mark.parametrize("ref", [
+    None,
+    {"basis": "SITE_MAP", "shortestSteps": 1},                            # distances 없음
+    {"basis": "SITE_MAP", "shortestSteps": 1, "distances": {"home": "x"}},  # 잘못된 값
+    {"basis": "UNKNOWN"},
+])
+def test_no_or_invalid_basis_makes_path_metrics_null(tmp_path, ref):
+    settings, store = start_run(tmp_path)
+    run = dict(settings["run"], referencePathConfig=ref)
+    settings = agent_settings(run, Presets().goal("refund"), store.dir, BASE + "/shop/home", BASE)
+    result = run_agent(settings, MockBackend([HOME_ORDERS, REFUND]), FakePage("/shop/home"), fake_env())
+    steps, _, _ = check_contract(result, store)
+    sm = result["summary"]
+    assert result["status"] == "SUCCESS"
+    assert all(sm[k] is None for k in ("referencePathDeviationCount", "detourMoveCount", "extraSteps",
+                                       "extraNavigationCost", "attemptedExtraSteps"))
+    assert all(s["decision"]["goalPathProbability"] is None for s in steps)
+
+
+def test_allowed_paths_run_unchanged_and_detour_null(tmp_path):
+    """preset(허용 경로, basis 없는 형식)은 기존 계산 그대로이고 우회 이동은 null."""
+    result, store, _ = go(tmp_path, [HOME_MYPAGE, MYPAGE_ORDERS, REFUND])
+    sm = result["summary"]
+    assert (sm["extraSteps"], sm["referencePathDeviationCount"], sm["detourMoveCount"]) == (1, 0, None)
+    settings, store2 = start_run(tmp_path / "explicit")
+    run = dict(settings["run"], referencePathConfig={**settings["run"]["referencePathConfig"], "basis": "ALLOWED_PATHS"})
+    settings = agent_settings(run, Presets().goal("refund"), store2.dir, BASE + "/shop/home", BASE)
+    explicit = run_agent(settings, MockBackend([HOME_MYPAGE, MYPAGE_ORDERS, REFUND]), FakePage("/shop/home"), fake_env())
+    assert {k: explicit["summary"][k] for k in ("extraSteps", "referencePathDeviationCount", "detourMoveCount")} == {
+        k: sm[k] for k in ("extraSteps", "referencePathDeviationCount", "detourMoveCount")}

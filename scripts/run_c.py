@@ -11,6 +11,8 @@
       .venv\\Scripts\\python scripts\\run_c.py --variant before --goal refund-from-mypage-test
     testMode (C4·C6):
       .venv\\Scripts\\python scripts\\run_c.py --variant before --test-mode nochange --mock ...
+    사이트 지도 기준 경로 지표 (#49, 실행 API가 SITE_MAP을 저장하기 전 확인용):
+      .venv\\Scripts\\python scripts\\run_c.py --variant before --site-map --mock "상단 메뉴>/shop/mypage#1" ...
     눈으로 보기 (브라우저 창, 행동마다 3초 멈춤, 끝나면 Enter로 닫기):
       .venv\\Scripts\\python scripts\\run_c.py --variant after --watch 3
 """
@@ -82,6 +84,8 @@ def main(argv=None) -> int:
     ap.add_argument("--mock-delay", type=float, default=0.0, help="가짜 모델 응답 지연(초). C10")
     ap.add_argument("--model-timeout-ms", type=int, default=None, help="C10처럼 시험할 때만")
     ap.add_argument("--test-mode", choices=("deadend", "nochange"), default=None, help="C4·C6")
+    ap.add_argument("--site-map", action="store_true",
+                    help="경로 지표를 사이트 지도(SITE_MAP) 기준으로 계산 (#49). config/sitemaps의 지도로 Run에 설정을 넣음")
     ap.add_argument("--headed", action="store_true", help="브라우저 창 띄우기")
     ap.add_argument("--watch", type=float, default=0.0, metavar="초",
                     help="눈으로 보기: 창을 띄우고, 단계마다 확률 배지를 이만큼 보여 준 뒤 클릭하고, 이동한 화면도 "
@@ -111,6 +115,12 @@ def main(argv=None) -> int:
     run = run_factory.build_run(req, goal, persona, model)
     if a.model_timeout_ms:
         run["limits"]["modelTimeoutMs"] = a.model_timeout_ms
+    if a.site_map:   # 실행 API가 SITE_MAP을 저장하기 전, 루프 확인용으로 설정을 직접 넣는다
+        from uxm import sitemap
+        site_map = sitemap.load_site_map(os.path.join(ROOT, sitemap.SHOP.out))
+        goal_page = sitemap.SHOP.page_key(run["verification"]["path"])
+        run["referencePathConfig"] = sitemap.site_map_reference(site_map, goal_page,
+                                                                sitemap.SHOP.page_key(run["startPath"]))
     store = RunStore(run["runId"])
     store.create(run)
 
