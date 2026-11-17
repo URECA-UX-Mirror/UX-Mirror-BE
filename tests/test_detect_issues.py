@@ -178,3 +178,19 @@ def test_no_reference_path_skips_path_rules(record):
     run["summary"]["extraSteps"] = None
     run["referencePathConfig"] = None
     assert types(detect_issues(run, [step], [])) == []
+
+
+def test_no_reference_path_keeps_other_rules(record):
+    """허용 경로가 없어도 경로와 무관한 규칙(선택 모호·재방문·목표 미도달)은 그대로 생성된다."""
+    run, step = simple(record)
+    run["referencePathConfig"] = None
+    run["status"], run["terminationReason"] = "MAX_STEPS", "MAX_STEPS_REACHED"
+    run["summary"].update(goalReached=False, extraSteps=None)
+    step["decision"].update(selectedOptionId="option_02", clickOnlyNormalizedEntropy=1.0, clickOnlyTop2Margin=0.0)
+    back = copy.deepcopy(step)
+    back["stepId"] = 2
+    back["page"].update(pageKey="support", pageSignature="support_default", path="/shop/support")
+    back["action"].update(actionType="GO_BACK", result="NAVIGATED")
+    run["summary"]["path"] += [visit(1, "support", "MODEL_NAVIGATION", 1), visit(2, "home", "MODEL_BACK", 2)]
+    found = set(types(detect_issues(run, [step, back], [])))
+    assert found == {"CHOICE_AMBIGUITY", "REPEATED_VISIT", "GOAL_NOT_REACHED"}
