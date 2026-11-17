@@ -68,6 +68,8 @@ def start(client, app, variant, key="e2e_exp"):
     created = r.json()
     assert created["status"] == "READY" and created["variant"] == variant
     app.state.runner.wait(60)
+    # 시간 안에 안 끝나면 다음 POST의 RUN_ALREADY_ACTIVE나 RUNNING 비교 실패로 보이지 않게 여기서 멈춘다
+    assert app.state.runner.active_run_id is None, f"{variant} 실행이 60초 안에 끝나지 않음: {created['runId']}"
     return created["runId"]
 
 
