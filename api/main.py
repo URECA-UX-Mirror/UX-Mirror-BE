@@ -85,6 +85,12 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
                            f"startPath는 /shop/{{{','.join(SHOP_PAGES)}}} 중 하나여야 합니다.")
         if req.viewport is not None and req.viewport.model_dump() != P0_VIEWPORT:
             raise ApiError(422, "CONTRACT_VALIDATION_ERROR", "P0 viewport는 1440×900으로 고정입니다.")
+        if goal["goalId"] is None:   # 직접 입력한 목표는 허용 경로 대신 사이트 지도 기준 (preset은 ALLOWED_PATHS 유지)
+            try:
+                goal["referencePathConfig"] = run_factory.site_map_reference(
+                    req.startPath, goal["verification"], P0_VIEWPORT)
+            except ValueError as e:
+                raise _invalid(str(e)) from e
         runner.ensure_ready()
         run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
         runner.create(run, goal)
