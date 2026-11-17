@@ -14,12 +14,16 @@ uxm/
   candidates.py  # 화면에서 클릭 후보 추출(semanticKey·bbox), 확률 배지 그리기
   browser.py     # 브라우저 조작: open/close, click, go_back, reload, capture, page_key, page_signature (예외 대신 ActionResult)
   leak.py        # T-LEAK: 모델 입력에 variant/testMode/정답 마커 차단
+  sitemap.py     # 사이트 지도(SITE_MAP): 간선·해시·최단 거리·지도 검증·실제 Run 대조 (#46)
   config.py      # .env 로딩
 scripts/run_a.py # A 실행기 → results/json/a/, results/run_log.md
 scripts/run_b5.py        # B3+B5 실제 화면 확률 → results/json/b5/, results/screenshots/b5/
 scripts/show_candidates.py  # 후보·도착 판정 확인 (모델 없음) → results/json/candidates/, results/screenshots/candidates/
 results/README.md        # 남겨둔 결과별 의미
 scripts/build_shop.py  # shop/stitch_moro_market → shop/moro-before(8001), shop/moro-after(8002) 생성 + 라벨 1개 차이 검사
+scripts/build_sitemap.py  # 쇼핑몰 화면 5개(Before·After)에서 후보를 뽑아 사이트 지도 생성·검증 → config/sitemaps/ (쇼핑몰 서버 필요)
+config/sites/moro-market.json        # 사이트 지도용 사이트 설정 (화면 목록·시작 화면·경로 범위·허용 도메인·주소)
+config/sitemaps/sitemap-shop-v1.json  # 고정한 사이트 지도 (siteMapVersion·siteMapHash)
 shop/
   server.py              # 쇼핑몰 서버 원본 (build_shop.py가 두 쇼핑몰에 복사)
   stitch_moro_market/    # Stitch 시안 원본 (쇼핑몰 수정은 여기 또는 build_shop.py에서)
@@ -146,6 +150,22 @@ $env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
    - 홈은 그대로라 Before/After 라벨 비교에는 영향 없음.
 
 구현: `uxm/candidates.py`, 눈으로 확인: `scripts/show_candidates.py`, 실측: `scripts/run_b5.py`
+
+## 사이트 지도 (SITE_MAP, #46)
+
+직접 입력한 목표의 경로 지표를 위해, 위 후보 규칙으로 뽑은 링크만으로 "화면 → 갈 수 있는 화면" 지도를 만든다. 쇼핑몰 HTML 링크 전체를 쓰면 모든 화면이 서로 연결돼 최단 거리가 전부 1이 되기 때문이다. 설계: 「사이트 지도 기반 경로 지표 설계」 v2.1.
+
+```
+.venv\Scripts\python.exe scriptsuild_sitemap.py --check-runs   # 생성 + 저장된 LIVE Run 후보와 대조
+.venv\Scripts\python.exe scriptsuild_sitemap.py --dry-run      # 파일을 쓰지 않고 결과만
+```
+
+- 지원 화면 5개를 Before·After 각각 새 브라우저(viewport 1440×900, `clean-context-v1`, `candidate-v2`)로 열어 후보를 뽑는다. 간선 = `{fromPageKey, semanticKey, to}`(지원 화면으로 가는 후보만, GO_BACK 제외).
+- 검증(하나라도 실패하면 파일을 만들지 않음): 화면 누락(열기 실패·HTTP 오류 응답·다른 화면 도착 포함), Before·After 간선 일치, home에서 모든 화면 도달 가능, preset 허용 경로 대조(`refund` 최단 2, 허용 경로 3개가 지도상 경로). `--check-runs`는 읽기 문제·불일치가 있거나 **실제로 대조한 Step**이 0개여도 실패한다(testMode 화면·재판단 후보는 건너뛴 수로 따로 표시).
+- `siteMapHash`: `pages`만(메타데이터 제외), pageKey 순·`{path, edges}`만, 간선은 `{semanticKey, to}`만 중복 제거 후 `(semanticKey, to)` 순, `json.dumps(ensure_ascii=False, sort_keys=True, separators=(",", ":"))` → UTF-8 → SHA-256, `"sha256:"` + hex.
+- 현재 지도(`sitemap-v1`): home → mypage·orders·support, mypage → home·orders·refund·support, orders → home·refund, refund → home·orders, support → orders. 저장된 LIVE Run Step 76개와 대조해 불일치 0.
+- 루프·API·분석은 아직 이 지도를 쓰지 않는다(SITE_MAP 3단계 이후).
+- **다른 사이트**: `config/sites/`에 설정 파일(화면 목록, `startPage`, `pathPrefix`, `allowedHosts`, `variants` 주소, `siteMapVersion`, `out`, `presetCheck`)을 만들고 `--site 파일 --url 이름=주소`로 실행한다. 주소는 하나여도 된다(A/B가 아니면). 단, 후보 추출 규칙(`uxm/candidates.py`)이 아직 쇼핑몰(`/shop/`, 시작 화면 `/shop/home`)에 묶여 있어 그 규칙을 사이트별로 바꾸기 전에는 후보가 나오지 않는다.
 
 ## 확인된 모델 API (trida-stack 코드 기준)
 
