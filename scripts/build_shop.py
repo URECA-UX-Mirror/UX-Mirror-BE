@@ -193,11 +193,16 @@ def parity_ok(base: dict, other: dict, label: str) -> bool:
     return ok
 
 
-def build_variant(src: str, label: str, out: str) -> None:
-    """기획안 v1.3 4.4: before 소스로 빌드한 뒤 상단 메뉴 라벨 하나만 바꾼 사이트를 out에 만든다."""
-    out = os.path.abspath(out)
-    if out in {os.path.join(SHOP, proj) for proj, _ in VARIANTS.values()}:
+def build_variant(src: str, label: str, out: str, force: bool = False) -> None:
+    """기획안 v1.3 4.4: before 소스로 빌드한 뒤 상단 메뉴 라벨 하나만 바꾼 사이트를 out에 만든다.
+
+    이미 만든 변형은 siteInstanceId와 연결돼 평가에 쓰이므로, 비어 있지 않은 out은 force 없이는 덮어쓰지 않는다.
+    """
+    out = os.path.realpath(out)   # 심볼릭 링크로 P0 폴더를 가리키는 우회 방지
+    if out in {os.path.realpath(os.path.join(SHOP, proj)) for proj, _ in VARIANTS.values()}:
         sys.exit(f"{out}: P0 Before/After 사이트는 덮어쓰지 않는다")
+    if os.path.isdir(out) and os.listdir(out) and not force:
+        sys.exit(f"{out}: 이미 내용이 있다. 다시 만들려면 --force")
     base = {key: build_page(src, "", key) for key in PAGES}
     pages = {key: relabel_nav(html, label) for key, html in base.items()}
     if not parity_ok(base, pages, label):
@@ -210,11 +215,12 @@ def main():
     ap.add_argument("src", nargs="?", default=DEFAULT_SRC, help="Stitch 시안 폴더")
     ap.add_argument("--label", help="상단 주문 메뉴 라벨. 주면 --out에 변형 사이트 하나만 만든다")
     ap.add_argument("--out", help="--label 변형 사이트를 만들 폴더")
+    ap.add_argument("--force", action="store_true", help="--out에 내용이 있어도 다시 만든다")
     args = ap.parse_args()
     if bool(args.label) != bool(args.out):
         ap.error("--label과 --out은 같이 써야 한다")
     if args.label:
-        build_variant(args.src, args.label, args.out)
+        build_variant(args.src, args.label, args.out, args.force)
         return
 
     built = {v: {key: build_page(args.src, prefix, key) for key in PAGES} for v, (_, prefix) in VARIANTS.items()}

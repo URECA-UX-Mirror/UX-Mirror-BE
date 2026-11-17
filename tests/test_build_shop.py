@@ -40,6 +40,24 @@ def test_refuses_to_overwrite_p0_sites(proj):
         bs.build_variant(bs.DEFAULT_SRC, "주문·배송", os.path.join(bs.SHOP, proj))
 
 
+@pytest.mark.parametrize("proj", ["moro-before", "moro-after"])
+def test_refuses_symlink_to_p0_sites(tmp_path, proj):
+    link = tmp_path / "link"
+    link.symlink_to(os.path.join(bs.SHOP, proj))
+    with pytest.raises(SystemExit):
+        bs.build_variant(bs.DEFAULT_SRC, "주문·배송", str(link), force=True)
+
+
+def test_refuses_existing_output_without_force(tmp_path):
+    out = tmp_path / "C1"
+    bs.build_variant(bs.DEFAULT_SRC, "주문·배송", str(out))
+    with pytest.raises(SystemExit):
+        bs.build_variant(bs.DEFAULT_SRC, "주문·반품", str(out))
+    assert "주문·배송" in (out / "pages" / "home.html").read_text(encoding="utf-8")   # 기존 C1 그대로
+    bs.build_variant(bs.DEFAULT_SRC, "주문·반품", str(out), force=True)
+    assert "주문·반품" in (out / "pages" / "home.html").read_text(encoding="utf-8")
+
+
 def test_writes_variant_project(tmp_path):
     bs.build_variant(bs.DEFAULT_SRC, "주문·배송", str(tmp_path / "C1"))
     assert sorted(os.listdir(tmp_path / "C1" / "pages")) == sorted(f"{k}.html" for k in bs.PAGES)
