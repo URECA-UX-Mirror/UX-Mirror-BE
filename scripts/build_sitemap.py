@@ -31,19 +31,43 @@ KST = timezone(timedelta(hours=9))
 DEFAULT_SITE = os.path.join(sitemap.SITES_DIR, "moro-market.json")
 
 
+def open_page(url: str) -> tuple[dict, int | None]:
+    """새 브라우저로 화면을 열고 (세션, HTTP 상태)를 돌려준다. 조건은 `browser.open_browser`와 같다.
+
+    실행 경로(`uxm/browser.py`)는 바꾸지 않고, 응답 상태를 보려고 여기서 직접 연다 (#48 리뷰).
+    """
+    from playwright.sync_api import sync_playwright
+    from uxm import browser
+    pw = sync_playwright().start()
+    try:
+        b = pw.chromium.launch(headless=True)
+        context = b.new_context(viewport=browser.VIEWPORT)
+        page = context.new_page()
+        response = page.goto(url, wait_until="networkidle")
+    except Exception:
+        pw.stop()
+        raise
+    return {"playwright": pw, "browser": b, "context": context, "page": page}, (response.status if response else None)
+
+
 def extract_site(base_url: str, config: sitemap.SiteConfig) -> dict[str, list[dict] | None]:
-    """화면마다 새 브라우저로 열어 후보를 뽑는다. 실패한 화면은 None (지도 생성 실패로 이어짐)."""
+    """화면마다 새 브라우저로 열어 후보를 뽑는다. 열기 실패·오류 응답·다른 화면 도착이면 None (지도 생성 실패로 이어짐)."""
     from uxm import browser, candidates   # playwright는 여기서만 필요
     out: dict[str, list[dict] | None] = {}
     for key, path in config.pages.items():
         try:
-            session = browser.open_browser(base_url.rstrip("/") + path)
+            session, status = open_page(base_url.rstrip("/") + path)
         except Exception as e:   # 사이트 꺼짐·로딩 실패
             print(f"  {key}: 열기 실패 ({e})", file=sys.stderr)
             out[key] = None
             continue
         try:
-            out[key] = candidates.extract(session["page"])["candidates"]
+            problem = sitemap.page_load_problem(path, status, session["page"].url)
+            if problem:
+                print(f"  {key}: {problem}", file=sys.stderr)
+                out[key] = None
+            else:
+                out[key] = candidates.extract(session["page"])["candidates"]
         except Exception as e:
             print(f"  {key}: 후보 추출 실패 ({e})", file=sys.stderr)
             out[key] = None
@@ -68,22 +92,6 @@ def preset_checks(config: sitemap.SiteConfig) -> list[dict]:
         checks.append({"goalId": g["goalId"], "goalPage": goal_page, "allowedPaths": ref["allowedPaths"],
                        "shortestAllowedSteps": ref["shortestAllowedSteps"]})
     return checks
-
-
-def saved_steps(config: sitemap.SiteConfig) -> list[dict]:
-    """results/runs에서 이 사이트(siteVersion)의 LIVE Run Step (2단계 대조용)."""
-    steps = []
-    for run_dir in sorted(glob.glob(os.path.join(ROOT, "results", "runs", "*"))):
-        try:
-            with open(os.path.join(run_dir, "run.json"), encoding="utf-8") as f:
-                run = json.load(f)
-            if run.get("resultOrigin") != "LIVE" or run.get("siteVersion") != config.meta.get("siteVersion"):
-                continue
-            with open(os.path.join(run_dir, "steps.jsonl"), encoding="utf-8") as f:
-                steps += [json.loads(line) for line in f if line.strip()]
-        except (OSError, ValueError):
-            continue
-    return steps
 
 
 def variant_urls(config: sitemap.SiteConfig, overrides: list[str]) -> dict[str, str]:
@@ -136,11 +144,17 @@ def main() -> int:
         print(f"  {goal:8} " + "  ".join(f"{k}={v}" for k, v in d.items()))
 
     if args.check_runs:
-        steps = saved_steps(config)
+        run_dirs = sorted(glob.glob(os.path.join(ROOT, "results", "runs", "*")))
+        steps, read_problems = sitemap.collect_run_steps(run_dirs, config.meta.get("siteVersion"))
         problems = sitemap.compare_with_steps(site_map, config, steps)
-        print(f"\n실제 Run 대조: Step {len(steps)}개, 불일치 {len(problems)}개")
-        for p in problems:
+        print(f"\n실제 Run 대조: Step {len(steps)}개, 읽기 문제 {len(read_problems)}개, 불일치 {len(problems)}개")
+        for p in read_problems + problems:
             print(f"  - {p}")
+        # 대조를 요청했는데 확인하지 못했거나 어긋나면 지도를 저장하지 않는다 (Step 0개를 "불일치 0"으로 보이지 않게)
+        if not steps or read_problems or problems:
+            reason = "대조할 Step이 없음" if not steps else "읽기 문제 또는 불일치가 있음"
+            print(f"실제 Run 대조 실패: {reason}. 지도를 저장하지 않습니다.", file=sys.stderr)
+            return 1
 
     if not args.dry_run:
         os.makedirs(os.path.dirname(out), exist_ok=True)

@@ -235,3 +235,70 @@ def test_other_site_with_one_variant_and_no_preset_check():
     data = sitemap.build_site_map(config, extracted, version="t-v1", generated_at=NOW)
     assert data["pages"]["start"]["edges"] == [{"semanticKey": "본문>/app/goal#1", "to": "goal"}]
     assert sitemap.distances(data["pages"], "goal") == {"start": 1, "goal": 0}
+
+
+# ---------------------------------------------------------------- #48 리뷰: 화면 응답·Run 읽기·구조 오류
+
+@pytest.mark.parametrize("status,url,word", [
+    (404, "http://127.0.0.1:8001/shop/support", "HTTP 404"),
+    (500, "http://127.0.0.1:8001/shop/support", "HTTP 500"),
+    (None, "http://127.0.0.1:8001/shop/support", "응답이 없음"),
+    (200, "http://127.0.0.1:8001/shop/home", "다른 화면에 도착"),   # 리다이렉트 등
+])
+def test_page_load_problem_rejects_error_or_wrong_page(status, url, word):
+    assert word in sitemap.page_load_problem("/shop/support", status, url)
+
+
+def test_page_load_problem_accepts_normal_page():
+    assert sitemap.page_load_problem("/shop/support", 200, "http://127.0.0.1:8001/shop/support/?x=1") is None
+
+
+@pytest.mark.parametrize("data", [
+    None, [], {"siteMapVersion": "v", "siteMapHash": "h", "startPageKey": "home", "pages": None},
+    {"siteMapVersion": "v", "siteMapHash": "h", "startPageKey": "home", "pages": {}},
+    {"siteMapVersion": "", "siteMapHash": "h", "startPageKey": "home", "pages": {"home": {"path": "/", "edges": []}}},
+    {"siteMapVersion": "v", "siteMapHash": "h", "startPageKey": "home", "pages": {"home": "x"}},
+    {"siteMapVersion": "v", "siteMapHash": "h", "startPageKey": "home", "pages": {"home": {"path": "/", "edges": None}}},
+    {"siteMapVersion": "v", "siteMapHash": "h", "startPageKey": "home",
+     "pages": {"home": {"path": "/", "edges": [{"to": "home"}]}}},          # semanticKey 없음
+    {"siteMapVersion": "v", "siteMapHash": "h", "startPageKey": "home",
+     "pages": {"home": {"path": "/", "edges": ["edge"]}}},                    # 간선이 객체가 아님
+    {"siteMapVersion": "v", "siteMapHash": "h", "startPageKey": "home",
+     "pages": {"home": {"edges": []}}},                                        # path 없음
+    {"siteMapVersion": "v", "siteMapHash": "h", "startPageKey": "nope",
+     "pages": {"home": {"path": "/", "edges": []}}},
+])
+def test_invalid_structure_is_site_map_error_not_type_or_key_error(data):
+    with pytest.raises(SiteMapError):
+        sitemap.validate_site_map(data)
+
+
+def write_run(root, name, run, steps_text):
+    d = root / name
+    d.mkdir()
+    (d / "run.json").write_text(json.dumps(run), encoding="utf-8")
+    (d / "steps.jsonl").write_text(steps_text, encoding="utf-8")
+    return str(d)
+
+
+def test_collect_run_steps_reports_problems_and_keeps_complete_lines(tmp_path):
+    live = {"resultOrigin": "LIVE", "siteVersion": "shop-v1"}
+    ok = write_run(tmp_path, "ok", live, '{"stepId": 1}\n{"stepId": 2}\n{"stepId": 3')   # 마지막 줄은 쓰는 중
+    broken = write_run(tmp_path, "broken", live, '{"stepId": 1}\n{broken\n')
+    mock = write_run(tmp_path, "mock", {"resultOrigin": "MOCK", "siteVersion": "shop-v1"}, '{"stepId": 9}\n')
+    other = write_run(tmp_path, "other", {"resultOrigin": "LIVE", "siteVersion": "x"}, '{"stepId": 9}\n')
+    bad_run = tmp_path / "bad_run"
+    bad_run.mkdir()
+    (bad_run / "run.json").write_text("{", encoding="utf-8")
+    not_run = tmp_path / "not_run"
+    not_run.mkdir()
+    steps, problems = sitemap.collect_run_steps([ok, broken, mock, other, str(bad_run), str(not_run)], "shop-v1")
+    assert [s["stepId"] for s in steps] == [1, 2]   # 쓰는 중인 줄만 빠지고 앞의 정상 Step은 남음
+    assert len(problems) == 2
+    assert any("broken" in p and "steps.jsonl" in p for p in problems)
+    assert any("bad_run" in p and "run.json" in p for p in problems)
+
+
+def test_collect_run_steps_empty_is_visible(tmp_path):
+    steps, problems = sitemap.collect_run_steps([], "shop-v1")
+    assert (steps, problems) == ([], [])   # 스크립트는 Step 0개면 대조 실패로 처리하고 지도를 저장하지 않음

@@ -231,23 +231,52 @@ def build_site_map(config: SiteConfig, extracted: dict[str, dict[str, list[dict]
 REQUIRED_FIELDS = ("siteMapVersion", "siteMapHash", "startPageKey", "pages")
 
 
-def validate_site_map(data: dict) -> dict:
-    """지도 파일 내용 검사: 필수 필드, 해시 일치, 간선 목적지가 지도 안 화면인지."""
+def _structure_problems(data) -> list[str]:
+    """타입·필수 값 검사. 잘못된 구조가 TypeError·KeyError가 아니라 SiteMapError가 되도록 먼저 확인한다 (#48 리뷰)."""
+    if not isinstance(data, dict):
+        return ["지도 내용이 객체가 아님"]
     reasons = [f"필드 '{f}' 없음" for f in REQUIRED_FIELDS if f not in data]
     if reasons:
-        raise SiteMapError(reasons)
+        return reasons
+    for f in ("siteMapVersion", "siteMapHash", "startPageKey"):
+        if not isinstance(data[f], str) or not data[f].strip():
+            reasons.append(f"'{f}'는 빈 값이 아닌 문자열이어야 함")
     pages = data["pages"]
-    if data["startPageKey"] not in pages:
-        reasons.append(f"시작 화면 '{data['startPageKey']}'이 pages에 없음")
+    if not isinstance(pages, dict) or not pages:
+        return reasons + ["'pages'는 비어 있지 않은 객체여야 함"]
     for key, page in pages.items():
-        for e in page.get("edges", []):
-            if e.get("to") not in pages:
-                reasons.append(f"'{key}' 간선 목적지 '{e.get('to')}'이 pages에 없음")
-    actual = site_map_hash(pages)
-    if actual != data["siteMapHash"]:
-        reasons.append(f"해시 불일치: 파일 {data['siteMapHash']} ≠ 계산 {actual}")
+        if not isinstance(key, str) or not key:
+            reasons.append(f"화면 이름 {key!r}이 올바르지 않음")
+            continue
+        if not isinstance(page, dict):
+            reasons.append(f"'{key}' 화면이 객체가 아님")
+            continue
+        if not isinstance(page.get("path"), str) or not page["path"]:
+            reasons.append(f"'{key}' 화면의 path가 없음")
+        edges = page.get("edges")
+        if not isinstance(edges, list):
+            reasons.append(f"'{key}' 화면의 edges가 목록이 아님")
+            continue
+        for i, e in enumerate(edges):
+            if not isinstance(e, dict):
+                reasons.append(f"'{key}' 간선 {i}가 객체가 아님")
+            elif not isinstance(e.get("semanticKey"), str) or not e["semanticKey"]:
+                reasons.append(f"'{key}' 간선 {i}에 semanticKey가 없음")
+            elif not isinstance(e.get("to"), str) or e["to"] not in pages:
+                reasons.append(f"'{key}' 간선 목적지 {e.get('to')!r}이 pages에 없음")
+    if isinstance(data["startPageKey"], str) and data["startPageKey"] not in pages:
+        reasons.append(f"시작 화면 '{data['startPageKey']}'이 pages에 없음")
+    return reasons
+
+
+def validate_site_map(data: dict) -> dict:
+    """지도 파일 내용 검사: 구조(타입·필수 값), 간선 목적지, 해시 일치. 문제가 있으면 항상 SiteMapError."""
+    reasons = _structure_problems(data)
     if reasons:
         raise SiteMapError(reasons)
+    actual = site_map_hash(data["pages"])
+    if actual != data["siteMapHash"]:
+        raise SiteMapError([f"해시 불일치: 파일 {data['siteMapHash']} ≠ 계산 {actual}"])
     return data
 
 
@@ -259,6 +288,23 @@ def load_site_map(path: str) -> dict:
     except (OSError, ValueError) as e:
         raise SiteMapError([f"지도 파일을 읽을 수 없음: {path} ({e})"]) from e
     return validate_site_map(data)
+
+
+# ---------------------------------------------------------------- 화면 열기 결과 검사
+
+def page_load_problem(expected_path: str, status: int | None, final_url: str) -> str | None:
+    """지원 화면을 열었을 때 정상 응답이고 기대한 화면에 도착했는지. 문제가 있으면 이유 (#48 리뷰).
+
+    오류 화면(404 등)이나 다른 화면으로 넘어간 경우를 후보 추출 성공으로 처리하면 잘못된 지도가 저장될 수 있다.
+    """
+    if status is None:
+        return "응답이 없음"
+    if not 200 <= status < 300:
+        return f"HTTP {status}"
+    arrived = urlsplit(final_url).path.rstrip("/")
+    if arrived != expected_path.rstrip("/"):
+        return f"다른 화면에 도착: {arrived or '/'} (기대 {expected_path})"
+    return None
 
 
 # ---------------------------------------------------------------- 실제 Run과 대조 (2단계)
@@ -285,3 +331,31 @@ def compare_with_steps(site_map: dict, config: SiteConfig, steps: list[dict]) ->
             problems.append(f"{step.get('runId')} step {step.get('stepId')} '{key}': "
                             f"Step에만 {sorted(actual - expected)}, 지도에만 {sorted(expected - actual)}")
     return problems
+
+
+def collect_run_steps(run_dirs: list[str], site_version: str | None) -> tuple[list[dict], list[str]]:
+    """저장된 LIVE Run의 Step과 읽기 문제 목록. 같은 사이트(`siteVersion`) Run만.
+
+    쓰는 중인 마지막 줄은 `storage.read_jsonl` 규칙대로 빼고 앞의 정상 Step은 쓴다.
+    읽을 수 없는 Run은 조용히 건너뛰지 않고 문제 목록에 남긴다 (#48 리뷰).
+    """
+    from uxm.storage import read_jsonl
+    steps, problems = [], []
+    for run_dir in run_dirs:
+        name = os.path.basename(run_dir.rstrip("/\\"))
+        run_path = os.path.join(run_dir, "run.json")
+        if not os.path.isfile(run_path):
+            continue   # Run 폴더가 아님 (예: 샘플 폴더의 다른 파일)
+        try:
+            with open(run_path, encoding="utf-8") as f:
+                run = json.load(f)
+        except (OSError, ValueError) as e:
+            problems.append(f"{name}: run.json을 읽을 수 없음 ({e})")
+            continue
+        if run.get("resultOrigin") != "LIVE" or run.get("siteVersion") != site_version:
+            continue
+        try:
+            steps += read_jsonl(os.path.join(run_dir, "steps.jsonl"))
+        except (OSError, ValueError) as e:
+            problems.append(f"{name}: steps.jsonl을 읽을 수 없음 ({e})")
+    return steps, problems
