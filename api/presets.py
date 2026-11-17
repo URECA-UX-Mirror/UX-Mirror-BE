@@ -75,4 +75,8 @@ def _check_verification(goal: dict) -> None:
         raise ValueError(f"goalId={gid}: verification.exact는 true/false여야 합니다.")
     if "scope" in v and v["scope"] not in SCOPES:
         raise ValueError(f"goalId={gid}: verification.scope는 {'/'.join(SCOPES)} 중 하나여야 합니다.")
+    # 허용 경로는 도착 화면에서 끝나야 extraSteps·경로 이탈이 맞게 계산된다
+    goal_page = v["path"].rstrip("/").removeprefix("/shop/")
+    if any(p[-1] != goal_page for p in goal["referencePathConfig"]["allowedPaths"]):
+        raise ValueError(f"goalId={gid}: 허용 경로는 모두 도착 화면 {goal_page}에서 끝나야 합니다.")
     success_condition(goal)
