@@ -58,7 +58,7 @@ copy .env.example .env
 | Method | 주소 | 내용 |
 |---|---|---|
 | GET | `/api/presets` | 목표·페르소나 선택지 (`?includeTest=true`면 C3용 테스트 전용 목표 포함) |
-| POST | `/api/runs` | Run 생성 `{experimentKey, variant, goalId, personaId, maxSteps?, startPath?}` → `201` READY, 실행은 별도 스레드 |
+| POST | `/api/runs` | Run 생성 `{experimentKey, variant, goalId|goal+verification, personaId|persona, maxSteps?, startPath?}` → `201` READY, 실행은 별도 스레드 |
 | GET | `/api/runs` | Run 목록 `?experimentKey=&variant=` (계약 밖 추가) |
 | GET | `/api/runs/{runId}` | 상태·요약 |
 | GET | `/api/runs/{runId}/steps` | 저장이 끝난 Step |
@@ -71,7 +71,10 @@ copy .env.example .env
 - 에이전트 루프(`uxm/agent.py`)나 브라우저(`uxm/browser.py`)가 없으면 `POST /api/runs`는 `503`.
 - Issue 분석(`detect_issues(run, steps, events)`)은 Run이 끝날 때 한 번만 돌고 `issues.json`을 쓴다. 조회 API는 파일을 쓰지 않는다. 분석 모듈이 없을 때 끝난 Run은 `PENDING`으로 남고, 비교는 `409 COMPARISON_NOT_READY`(분석 `FAILED`면 `500 ANALYSIS_ERROR`).
 - 나중에 분석하려면 `python scripts/analyze_runs.py --all` (`issues.json`만 쓰고 `run.json`은 건드리지 않음). 이렇게 분석한 Run은 저장된 `summary.detectedIssueTypes`가 비어 있을 수 있지만, `GET /api/runs/{runId}`와 비교 API는 완료된 `issues.json`에서 다시 계산한 값을 쓴다.
-- 목표마다 시작 화면이 정해져 있다 (`refund` = `/shop/home`, C3용 `refund-from-mypage-test` = `/shop/mypage`). 허용 경로가 시작 화면 기준이라 다른 화면에서는 실행하지 않는다. 생략하면 그 값을 쓰고 다르면 `422`.
+- 목표는 `goalId`(preset) 또는 `goal` 문장 + 성공 조건 `verification{path, text, exact?, scope?}` 중 하나, 사용자 유형은 `personaId` 또는 `persona` 문장 중 하나. 직접 입력 문장은 빈 값·200자 초과·누출 금지 문자열(`uxm/leak.py` `FORBIDDEN`: `before`, `after`, `variant` 등)이면 실행 전에 `422`. 성공 조건은 preset 로드와 같은 검사(`_check_verification`)를 거친다.
+- Run에는 목표·사용자 유형·`verification`을 저장하고 루프·분석은 Run 값만 읽는다. `verification`은 공백 정리 + `exact=false`·`scope=page` 기본값을 채워 저장한다(preset 실행도 복사). 직접 입력한 목표는 허용 경로가 없어 `referencePathConfig: null` → 경로 이탈·추가 단계는 판정하지 않는다.
+- 같은 `experimentKey`의 두 번째 Run부터는 첫 Run과 `goalId`·`goal`·`personaId`·`persona`·`verification`이 같아야 한다 (다르면 `422`).
+- preset 목표마다 시작 화면이 정해져 있다 (`refund` = `/shop/home`, C3용 `refund-from-mypage-test` = `/shop/mypage`). 허용 경로가 시작 화면 기준이라 다른 화면에서는 실행하지 않는다. 생략하면 그 값을 쓰고 다르면 `422`.
 - `validity`·`invalidReason`은 루프가 넘긴 값을 쓰지 않고, 종료 시 `terminationReason`·`error.code`로 항상 다시 정한다 (계약 6.1 유효성 표).
 - `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
 

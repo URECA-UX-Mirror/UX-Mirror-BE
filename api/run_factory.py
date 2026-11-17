@@ -1,11 +1,13 @@
 """READY 상태의 Run 만들기와 종료 시 유효성 결정 (계약 6.1~6.6).
 
 Before/After 비교 조건(15.2)에 쓰이는 값은 모두 여기서 한 번에 채운다.
-문구는 요청이 아니라 preset에서 복사해 두 variant가 같은 문구를 쓰게 한다.
+문구·성공 조건은 preset에서 복사하거나 직접 입력값을 정리해 저장한다. 루프·분석은 Run 값만 읽는다.
+같은 experimentKey의 Run끼리 문구·성공 조건이 같은지는 `input_mismatch`로 확인한다 (runner.create).
 """
 import os
 import secrets
 
+from api.presets import normalize_verification
 from api.timeutil import now_iso, now_stamp
 from uxm import config as uxm_config
 from uxm.prompts import PROMPT_VERSION
@@ -81,7 +83,8 @@ def build_run(req, goal: dict, persona: dict, settings: dict) -> dict:
         "limits": limits,
         "thresholdConfig": dict(THRESHOLD_CONFIG),
         "analysisVersion": ANALYSIS_VERSION,
-        "referencePathConfig": goal["referencePathConfig"],
+        "referencePathConfig": goal["referencePathConfig"],   # 직접 입력한 목표면 None
+        "verification": normalize_verification(goal["verification"]),
         "comparisonContext": {
             "leakCheckPassed": None,
             "initialBrowserStateId": INITIAL_BROWSER_STATE_ID,
@@ -106,6 +109,15 @@ def build_run(req, goal: dict, persona: dict, settings: dict) -> dict:
         "invalidReason": None,
         "replacementRunId": None,
     }
+
+
+INPUT_FIELDS = ("goalId", "goal", "personaId", "persona", "verification")
+
+
+def input_mismatch(run: dict, other: dict) -> list[str]:
+    """같은 experimentKey의 Run끼리 다른 입력 필드. verification이 없는 이전 Run은 그 필드를 비교하지 않는다."""
+    return [k for k in INPUT_FIELDS
+            if not (k == "verification" and "verification" not in other) and run.get(k) != other.get(k)]
 
 
 # ---- 종료 상태 → 유효성 (계약 6.1 유효성 표)

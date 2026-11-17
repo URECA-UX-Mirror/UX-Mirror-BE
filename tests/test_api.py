@@ -257,6 +257,85 @@ def test_create_rejects_invalid_request(make_client, over):
     assert r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"
 
 
+# ---- 직접 입력한 목표·사용자 유형
+
+DIRECT_V = {"path": "/shop/orders", "text": "주문/배송 조회"}
+
+
+def direct(**over) -> dict:
+    b = {"experimentKey": "exp_direct", "variant": "before", "goal": "  주문 내역 화면 찾기 ",
+         "persona": "쇼핑몰을 처음 쓰는 사용자", "verification": DIRECT_V, **over}
+    return {k: v for k, v in b.items() if v is not None}
+
+
+def test_direct_input_is_normalized_and_saved(make_client):
+    client, integ, app = make_client()
+    r = client.post("/api/runs", json=direct(verification={"path": " /shop/orders ", "text": " 주문/배송 조회 "}))
+    assert r.status_code == 201, r.text
+    app.state.runner.wait(5)
+    run = client.get(f"/api/runs/{r.json()['runId']}").json()
+    assert (run["goalId"], run["goal"], run["personaId"], run["persona"]) == (
+        None, "주문 내역 화면 찾기", None, "쇼핑몰을 처음 쓰는 사용자")
+    assert run["verification"] == {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/orders",
+                                   "text": "주문/배송 조회", "exact": False, "scope": "page"}
+    assert run["referencePathConfig"] is None and run["startPath"] == "/shop/home"
+    assert integ.received_settings["successCondition"] == {
+        "path": "/shop/orders", "text": "주문/배송 조회", "exact": False, "scope": "page"}
+
+
+def test_preset_run_copies_verification(make_client):
+    client, _, app = make_client()
+    run = run_and_wait(client, app)
+    assert run["verification"] == Presets().goal("refund")["verification"]
+
+
+def test_mixed_preset_goal_and_direct_persona(make_client):
+    client, _, app = make_client()
+    run = run_and_wait(client, app, personaId=None, persona="급한 사용자")
+    assert (run["goalId"], run["personaId"], run["persona"]) == ("refund", None, "급한 사용자")
+
+
+@pytest.mark.parametrize("over", [
+    {"goalId": "refund"},                                  # goalId·goal 둘 다
+    {"goal": None, "verification": None},                  # 둘 다 없음
+    {"verification": None},                                # 직접 입력인데 성공 조건 없음
+    {"goal": None, "goalId": "refund"},                    # preset인데 성공 조건 보냄
+    {"personaId": "novice-shopper"}, {"persona": None},
+    {"goal": "   "}, {"persona": ""},
+    {"goal": "가" * 201}, {"persona": "가" * 201},
+    {"goal": "after 화면에서 환불 찾기"}, {"goal": "variant 확인"}, {"persona": "before 사용자"},
+    {"verification": {"path": "/orders", "text": "주문"}},
+    {"verification": {"path": "/shop/orders", "text": "  "}},
+    {"verification": {"path": "/shop/orders", "text": "주문", "scope": "body"}},
+    {"verification": {"path": "/shop/orders", "text": "주문", "type": "URL_ONLY"}},
+    {"verification": {"path": "/shop/orders", "text": "가" * 101}},
+    {"startPath": "/shop/cart"},
+])
+def test_direct_input_rejected(make_client, over):
+    client, _, app = make_client()
+    r = client.post("/api/runs", json=direct(**over))
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"
+    assert app.state.store.list_runs() == []
+
+
+@pytest.mark.parametrize("over,ok", [
+    ({}, True),
+    ({"goal": "주문 내역 화면 찾기"}, True),                # 공백만 다르면 정리 후 같다
+    ({"goal": "배송 조회 화면 찾기"}, False),
+    ({"persona": "다른 사용자"}, False),
+    ({"verification": {**DIRECT_V, "exact": True}}, False),
+    ({"goal": None, "verification": None, "goalId": "refund"}, False),
+])
+def test_after_must_match_before_inputs(make_client, over, ok):
+    client, _, app = make_client()
+    assert client.post("/api/runs", json=direct()).status_code == 201
+    app.state.runner.wait(5)
+    r = client.post("/api/runs", json=direct(variant="after", **over))
+    assert r.status_code == (201 if ok else 422), r.text
+    app.state.runner.wait(5)
+
+
 @pytest.mark.parametrize("start", ["/shop/mypage", "/shop/orders", "/shop/support", "/shop/refund"])
 def test_refund_goal_rejects_other_start_page(make_client, start):
     """refund의 허용 경로는 모두 home에서 시작하므로 다른 화면에서는 실행하지 않는다."""

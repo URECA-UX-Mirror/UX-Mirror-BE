@@ -57,8 +57,14 @@ class Runner:
         with self._lock:
             if self._active is not None:
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
-            same = [r for r in self.store.list_runs()
-                    if r.get("experimentKey") == run["experimentKey"] and r.get("variant") == run["variant"]]
+            runs = [r for r in self.store.list_runs() if r.get("experimentKey") == run["experimentKey"]]
+            # Before/After는 같은 문구·성공 조건이어야 비교된다. 첫 Run과 다르면 만들지 않는다.
+            first = min(runs, key=lambda r: r.get("createdAt") or "", default=None)
+            diff = run_factory.input_mismatch(run, first) if first else []
+            if diff:
+                raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
+                               f"같은 experimentKey의 첫 실행과 입력이 다릅니다: {', '.join(diff)}")
+            same = [r for r in runs if r.get("variant") == run["variant"]]
             if any(r.get("status") in ("READY", "RUNNING") or r.get("validity") == "VALID" for r in same):
                 raise ApiError(409, "EXPERIMENT_RUN_EXISTS",
                                "같은 experimentKey와 variant에 유효하거나 진행 중인 실행이 이미 있습니다.")

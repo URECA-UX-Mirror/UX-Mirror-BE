@@ -240,7 +240,7 @@ def test_run_verification_wins_over_preset(tmp_path):
 
 def test_agent_settings_requires_success_condition(tmp_path):
     settings, store = start_run(tmp_path)
-    run = dict(settings["run"], goalId=None)
+    run = dict(settings["run"], goalId=None, verification=None)
     with pytest.raises(ValueError):
         agent_settings(run, None, store.dir, BASE + "/shop/home", BASE)
 

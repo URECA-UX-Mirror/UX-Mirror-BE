@@ -61,7 +61,7 @@ def _check_start_path(goal: dict) -> None:
 
 def _check_verification(goal: dict) -> None:
     """목표 판정 조건이 계약 2.3 형식인지. 루프에 넘기는 변환(`success_condition`)도 여기서 한 번 돌려 본다."""
-    gid = goal["goalId"]
+    gid = goal.get("goalId") or "(직접 입력)"
     v = goal.get("verification")
     if not isinstance(v, dict):
         raise ValueError(f"goalId={gid}: verification이 필요합니다.")
@@ -77,6 +77,14 @@ def _check_verification(goal: dict) -> None:
         raise ValueError(f"goalId={gid}: verification.scope는 {'/'.join(SCOPES)} 중 하나여야 합니다.")
     # 허용 경로는 도착 화면에서 끝나야 extraSteps·경로 이탈이 맞게 계산된다
     goal_page = v["path"].rstrip("/").removeprefix("/shop/")
-    if any(p[-1] != goal_page for p in goal["referencePathConfig"]["allowedPaths"]):
+    ref = goal.get("referencePathConfig")   # 직접 입력한 목표는 허용 경로가 없다 (None)
+    if ref and any(p[-1] != goal_page for p in ref["allowedPaths"]):
         raise ValueError(f"goalId={gid}: 허용 경로는 모두 도착 화면 {goal_page}에서 끝나야 합니다.")
     success_condition(goal)
+
+
+def normalize_verification(v: dict) -> dict:
+    """Run에 저장할 성공 조건. 공백 정리 + 생략된 exact·scope를 기본값으로 채운다 (분석·비교는 저장값을 그대로 비교)."""
+    cleaned = {k: (val.strip() if isinstance(val, str) else val) for k, val in v.items()
+               if k in ("path", "text", "exact", "scope") and val is not None}
+    return {"type": GOAL_CHECK_TYPE, **success_condition({"verification": cleaned})}
