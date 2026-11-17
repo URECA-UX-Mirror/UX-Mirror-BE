@@ -132,3 +132,45 @@ def test_api_runs_real_loop_and_compares_before_after(api):
     again = client.post("/api/runs", json={"experimentKey": "e2e_exp", "variant": "before",
                                            "goalId": "refund", "personaId": "novice-shopper"})
     assert again.status_code == 409 and again.json()["error"]["code"] == "EXPERIMENT_RUN_EXISTS"
+
+
+DIRECT = {"goal": "환불 신청 화면 찾기", "persona": "쇼핑몰을 처음 쓰는 사용자",
+          "verification": {"path": "/shop/refund", "text": "환불 / 반품 신청"}}
+
+
+def test_direct_input_site_map_metrics_end_to_end(api):
+    """직접 입력 목표: API가 SITE_MAP 기준을 저장(#50) → 루프가 지도 거리로 집계(#49) → 분석·비교(#47).
+
+    지도 거리(도착 refund): home 2, support 2, orders 1, refund 0.
+    Before home→support(거리 그대로: 우회 1)→orders→refund = 3번 클릭, After home→orders→refund = 2번.
+    """
+    client, app = api
+    ids = {}
+    for variant in ("before", "after"):
+        r = client.post("/api/runs", json={"experimentKey": "e2e_direct", "variant": variant, **DIRECT})
+        assert r.status_code == 201, r.text
+        app.state.runner.wait(60)
+        assert app.state.runner.active_run_id is None
+        ids[variant] = r.json()["runId"]
+
+    runs = {v: client.get(f"/api/runs/{i}").json() for v, i in ids.items()}
+    for run in runs.values():
+        assert (run["status"], run["validity"]) == ("SUCCESS", "VALID")
+        assert run["referencePathConfig"]["basis"] == "SITE_MAP"
+        assert run["referencePathConfig"]["shortestSteps"] == 2
+    b, a = runs["before"]["summary"], runs["after"]["summary"]
+    assert (b["extraSteps"], b["detourMoveCount"], b["referencePathDeviationCount"]) == (1, 1, None)
+    assert (a["extraSteps"], a["detourMoveCount"], a["referencePathDeviationCount"]) == (0, 0, None)
+
+    before_steps = client.get(f"/api/runs/{ids['before']}/steps").json()["items"]
+    assert all(s["decision"]["goalPathProbability"] is not None for s in before_steps)
+
+    issues = client.get(f"/api/runs/{ids['before']}/issues").json()
+    assert issues["analysisStatus"] == "COMPLETED"
+    types = [i["issueType"] for i in issues["items"]]
+    assert "EXTRA_STEPS" in types and "REFERENCE_PATH_DEVIATION" not in types
+
+    cmp = client.get("/api/comparisons/e2e_direct").json()
+    checks = {c["code"]: c for c in cmp["conditionChecks"]}
+    assert checks["REFERENCE_PATH_CONFIG_MATCHED"]["matched"] is True, checks["REFERENCE_PATH_CONFIG_MATCHED"]
+    assert cmp["conditionsMatched"] is True, [c for c in cmp["conditionChecks"] if not c["matched"]]
