@@ -363,6 +363,21 @@ def test_invalid_choice_is_not_executed(tmp_path):
     assert store.read_steps() == []
 
 
+def test_go_back_only_probability_keeps_metrics_warning(tmp_path):
+    # #20(계약 12.3): 클릭 후보 확률 합이 0이면 클릭 전용 지표는 null + NO_CLICK_PROBABILITY_MASS.
+    # 루프 내부 함수를 직접 부르지 않고 실제 Run의 저장된 Step으로 확인한다 (루프 정리 때 안 깨지게).
+    # orders 화면 후보: option_01 홈, option_02 환불, option_03 GO_BACK
+    back_only = {"choice": "option_03", "probabilities": {"option_01": 0.0, "option_02": 0.0, "option_03": 1.0}}
+    result, store, _ = go(tmp_path, [HOME_ORDERS, back_only, HOME_ORDERS, REFUND])
+    steps, _, _ = check_contract(result, store)
+    assert result["status"] == "SUCCESS"
+    d = steps[1]["decision"]
+    assert steps[1]["page"]["pageKey"] == "orders" and d["selectedActionType"] == "GO_BACK"
+    assert d["clickOnlyNormalizedEntropy"] is None and d["clickOnlyTop2Margin"] is None
+    assert [w["code"] for w in d["metricWarnings"]] == ["NO_CLICK_PROBABILITY_MASS"]
+    assert steps[0]["decision"]["metricWarnings"] == []   # 보통 화면은 경고 없음
+
+
 def test_bad_probabilities_is_model_response_invalid(tmp_path):
     bad = {"choice": "option_01", "probabilities": {"option_01": 0.9}}
     result, _, _ = go(tmp_path, [bad])
