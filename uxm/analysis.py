@@ -138,8 +138,13 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
 
     by_step = {step["stepId"]: step for step in steps}
     route, visits, causes = [], {}, {}
-    ref = run.get("referencePathConfig")   # 직접 입력한 목표는 None → 경로 이탈·추가 단계 판정 안 함
-    allowed = ref["allowedPaths"] if ref else None
+    ref = run.get("referencePathConfig")
+    basis = ref.get("basis", "ALLOWED_PATHS") if isinstance(ref, dict) else None
+    if basis == "SITE_MAP":
+        from uxm.reference import reference
+        if not reference(run)[0]:
+            basis = None
+    allowed = ref.get("allowedPaths") if basis == "ALLOWED_PATHS" else None
     for visit in summary["path"]:
         key, signature, cause = visit["pageKey"], visit["pageSignature"], visit["visitCause"]
         if cause == "RUN_START":
@@ -180,10 +185,13 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
             }, step["timestamp"], step=step))
 
     reached = summary["goalReached"]
-    if ref and reached and summary["extraSteps"] is not None and summary["extraSteps"] > 0:
+    shortest_field = {"ALLOWED_PATHS": "shortestAllowedSteps", "SITE_MAP": "shortestSteps"}.get(basis)
+    if (shortest_field and shortest_field in ref and reached and summary["extraSteps"] is not None
+            and summary["extraSteps"] > 0):
         found.append(create_issue(run, "EXTRA_STEPS", {
             "successfulNavigationClickCount": summary["successfulNavigationClickCount"],
-            "shortestAllowedSteps": run["referencePathConfig"]["shortestAllowedSteps"],
+            "basis": basis,
+            shortest_field: ref[shortest_field],
             "extraSteps": summary["extraSteps"],
         }, run["finishedAt"]))
     if not reached and run["status"] in ("MAX_STEPS", "BLOCKED"):

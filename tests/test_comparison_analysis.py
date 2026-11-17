@@ -188,6 +188,152 @@ def condition(result, code):
     return next(check for check in result["conditionChecks"] if check["code"] == code)
 
 
+@pytest.fixture
+def site_map_pair(pair, monkeypatch, tmp_path):
+    import uxm.reference as reference
+    monkeypatch.setattr(reference, "SITE_MAP_DIRECTORY", tmp_path)
+    for bundle in pair:
+        bundle["run"]["referencePathConfig"] = {
+            "basis": "SITE_MAP", "siteMapVersion": "fixture-v1", "siteMapHash": "fixture-hash",
+            "startPageKey": "home", "goalPageKey": "orders", "shortestSteps": 1,
+            "distances": {"home": 1, "mypage": 1, "orders": 0},
+        }
+        bundle["run"]["summary"].update(detourMoveCount=1, extraSteps=2, extraNavigationCost=2,
+                                        referencePathDeviationCount=None)
+    return pair
+
+
+def test_site_map_equal_and_missing_file_is_disclosed(site_map_pair):
+    snapshot = copy.deepcopy(site_map_pair)
+    result = compare(*site_map_pair)
+    check = condition(result, "REFERENCE_PATH_CONFIG_MATCHED")
+    assert check["matched"] and "재검증하지 않았습니다" in check["message"]
+    assert result["runComparison"]["before"]["detourMoveCount"] == 1
+    assert site_map_pair == snapshot
+
+
+@pytest.mark.parametrize("field,value", [
+    ("siteMapVersion", "different"), ("siteMapHash", "different"),
+    ("startPageKey", "mypage"), ("goalPageKey", "home"),
+    ("shortestSteps", 2), ("distances", {"home": 1, "mypage": 2, "orders": 0}),
+])
+def test_site_map_changed_field_disables_comparison(site_map_pair, field, value):
+    before, after = site_map_pair
+    after["run"]["referencePathConfig"][field] = value
+    result = compare(before, after)
+    assert not condition(result, "REFERENCE_PATH_CONFIG_MATCHED")["matched"]
+    assert result["comparisonStatus"] == "PARTIAL"
+    assert all(s["metrics"] is None or s["metrics"]["deltaGoalPathProbability"] is None
+               for s in result["screenComparisons"])
+
+
+@pytest.mark.parametrize("field", ["siteMapVersion", "siteMapHash", "startPageKey", "goalPageKey", "shortestSteps", "distances"])
+def test_missing_site_map_field_is_not_comparable(site_map_pair, field):
+    before, after = site_map_pair
+    del after["run"]["referencePathConfig"][field]
+    result = compare(before, after)
+    assert not condition(result, "REFERENCE_PATH_CONFIG_MATCHED")["matched"]
+    assert result["runComparison"]["before"]["extraSteps"] == 2
+    assert result["runComparison"]["after"]["extraSteps"] is None
+    assert result["runComparison"]["after"]["detourMoveCount"] is None
+    assert screen(result, "home")["metrics"]["afterGoalPathProbability"] is None
+
+
+def write_site_map(pair, tmp_path):
+    import hashlib
+    pages = {
+        "home": {"path": "/shop/home", "edges": [{"semanticKey": "menu>orders", "to": "orders"},
+                                                        {"semanticKey": "menu>mypage", "to": "mypage"}]},
+        "mypage": {"path": "/shop/mypage", "edges": [{"semanticKey": "order", "to": "orders"}]},
+        "orders": {"path": "/shop/orders", "edges": []},
+    }
+    normalized = copy.deepcopy(pages)
+    normalized["home"]["edges"].sort(key=lambda edge: (edge["semanticKey"], edge["to"]))
+    canonical = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    for bundle in pair:
+        bundle["run"]["referencePathConfig"]["siteMapHash"] = digest
+    path = tmp_path / "sitemap-shop-v1.json"
+    data = {"siteMapVersion": "fixture-v1", "siteMapHash": digest, "pages": pages}
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return path, data
+
+
+def test_site_map_file_hash_and_distances_are_verified(site_map_pair, tmp_path):
+    write_site_map(site_map_pair, tmp_path)
+    result = compare(*site_map_pair)
+    check = condition(result, "REFERENCE_PATH_CONFIG_MATCHED")
+    assert check["matched"] and check["message"] is None
+    assert result["runComparison"]["before"]["extraSteps"] == 2
+
+
+def test_site_map_comparison_through_api_and_saved(site_map_pair, tmp_path):
+    store = RunStore(str(tmp_path / "results"))
+    for bundle in site_map_pair:
+        run = bundle["run"]
+        store.save_run(run)
+        directory = Path(store.run_dir(run["runId"]))
+        (directory / "steps.jsonl").write_text("".join(json.dumps(s) + "\n" for s in bundle["steps"]))
+        store.save_issues(run["runId"], {"schemaVersion": run["schemaVersion"], "runId": run["runId"],
+                                         "analysisStatus": "COMPLETED", "items": []})
+    result = build_comparison(store, Integrations(), site_map_pair[0]["run"]["experimentKey"])
+    assert condition(result, "REFERENCE_PATH_CONFIG_MATCHED")["matched"]
+    assert result["runComparison"]["before"]["detourMoveCount"] == 1
+    saved = json.loads((tmp_path / "results" / "comparisons" / (result["experimentKey"] + ".json")).read_text())
+    assert saved == result
+
+
+def test_site_map_hash_ignores_edge_order_and_labels(site_map_pair, tmp_path):
+    path, data = write_site_map(site_map_pair, tmp_path)
+    edges = data["pages"]["home"]["edges"]
+    edges.reverse()
+    edges[0]["label"] = "라벨 변경"
+    edges.append(copy.deepcopy(edges[0]))
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    assert condition(compare(*site_map_pair), "REFERENCE_PATH_CONFIG_MATCHED")["matched"]
+
+
+@pytest.mark.parametrize("failure", ["hash", "distance", "tampered", "malformed"])
+def test_site_map_file_failures_hide_invalid_metrics(site_map_pair, tmp_path, failure):
+    path, data = write_site_map(site_map_pair, tmp_path)
+    if failure == "hash":
+        site_map_pair[1]["run"]["referencePathConfig"]["siteMapHash"] = "sha256:wrong"
+    elif failure == "distance":
+        site_map_pair[1]["run"]["referencePathConfig"]["distances"]["mypage"] = 2
+    elif failure == "tampered":
+        data["pages"]["home"]["edges"].pop()
+        path.write_text(json.dumps(data))
+    else:
+        path.write_text("{")
+    result = compare(*site_map_pair)
+    check = condition(result, "REFERENCE_PATH_CONFIG_MATCHED")
+    assert not check["matched"] and check["message"]
+    assert result["runComparison"]["after"]["extraSteps"] is None
+
+
+def test_other_map_version_does_not_validate_old_run(site_map_pair, tmp_path):
+    path, data = write_site_map(site_map_pair, tmp_path)
+    data["siteMapVersion"] = "newer"
+    path.write_text(json.dumps(data))
+    check = condition(compare(*site_map_pair), "REFERENCE_PATH_CONFIG_MATCHED")
+    assert check["matched"] and "재검증하지 않았습니다" in check["message"]
+
+
+def test_legacy_and_explicit_allowed_path_match(pair):
+    before, after = pair
+    after["run"]["referencePathConfig"]["basis"] = "ALLOWED_PATHS"
+    assert condition(compare(before, after), "REFERENCE_PATH_CONFIG_MATCHED")["matched"]
+
+
+def test_different_basis_or_null_cannot_match(site_map_pair):
+    before, after = site_map_pair
+    after["run"]["referencePathConfig"] = None
+    assert not condition(compare(before, after), "REFERENCE_PATH_CONFIG_MATCHED")["matched"]
+    after["run"]["referencePathConfig"] = {"basis": "ALLOWED_PATHS", "version": "v1",
+                                            "allowedPaths": [["home", "orders"]], "shortestAllowedSteps": 1}
+    assert not condition(compare(before, after), "REFERENCE_PATH_CONFIG_MATCHED")["matched"]
+
+
 @pytest.mark.parametrize("before_id,after_id", [(None, None), ("preset-a", None), ("preset-a", "preset-b")])
 def test_same_content_matches_despite_different_ids(pair, before_id, after_id):
     before, after = pair

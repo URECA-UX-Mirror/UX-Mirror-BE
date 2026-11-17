@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from uxm.goal import SCOPES
+from uxm.reference import reference as _reference
 
 
 _CONDITIONS = (
@@ -76,7 +77,6 @@ def _boxes_match(before, after):
 
 
 _VERIFICATION_FIELDS = ("type", "path", "text", "exact", "scope")
-_REFERENCE_FIELDS = ("version", "allowedPaths", "shortestAllowedSteps")
 
 
 def _verification(run):
@@ -92,25 +92,7 @@ def _verification(run):
     return tuple(value[k] for k in _VERIFICATION_FIELDS)
 
 
-def _reference(run):
-    """명시적 null과 누락·불완전한 설정을 구별한다."""
-    if "referencePathConfig" not in run:
-        return False, None
-    value = run["referencePathConfig"]
-    if value is None:
-        return True, None
-    if not isinstance(value, dict) or any(k not in value for k in _REFERENCE_FIELDS):
-        return False, None
-    if (not isinstance(value["version"], str) or not value["version"]
-            or not isinstance(value["allowedPaths"], list) or not value["allowedPaths"]
-            or not all(isinstance(path, list) and path and all(isinstance(key, str) and key for key in path)
-                       for path in value["allowedPaths"])
-            or type(value["shortestAllowedSteps"]) is not int or value["shortestAllowedSteps"] < 0):
-        return False, None
-    return True, tuple(value[k] for k in _REFERENCE_FIELDS)
-
-
-def _conditions(b, a, bs, ass):
+def _conditions(b, a, bs, ass, references):
     checks = []
     for code, paths in _CONDITIONS:
         if code == "GOAL_MATCHED":
@@ -130,11 +112,10 @@ def _conditions(b, a, bs, ass):
                                "message": "저장된 사용자 유형 문장을 확인할 수 없습니다."})
                 continue
         elif code == "REFERENCE_PATH_CONFIG_MATCHED":
-            before_known, before_ref = _reference(b)
-            after_known, after_ref = _reference(a)
+            (before_known, before_ref, before_note), (after_known, after_ref, after_note) = references
             if not before_known or not after_known:
                 checks.append({"code": code, "matched": False,
-                               "message": "저장된 허용 경로 설정을 확인할 수 없습니다."})
+                               "message": f"Before: {before_note or '확인됨'}; After: {after_note or '확인됨'}"})
                 continue
             bv, av = [before_ref], [after_ref]
         else:
@@ -146,6 +127,9 @@ def _conditions(b, a, bs, ass):
             matched = matched and _boxes_match(bs.get("home"), ass.get("home"))
         message = None if matched else f"Before={bv!r}, After={av!r}" + (
             "; home 후보 순서 또는 위치가 일치하지 않거나 home 기록이 없습니다." if code == "LAYOUT_MATCHED" else "")
+        if code == "REFERENCE_PATH_CONFIG_MATCHED" and (before_note or after_note):
+            note = "; ".join(dict.fromkeys(n for n in (before_note, after_note) if n))
+            message = f"{message}; {note}" if message else note
         checks.append({"code": code, "matched": matched, "message": message})
     return checks
 
@@ -243,23 +227,42 @@ def compare(before, after):
         if any(step["runId"] != bundle["run"]["runId"] for step in bundle["steps"]):
             raise ValueError("Step과 Run의 runId가 다릅니다.")
     bs, ass = _representatives(before["steps"]), _representatives(after["steps"])
-    checks = _conditions(b, a, bs, ass)
+    references = (_reference(b), _reference(a))
+    checks = _conditions(b, a, bs, ass, references)
     matched = all(check["matched"] for check in checks)
     keys = list(bs) + [key for key in ass if key not in bs]
     if "home" in keys:
         keys.remove("home")
         keys.insert(0, "home")
     screens = [_screen(key, bs.get(key), ass.get(key), matched) for key in keys]
+    invalid_site_map = []
+    for run, ref_result in zip((b, a), references):
+        ref = run.get("referencePathConfig")
+        invalid_site_map.append(isinstance(ref, dict) and ref.get("basis") == "SITE_MAP"
+                                and not ref_result[0])
+    for screen in screens:
+        metrics = screen["metrics"]
+        if metrics:
+            for side, invalid in zip(("before", "after"), invalid_site_map):
+                if invalid:
+                    metrics[side + "GoalPathProbability"] = None
+                    metrics["deltaGoalPathProbability"] = None
     complete = matched and any(s["pageKey"] == "home" and s["screenComparable"] for s in screens) and all(
         s["screenComparable"] for s in screens)
-    def outcome(run):
-        return {"status": run["status"], "terminationReason": run["terminationReason"],
-                **{key: deepcopy(run["summary"][key]) for key in _OUTCOME}}
+    def outcome(run, invalid):
+        result = {"status": run["status"], "terminationReason": run["terminationReason"],
+                  **{key: deepcopy(run["summary"][key]) for key in _OUTCOME},
+                  "detourMoveCount": run["summary"].get("detourMoveCount")}
+        if invalid:
+            for key in ("extraSteps", "extraNavigationCost", "referencePathDeviationCount", "detourMoveCount"):
+                result[key] = None
+        return result
     return {"schemaVersion": b["schemaVersion"], "experimentKey": b["experimentKey"],
             "beforeRunId": b["runId"], "afterRunId": a["runId"],
             "comparisonStatus": "COMPLETED" if complete else "PARTIAL", "conditionsMatched": matched,
             "conditionChecks": checks, "layoutMatched": next(c["matched"] for c in checks if c["code"] == "LAYOUT_MATCHED"),
-            "screenComparisons": screens, "runComparison": {"before": outcome(b), "after": outcome(a)},
+            "screenComparisons": screens, "runComparison": {"before": outcome(b, invalid_site_map[0]),
+                                                               "after": outcome(a, invalid_site_map[1])},
             "beforeResultOrigin": b["resultOrigin"], "afterResultOrigin": a["resultOrigin"],
             "resultOrigin": b["resultOrigin"] if b["resultOrigin"] == a["resultOrigin"] else None,
             "createdAt": datetime.now(timezone.utc).isoformat()}
