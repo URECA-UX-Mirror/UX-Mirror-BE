@@ -309,28 +309,44 @@ def page_load_problem(expected_path: str, status: int | None, final_url: str) ->
 
 # ---------------------------------------------------------------- 실제 Run과 대조 (2단계)
 
-def compare_with_steps(site_map: dict, config: SiteConfig, steps: list[dict]) -> list[str]:
-    """저장된 Step 후보(목적지)가 지도 간선과 맞는지. 맞지 않는 항목 목록을 돌려준다(빈 목록이면 일치).
+@dataclass
+class StepComparison:
+    """실제 Run 대조 결과. 대조한 Step과 건너뛴 Step을 구분한다 (#48 리뷰: 대조 0개를 통과로 보이지 않게)."""
+    compared: int = 0              # 지도와 실제로 비교한 Step 수 (불일치 포함)
+    skipped: int = 0               # testMode 화면·재판단 후보라 비교하지 않은 Step 수
+    problems: list[str] = field(default_factory=list)
 
-    testMode 등 기본 상태가 아닌 화면(pageSignature가 `_default`가 아님)과 재판단 후보 집합(`_retry_`)은 건너뛴다.
+    @property
+    def ok(self) -> bool:
+        """실제로 1개 이상 비교했고 불일치가 없을 때만 통과."""
+        return self.compared > 0 and not self.problems
+
+
+def compare_with_steps(site_map: dict, config: SiteConfig, steps: list[dict]) -> StepComparison:
+    """저장된 Step 후보(목적지)가 지도 간선과 맞는지.
+
+    testMode 등 기본 상태가 아닌 화면(pageSignature가 `_default`가 아님)과 재판단 후보 집합(`_retry_`)은
+    비교하지 않고 `skipped`로 센다. 지도에 없는 화면은 비교한 것으로 세고 불일치로 남긴다.
     """
-    problems = []
+    result = StepComparison()
     pages = site_map["pages"]
     for step in steps:
         page = step.get("page") or {}
         key = page.get("pageKey")
         cs = step.get("candidateSet") or {}
         if not str(page.get("pageSignature", "")).endswith("_default") or "_retry_" in str(cs.get("candidateSetId", "")):
+            result.skipped += 1
             continue
+        result.compared += 1
         if key not in pages:
-            problems.append(f"{step.get('runId')} step {step.get('stepId')}: 화면 '{key}'이 지도에 없음")
+            result.problems.append(f"{step.get('runId')} step {step.get('stepId')}: 화면 '{key}'이 지도에 없음")
             continue
         expected = {(e["semanticKey"], e["to"]) for e in pages[key]["edges"]}
         actual = {(e["semanticKey"], e["to"]) for e in edges_from_candidates(config, cs.get("candidates", []))}
         if actual != expected:
-            problems.append(f"{step.get('runId')} step {step.get('stepId')} '{key}': "
-                            f"Step에만 {sorted(actual - expected)}, 지도에만 {sorted(expected - actual)}")
-    return problems
+            result.problems.append(f"{step.get('runId')} step {step.get('stepId')} '{key}': "
+                                   f"Step에만 {sorted(actual - expected)}, 지도에만 {sorted(expected - actual)}")
+    return result
 
 
 def collect_run_steps(run_dirs: list[str], site_version: str | None) -> tuple[list[dict], list[str]]:

@@ -146,13 +146,18 @@ def main() -> int:
     if args.check_runs:
         run_dirs = sorted(glob.glob(os.path.join(ROOT, "results", "runs", "*")))
         steps, read_problems = sitemap.collect_run_steps(run_dirs, config.meta.get("siteVersion"))
-        problems = sitemap.compare_with_steps(site_map, config, steps)
-        print(f"\n실제 Run 대조: Step {len(steps)}개, 읽기 문제 {len(read_problems)}개, 불일치 {len(problems)}개")
-        for p in read_problems + problems:
+        cmp = sitemap.compare_with_steps(site_map, config, steps)
+        print(f"\n실제 Run 대조: 읽은 Step {len(steps)}개 = 대조 {cmp.compared}개 + 건너뜀 {cmp.skipped}개 "
+              f"(testMode·재판단 후보), 읽기 문제 {len(read_problems)}개, 불일치 {len(cmp.problems)}개")
+        for p in read_problems + cmp.problems:
             print(f"  - {p}")
-        # 대조를 요청했는데 확인하지 못했거나 어긋나면 지도를 저장하지 않는다 (Step 0개를 "불일치 0"으로 보이지 않게)
-        if not steps or read_problems or problems:
-            reason = "대조할 Step이 없음" if not steps else "읽기 문제 또는 불일치가 있음"
+        # 대조를 요청했는데 실제로 비교하지 못했거나 어긋나면 지도를 저장하지 않는다
+        # (읽은 Step이 전부 건너뛰는 대상이어도 "불일치 0"으로 통과하지 않게)
+        if read_problems or not cmp.ok:
+            if cmp.compared == 0:
+                reason = "실제로 대조한 Step이 없음"
+            else:
+                reason = "읽기 문제 또는 불일치가 있음"
             print(f"실제 Run 대조 실패: {reason}. 지도를 저장하지 않습니다.", file=sys.stderr)
             return 1
 

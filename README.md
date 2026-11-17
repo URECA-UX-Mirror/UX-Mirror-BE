@@ -161,7 +161,7 @@ $env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
 ```
 
 - 지원 화면 5개를 Before·After 각각 새 브라우저(viewport 1440×900, `clean-context-v1`, `candidate-v2`)로 열어 후보를 뽑는다. 간선 = `{fromPageKey, semanticKey, to}`(지원 화면으로 가는 후보만, GO_BACK 제외).
-- 검증(하나라도 실패하면 파일을 만들지 않음): 화면 누락(열기 실패·HTTP 오류 응답·다른 화면 도착 포함), Before·After 간선 일치, home에서 모든 화면 도달 가능, preset 허용 경로 대조(`refund` 최단 2, 허용 경로 3개가 지도상 경로). `--check-runs`는 읽기 문제·불일치가 있거나 대조할 Step이 없어도 실패한다.
+- 검증(하나라도 실패하면 파일을 만들지 않음): 화면 누락(열기 실패·HTTP 오류 응답·다른 화면 도착 포함), Before·After 간선 일치, home에서 모든 화면 도달 가능, preset 허용 경로 대조(`refund` 최단 2, 허용 경로 3개가 지도상 경로). `--check-runs`는 읽기 문제·불일치가 있거나 **실제로 대조한 Step**이 0개여도 실패한다(testMode 화면·재판단 후보는 건너뛴 수로 따로 표시).
 - `siteMapHash`: `pages`만(메타데이터 제외), pageKey 순·`{path, edges}`만, 간선은 `{semanticKey, to}`만 중복 제거 후 `(semanticKey, to)` 순, `json.dumps(ensure_ascii=False, sort_keys=True, separators=(",", ":"))` → UTF-8 → SHA-256, `"sha256:"` + hex.
 - 현재 지도(`sitemap-v1`): home → mypage·orders·support, mypage → home·orders·refund·support, orders → home·refund, refund → home·orders, support → orders. 저장된 LIVE Run Step 76개와 대조해 불일치 0.
 - 루프·API·분석은 아직 이 지도를 쓰지 않는다(SITE_MAP 3단계 이후).

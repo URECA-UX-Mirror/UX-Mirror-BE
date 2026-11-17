@@ -198,9 +198,28 @@ def test_compare_with_steps_finds_mismatch_and_skips_test_mode_and_retry():
     test_mode = step("support", [], signature="support_deadend")
     retry = step("orders", [], set_id="orders_default_retry_1")
     unknown = step("cart", [])
-    problems = sitemap.compare_with_steps(site_map, SHOP, [ok, wrong, test_mode, retry, unknown])
-    assert len(problems) == 2
-    assert "지도에만" in problems[0] and "'cart'" in problems[1]
+    result = sitemap.compare_with_steps(site_map, SHOP, [ok, wrong, test_mode, retry, unknown])
+    assert (result.compared, result.skipped) == (3, 2)   # 지도에 없는 화면도 대조한 것으로 셈
+    assert len(result.problems) == 2 and not result.ok
+    assert "지도에만" in result.problems[0] and "'cart'" in result.problems[1]
+
+
+def test_compare_with_steps_all_skipped_is_not_ok():
+    """읽은 Step이 전부 건너뛰는 대상(testMode·재판단 후보)이면 실제 대조 0개 → 통과가 아님 (#48 리뷰)."""
+    site_map = build()
+    result = sitemap.compare_with_steps(site_map, SHOP, [
+        step("support", [], signature="support_deadend"), step("orders", [], set_id="orders_default_retry_1")])
+    assert (result.compared, result.skipped, result.problems) == (0, 2, [])
+    assert not result.ok
+    assert not sitemap.compare_with_steps(site_map, SHOP, []).ok
+
+
+def test_compare_with_steps_partly_skipped_is_ok_when_compared_ones_match():
+    site_map = build()
+    result = sitemap.compare_with_steps(site_map, SHOP, [
+        step("orders", shop_candidates("x")["orders"]), step("support", [], signature="support_deadend")])
+    assert (result.compared, result.skipped, result.problems) == (1, 1, [])
+    assert result.ok
 
 
 # ---------------------------------------------------------------- 사이트 설정 파일 (다른 사이트 대비)
