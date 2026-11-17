@@ -1,36 +1,12 @@
 """Run에 기록된 경로 기준을 확인한다. 입력과 지도 파일은 수정하지 않는다."""
-from collections import deque
-import hashlib
 import json
 from pathlib import Path
 
+from uxm import sitemap
 
 SITE_MAP_DIRECTORY = Path(__file__).resolve().parents[1] / "config" / "sitemaps"
 ALLOWED_FIELDS = ("version", "allowedPaths", "shortestAllowedSteps")
 SITE_MAP_FIELDS = ("siteMapVersion", "siteMapHash", "startPageKey", "goalPageKey", "shortestSteps", "distances")
-
-
-def _normalized_pages(pages):
-    """간선을 semanticKey/to 순서로 정렬한 compact UTF-8 JSON을 해시한다."""
-    if not isinstance(pages, dict) or not pages:
-        raise ValueError("지도 pages가 비어 있습니다.")
-    normalized = {}
-    for key, page in pages.items():
-        if (not isinstance(key, str) or not key or not isinstance(page, dict)
-                or not isinstance(page.get("path"), str) or not page["path"]
-                or not isinstance(page.get("edges"), list)):
-            raise ValueError("지도 화면 형식이 올바르지 않습니다.")
-        edges = page["edges"]
-        if any(not isinstance(edge, dict) or not isinstance(edge.get("semanticKey"), str)
-               or not edge["semanticKey"] or not isinstance(edge.get("to"), str)
-               or edge["to"] not in pages for edge in edges):
-            raise ValueError("지도 간선 형식이 올바르지 않습니다.")
-        unique_edges = {(edge["semanticKey"], edge["to"]) for edge in edges}
-        normalized[key] = {"path": page["path"], "edges": [
-            {"semanticKey": semantic_key, "to": destination}
-            for semantic_key, destination in sorted(unique_edges)
-        ]}
-    return normalized
 
 
 def _verify_map_file(value):
@@ -56,33 +32,13 @@ def _verify_map_file(value):
         return "동일한 버전의 사이트 지도 파일이 여러 개입니다."
     data = found[0]
     try:
-        pages = _normalized_pages(data.get("pages"))
-        encoded = json.dumps(pages, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        digest = "sha256:" + hashlib.sha256(encoded).hexdigest()
-        if digest != data.get("siteMapHash"):
-            return "사이트 지도 파일의 해시가 내용과 일치하지 않습니다."
-        if digest != value["siteMapHash"]:
+        sitemap.validate_site_map(data)
+        if data["siteMapHash"] != value["siteMapHash"]:
             return "사이트 지도 해시가 저장된 Run과 일치하지 않습니다."
-        goal = value["goalPageKey"]
-        if goal not in pages:
-            return "사이트 지도에 목표 화면이 없습니다."
-        reverse = {key: [] for key in pages}
-        for source, page in pages.items():
-            for edge in page["edges"]:
-                reverse[edge["to"]].append(source)
-        distances = {key: None for key in pages}
-        distances[goal] = 0
-        queue = deque([goal])
-        while queue:
-            dest = queue.popleft()
-            for source in reverse[dest]:
-                if distances[source] is None:
-                    distances[source] = distances[dest] + 1
-                    queue.append(source)
-        if distances != value["distances"]:
+        if sitemap.distances(data["pages"], value["goalPageKey"]) != value["distances"]:
             return "저장된 사이트 지도 거리가 지도와 맞지 않습니다."
-    except (TypeError, ValueError, KeyError):
-        return "사이트 지도 형식 또는 거리 계산을 확인할 수 없습니다."
+    except sitemap.SiteMapError as exc:
+        return "사이트 지도 파일 검증 실패: " + "; ".join(exc.reasons)
     return ""
 
 

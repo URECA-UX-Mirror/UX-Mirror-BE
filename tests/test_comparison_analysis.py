@@ -254,7 +254,7 @@ def write_site_map(pair, tmp_path):
     for bundle in pair:
         bundle["run"]["referencePathConfig"]["siteMapHash"] = digest
     path = tmp_path / "sitemap-shop-v1.json"
-    data = {"siteMapVersion": "fixture-v1", "siteMapHash": digest, "pages": pages}
+    data = {"siteMapVersion": "fixture-v1", "siteMapHash": digest, "startPageKey": "home", "pages": pages}
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return path, data
 
@@ -265,6 +265,23 @@ def test_site_map_file_hash_and_distances_are_verified(site_map_pair, tmp_path):
     check = condition(result, "REFERENCE_PATH_CONFIG_MATCHED")
     assert check["matched"] and check["message"] is None
     assert result["runComparison"]["before"]["extraSteps"] == 2
+
+
+@pytest.mark.parametrize("goal", ["orders", "refund", "support"])
+def test_committed_site_map_integration(site_map_pair, monkeypatch, goal):
+    from uxm import reference, sitemap
+    folder = Path(__file__).resolve().parents[1] / "config" / "sitemaps"
+    monkeypatch.setattr(reference, "SITE_MAP_DIRECTORY", folder)
+    data = sitemap.load_site_map(str(folder / "sitemap-shop-v1.json"))
+    distances = sitemap.distances(data["pages"], goal)
+    for bundle in site_map_pair:
+        bundle["run"]["referencePathConfig"] = {
+            "basis": "SITE_MAP", "siteMapVersion": data["siteMapVersion"], "siteMapHash": data["siteMapHash"],
+            "startPageKey": "home", "goalPageKey": goal, "shortestSteps": distances["home"],
+            "distances": distances.copy(),
+        }
+    check = condition(compare(*site_map_pair), "REFERENCE_PATH_CONFIG_MATCHED")
+    assert check["matched"] and check["message"] is None
 
 
 def test_unreadable_unrelated_map_does_not_block_verified_map(site_map_pair, tmp_path):
@@ -289,7 +306,7 @@ def test_map_file_hash_and_run_hash_failures_have_distinct_messages(site_map_pai
     data["siteMapHash"] = "sha256:invalid"
     path.write_text(json.dumps(data), encoding="utf-8")
     check = condition(compare(*site_map_pair), "REFERENCE_PATH_CONFIG_MATCHED")
-    assert "지도 파일의 해시가 내용과" in check["message"]
+    assert "사이트 지도 파일 검증 실패" in check["message"] and "해시 불일치" in check["message"]
 
 
 def test_site_map_comparison_through_api_and_saved(site_map_pair, tmp_path):
