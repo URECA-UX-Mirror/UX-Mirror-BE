@@ -226,6 +226,22 @@ def build_site_map(config: SiteConfig, extracted: dict[str, dict[str, list[dict]
             "startPageKey": config.start_page, "generatedAt": generated_at, "pages": pages}
 
 
+def site_map_reference(site_map: dict, goal_page: str, start_page: str | None = None) -> dict:
+    """Run에 저장할 SITE_MAP `referencePathConfig` (설계 4.1). 실행 API·`scripts/run_c.py`가 같이 쓴다.
+
+    `distances`는 지원 화면 전부(갈 수 없는 화면은 None)를 그대로 넣는다 (#47 재검증이 사전 전체 비교).
+    시작 화면에서 도착 화면으로 가는 길이 없으면 SiteMapError (API는 실행 전 422).
+    """
+    start = start_page or site_map["startPageKey"]
+    if start != site_map["startPageKey"]:
+        raise SiteMapError([f"시작 화면 '{start}'이 지도 시작 화면 '{site_map['startPageKey']}'과 다름"])
+    dist = distances(site_map["pages"], goal_page)
+    if dist.get(start) is None:
+        raise SiteMapError([f"시작 화면 '{start}'에서 도착 화면 '{goal_page}'으로 가는 길이 없음"])
+    return {"basis": "SITE_MAP", "siteMapVersion": site_map["siteMapVersion"], "siteMapHash": site_map["siteMapHash"],
+            "startPageKey": start, "goalPageKey": goal_page, "shortestSteps": dist[start], "distances": dist}
+
+
 # ---------------------------------------------------------------- 읽기
 
 REQUIRED_FIELDS = ("siteMapVersion", "siteMapHash", "startPageKey", "pages")
