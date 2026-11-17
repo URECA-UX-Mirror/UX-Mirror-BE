@@ -14,22 +14,37 @@
 from urllib.parse import urlsplit
 
 # 목표별 성공 조건. 화면 입력(대시보드)으로 받게 되면 이 형식으로 넘긴다.
+# 계약 2.3 `verification`에서 type(PATH_AND_VISIBLE_TEXT 고정)만 뺀 모양.
 GOALS = {
     "refund": {
         "path": "/shop/refund",
         "text": "환불 / 반품 신청",   # refund 화면 제목(h1). mypage에도 같은 글자의 링크가 있어 주소 조건이 함께 필요
+        "exact": False,
+        "scope": "page",
     },
 }
 DEFAULT_GOAL_ID = "refund"
 
+# exact: 글자 정확 일치 여부(false면 부분 일치). scope: 글자를 찾는 범위(page = 화면 전체, main = <main> 안)
+DEFAULT_MATCH = {"exact": False, "scope": "page"}
+SCOPES = ("page", "main")
+
+
+def _with_defaults(success: dict) -> dict:
+    full = {**DEFAULT_MATCH, **success}
+    if full["scope"] not in SCOPES:
+        raise ValueError(f"unknown verification scope {full['scope']!r} (page/main)")
+    return full
+
 
 def success_condition(goal_preset: dict) -> dict:
-    """목표 preset(`config/presets.json`)의 `verification`을 `verify_goal`이 받는 `{"path", "text"}`로 바꾼다.
+    """목표 preset(`config/presets.json`)의 `verification`을 `verify_goal`이 받는 `{"path", "text", "exact", "scope"}`로 바꾼다.
 
     실행 API(`api/presets.py`)와 루프 설정(`uxm/agent.py` `agent_settings`)이 같이 쓴다.
+    exact·scope가 없으면 기본값(exact=false, scope=page).
     """
     v = goal_preset["verification"]
-    return {"path": v["path"], "text": v["text"]}
+    return _with_defaults({k: v[k] for k in ("path", "text", "exact", "scope") if k in v})
 
 
 def path_matches(url: str, path: str) -> bool:
@@ -37,11 +52,15 @@ def path_matches(url: str, path: str) -> bool:
 
 
 def verify_goal(page, success: dict | None = None) -> tuple[bool, dict]:
-    """Playwright Page가 성공 조건을 만족하는지. (도착 여부, 근거)"""
-    success = success or GOALS[DEFAULT_GOAL_ID]
+    """Playwright Page가 성공 조건을 만족하는지. (도착 여부, 근거)
+
+    같은 글자를 가진 요소가 여러 개면 모두 확인해서 하나라도 보이면 글자 조건 통과 (계약 2.3).
+    """
+    success = _with_defaults(success or GOALS[DEFAULT_GOAL_ID])
     path_ok = path_matches(page.url, success["path"])
-    loc = page.get_by_text(success["text"])
-    text_ok = any(loc.nth(i).is_visible() for i in range(min(loc.count(), 10)))
+    root = page.locator("main") if success["scope"] == "main" else page
+    loc = root.get_by_text(success["text"], exact=success["exact"])
+    text_ok = any(loc.nth(i).is_visible() for i in range(loc.count()))
     return path_ok and text_ok, {"pathMatched": path_ok, "textVisible": text_ok, "successCondition": success}
 
 

@@ -45,6 +45,24 @@ def test_leak_detects_variant():
         assert_no_leak({"state": {"currentPath": "/shop/home?variant=after"}})
 
 
+@pytest.mark.parametrize("payload", [
+    {"verification": {"note": "x"}},                                     # 금지 key (최상위)
+    {"state": {"history": [{"successCondition": None}]}},                # 금지 key (깊은 곳, 리스트 안)
+    {"a": {"goalVerification": 1}}, {"a": {"pathMatched": True}}, {"a": {"textVisible": False}},
+    {"goal": {"type": "PATH_AND_VISIBLE_TEXT"}},                         # 목표 판정 type
+    {"state": {"extra": {"path": "/shop/refund", "text": "환불 / 반품 신청"}}},   # path+text 구조
+])
+def test_leak_detects_goal_verification_keys(payload):   # 계약 12장 B3 ③: key·구조 기준
+    with pytest.raises(RuntimeError, match="목표 판정 정보"):
+        assert_no_leak(payload)
+
+
+def test_leak_allows_goal_sentence_with_refund():   # 목표 문장의 "환불"은 막지 않는다
+    from uxm.goal import GOALS
+    assert_no_leak({"instructions": f"목표: 주문한 상품을 환불하고 싶다. 화면 제목 '{GOALS['refund']['text']}'",
+                    "state": {"currentPath": "/shop/refund", "text": "환불"}})
+
+
 @pytest.mark.parametrize("sid", list(SCENARIOS))
 def test_scenarios_build_clean_and_parse(sid):
     from decide_request import parse
@@ -99,11 +117,25 @@ class _FakeLocator:
 
 
 class _FakePage:
-    def __init__(self, url, visible):
-        self.url, self._visible = url, visible
+    """visible: 화면 전체에서 일치한 요소들의 보임 여부. main: <main> 안의 것만 (없으면 visible과 같음)."""
 
-    def get_by_text(self, text):
+    def __init__(self, url, visible, main=None):
+        self.url, self._visible, self._main = url, visible, visible if main is None else main
+        self.calls = []
+
+    def get_by_text(self, text, exact=False):
+        self.calls.append(("page", text, exact))
         return _FakeLocator(self._visible)
+
+    def locator(self, selector):
+        assert selector == "main"
+        page = self
+
+        class _Main:
+            def get_by_text(self, text, exact=False):
+                page.calls.append(("main", text, exact))
+                return _FakeLocator(page._main)
+        return _Main()
 
 
 def test_goal_needs_both_path_and_visible_text():   # 마커 없이 주소 + 보이는 글자
@@ -115,6 +147,42 @@ def test_goal_needs_both_path_and_visible_text():   # 마커 없이 주소 + 보
     # 주소만 맞고 글자가 안 보이면 도착 아님 (URL만으로 성공 처리 금지)
     assert verify_goal(_FakePage("http://127.0.0.1:8001/shop/refund", [False]))[0] is False
     assert verify_goal(_FakePage("http://127.0.0.1:8001/shop/refund", []))[0] is False
+
+
+def test_goal_checks_all_matches_not_first_10():   # 계약 2.3: 11번째 이후만 보여도 성공
+    from uxm.goal import verify_goal
+    page = _FakePage("http://127.0.0.1:8001/shop/refund", [False] * 10 + [False, True])
+    reached, why = verify_goal(page)
+    assert reached is True and why["textVisible"] is True
+
+
+def test_goal_exact_and_scope():
+    from uxm.goal import GOALS, verify_goal
+    url = "http://127.0.0.1:8001/shop/refund"
+    # 기본값: exact=false, scope=page (근거에도 기록)
+    page = _FakePage(url, [True])
+    _, why = verify_goal(page, {"path": "/shop/refund", "text": "환불"})
+    assert page.calls == [("page", "환불", False)]
+    assert why["successCondition"] == {"path": "/shop/refund", "text": "환불", "exact": False, "scope": "page"}
+    # exact=true는 Playwright get_by_text(exact=True)로 넘긴다
+    page = _FakePage(url, [True])
+    verify_goal(page, {**GOALS["refund"], "exact": True})
+    assert page.calls == [("page", GOALS["refund"]["text"], True)]
+    # scope=main이면 <main> 안에서만 찾는다: 헤더 등 main 밖에만 보이면 도착 아님
+    page = _FakePage(url, [True], main=[False])
+    reached, why = verify_goal(page, {**GOALS["refund"], "scope": "main"})
+    assert reached is False and page.calls[0][0] == "main"
+    assert verify_goal(_FakePage(url, [False], main=[True]), {**GOALS["refund"], "scope": "main"})[0] is True
+    with pytest.raises(ValueError):
+        verify_goal(_FakePage(url, [True]), {**GOALS["refund"], "scope": "header"})
+
+
+def test_success_condition_reads_exact_scope_from_preset():
+    from uxm.goal import GOALS, success_condition
+    v = {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund", "text": "환불 / 반품 신청"}
+    assert success_condition({"verification": v}) == GOALS["refund"]   # 없으면 기본값
+    got = success_condition({"verification": {**v, "exact": True, "scope": "main"}})
+    assert (got["exact"], got["scope"]) == (True, "main") and "type" not in got
 
 
 def test_before_after_differ_only_in_label():   # B3의 하드코딩 버전

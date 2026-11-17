@@ -1,11 +1,9 @@
 """클릭 전용 지표 경계 및 에이전트 저장 결과 (모델·브라우저 불필요)."""
 import copy
 import math
-from types import SimpleNamespace
 
 import pytest
 
-from uxm.agent import _Loop
 from uxm.metrics import PROBABILITY_EPSILON, decision_metrics
 
 
@@ -55,13 +53,5 @@ def test_no_back_uses_click_probabilities_and_null_back():
     assert result["metricWarnings"] == []
 
 
-def test_agent_decision_keeps_metrics_warning():
-    loop = SimpleNamespace(stack=[{"pageKey": "home"}], allowed=[["home", "orders"]],
-                           env=SimpleNamespace(page_key=lambda path: path.rsplit("/", 1)[-1]),
-                           origin="MOCK", s={"goalJudgmentMode": "DOM_ONLY"})
-    candidates = [{"optionId": "a", "href": "/shop/orders"}, {"optionId": "b", "href": "/shop/support"}]
-    decision = _Loop._decision(loop, "back", True, {"a": 0.0, "b": 0.0, "back": 1.0},
-                               "back", candidates, 5)
-    assert decision["selectedActionType"] == "GO_BACK"
-    assert decision["clickOnlyNormalizedEntropy"] is None
-    assert decision["metricWarnings"][0]["code"] == "NO_CLICK_PROBABILITY_MASS"
+# 루프가 Step에 경고를 그대로 저장하는지는 tests/test_agent.py
+# test_go_back_only_probability_keeps_metrics_warning에서 실제 Run으로 확인한다.
