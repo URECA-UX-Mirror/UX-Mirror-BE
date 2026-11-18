@@ -485,6 +485,34 @@ def test_presets_allow_missing_exact_and_scope(tmp_path):
     assert success_condition(goal) == {"path": "/shop/refund", "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
 
 
+def test_goal_screenshot_returns_arrival_image(make_client, tmp_path):
+    """OI-3: 도착 화면은 Step이 없어 GOAL_REACHED Event의 사진을 준다 (#55)."""
+    client, _, app = make_client()
+    run = run_and_wait(client, app)
+    run_dir = app.state.store.run_dir(run["runId"])
+    with open(os.path.join(run_dir, "screenshots", "goal.png"), "wb") as f:
+        f.write(PNG)
+    with open(os.path.join(run_dir, "events.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"eventId": "event_99", "eventType": "GOAL_REACHED",
+                            "details": {"screenshotRef": "screenshots/goal.png"}}) + "\n")
+    r = client.get(f"/api/runs/{run['runId']}/screenshots/goal")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content == PNG
+    assert client.get(f"/api/runs/{run['runId']}/screenshots/1").status_code == 200   # stepId 경로는 그대로
+
+
+@pytest.mark.parametrize("ref", [None, "screenshots/missing.png", "../../outside.png"])
+def test_goal_screenshot_404_without_arrival_image(make_client, ref):
+    client, _, app = make_client()
+    run = run_and_wait(client, app)
+    if ref is not None:
+        with open(os.path.join(app.state.store.run_dir(run["runId"]), "events.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"eventId": "event_99", "eventType": "GOAL_REACHED",
+                                "details": {"screenshotRef": ref}}) + "\n")
+    r = client.get(f"/api/runs/{run['runId']}/screenshots/goal")
+    assert r.status_code == 404 and r.json()["error"]["code"] == "RUN_NOT_FOUND"
+    assert client.get("/api/runs/no_such_run/screenshots/goal").status_code == 404
+
+
 def test_create_returns_503_when_agent_missing(make_client):
     client, _, _ = make_client(FakeIntegrations(has_agent=False))
     r = client.post("/api/runs", json=body())

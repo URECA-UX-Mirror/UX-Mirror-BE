@@ -90,6 +90,9 @@ def check_run(client, run_id, variant, page_keys):
             shot = client.get(f"/api/runs/{run_id}/screenshots/{s['stepId']}?kind={kind}")
             assert shot.status_code == 200 and shot.content.startswith(PNG)
 
+    goal_shot = client.get(f"/api/runs/{run_id}/screenshots/goal")   # 도착 화면 (Step 없음, OI-3)
+    assert goal_shot.status_code == 200 and goal_shot.content.startswith(PNG)
+
     issues = client.get(f"/api/runs/{run_id}/issues").json()
     assert issues["analysisStatus"] == "COMPLETED"
     types = [i["issueType"] for i in issues["items"]]

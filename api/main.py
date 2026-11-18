@@ -137,6 +137,17 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             return {"runId": run_id, "analysisStatus": "PENDING", "items": []}
         return {"runId": run_id, "analysisStatus": doc.get("analysisStatus", "COMPLETED"), "items": doc.get("items", [])}
 
+    # ---- 17.7 확장 (OI-3): 도착 화면은 판단하지 않아 Step이 없으므로 GOAL_REACHED Event의 사진을 준다.
+    # `{step_id}` 경로보다 먼저 등록해야 "goal"이 stepId(정수) 검사에 걸리지 않는다.
+    @app.get("/api/runs/{run_id}/screenshots/goal")
+    def get_goal_screenshot(run_id: str):
+        load_run_or_404(run_id)
+        goal = next((e for e in reversed(store.load_events(run_id)) if e.get("eventType") == "GOAL_REACHED"), None)
+        path = store.screenshot_path(run_id, ((goal or {}).get("details") or {}).get("screenshotRef"))
+        if path is None:
+            raise ApiError(404, "RUN_NOT_FOUND", "도착 화면 스크린샷이 없습니다.")
+        return FileResponse(path, media_type="image/png")
+
     # ---- 17.7
     @app.get("/api/runs/{run_id}/screenshots/{step_id}")
     def get_screenshot(run_id: str, step_id: int, kind: Literal["original", "overlay"] = Query("original")):
