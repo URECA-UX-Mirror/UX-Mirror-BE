@@ -12,6 +12,7 @@ sys.path.insert(0, ROOT)
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api.comparison import final_run  # noqa: E402
+from api.errors import ApiError  # noqa: E402
 from api.integrations import Integrations  # noqa: E402
 from api.main import create_app  # noqa: E402
 from api.presets import Presets, success_condition  # noqa: E402
@@ -56,6 +57,8 @@ class FakeIntegrations(Integrations):
         self.issues_fail = False
         self.write_valid_then_raise = False
         self.saved_validity = None   # 루프가 실행 중 run.json에 써 두는 validity (예: "VALID")
+        self.preflight_calls = []
+        self.preflight_error = None
 
     def agent(self):
         if not self.has_agent:
@@ -106,6 +109,14 @@ class FakeIntegrations(Integrations):
         def close_browser(session):
             self.closed += 1
         return open_browser, close_browser
+
+    def goal_preflight(self):
+        """실제 화면 검사는 tests/test_preflight.py에서. 여기서는 호출만 기록하고 preflight_error가 있으면 던진다."""
+        def check(verification, base_urls):
+            self.preflight_calls.append(verification)
+            if self.preflight_error is not None:
+                raise self.preflight_error
+        return check
 
     def backend(self, cfg):
         return object()
@@ -283,6 +294,42 @@ def test_direct_input_is_normalized_and_saved(make_client):
     assert run["referencePathConfig"]["basis"] == "SITE_MAP" and run["startPath"] == "/shop/home"
     assert integ.received_settings["successCondition"] == {
         "path": "/shop/orders", "text": "주문/배송 조회", "exact": False, "scope": "page"}
+    assert integ.preflight_calls == [run["verification"]]   # 정리된 성공 조건으로 실행 전 검사
+
+
+# ---- 실행 전 검사 (「남은 일과 분업」 7번, FE OI-9). 실제 화면 판정은 tests/test_preflight.py
+
+def test_preset_run_skips_preflight(make_client):
+    client, integ, app = make_client()
+    run_and_wait(client, app)
+    assert integ.preflight_calls == []   # preset 성공 조건은 로드 때 검사 (#35)
+
+
+@pytest.mark.parametrize("error,status,retryable", [
+    (ApiError(422, "CONTRACT_VALIDATION_ERROR", "After 도착 화면(/shop/orders)에 '없는 글자' 글자가 없습니다."), 422, False),
+    (ApiError(503, "BROWSER_ERROR", "Before 도착 화면을 읽지 못했습니다", retryable=True), 503, True),
+])
+def test_preflight_failure_creates_no_run(make_client, error, status, retryable):
+    client, integ, app = make_client()
+    integ.preflight_error = error
+    r = client.post("/api/runs", json=direct())
+    assert r.status_code == status
+    assert (r.json()["error"]["code"], r.json()["error"]["retryable"]) == (error.code, retryable)
+    assert r.json()["error"]["message"] == error.message
+    assert client.get("/api/runs").json()["count"] == 0 and app.state.runner.active_run_id is None
+
+
+def test_preflight_not_run_while_another_run_active(make_client):
+    client, integ, app = make_client()
+    integ.gate = threading.Event()
+    assert client.post("/api/runs", json=body()).status_code == 201
+    try:
+        r = client.post("/api/runs", json=direct())
+        assert r.status_code == 409 and r.json()["error"]["code"] == "RUN_ALREADY_ACTIVE"
+        assert integ.preflight_calls == []   # 브라우저를 띄우지 않고 바로 409
+    finally:
+        integ.gate.set()
+        app.state.runner.wait(5)
 
 
 # ---- 경로 기준: preset은 ALLOWED_PATHS, 직접 입력은 SITE_MAP (설계 v2.1 4.1, #50)

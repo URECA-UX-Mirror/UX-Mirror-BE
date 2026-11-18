@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api import run_factory
+from api import runner as runner_module
 from api.comparison import build_comparison
 from api.errors import (AnalysisError, ApiError, analysis_error_handler, api_error_handler,
                         http_error_handler, unexpected_error_handler, validation_error_handler)
@@ -100,6 +101,10 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             except ValueError as e:
                 raise _invalid(str(e)) from e
         runner.ensure_ready()
+        if goal["goalId"] is None:   # 직접 입력한 성공 조건은 실제 화면에서 먼저 확인한다 (preset은 로드 때 검사)
+            if runner.active_run_id is not None:   # 브라우저를 띄우기 전에 바로 알려 준다 (create에서도 다시 확인)
+                raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
+            integrations.goal_preflight()(goal["verification"], runner_module.SHOP_URLS)
         run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
         runner.create(run, goal)
         return {k: run[k] for k in ("runId", "experimentKey", "variant", "status", "createdAt")} | {
