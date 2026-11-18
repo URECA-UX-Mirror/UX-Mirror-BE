@@ -14,7 +14,7 @@ semanticKey는 백엔드 전용. 라벨이 아니라 영역·목적지·DOM 순�
 
 외부 사이트 (#67): `scope`(`uxm/site_scope.SiteScope`)를 넘기면 규칙 1·4·5가 사이트 설정을 따른다.
   1'. 같은 출처의 **등록 주소(경로+쿼리 완전 일치)로 가는 링크만** (버튼·폼 제출은 href가 없어 자연히 제외)
-  4'. 위험 경로·위험 라벨, onclick·download·새 창·role=button 링크 제외 (#70 안전 검사와 같은 규칙)
+  4'. 위험 경로·위험 라벨, onclick·download·새 창·role=button 링크 제외 (#70 `ScenarioSafety.candidate_rejection`)
   5'. 상단 메뉴는 사이트 정책(`globalNavPolicy`)에 따라 시작 화면만 또는 모든 화면
   후보 href는 도메인을 뺀 경로 + 쿼리. `scope`가 None이면 위 규칙 1~5 그대로다 (MORO MARKET).
   클릭 직전 `browser.click`이 다시 추출하므로 같은 검사를 실제 DOM 값으로 한 번 더 한다.
@@ -150,9 +150,8 @@ def extract(page, keep_dom_index: bool = False, scope=None) -> dict:
     for el in raw:
         if not el["reason"] and el["region"] == GLOBAL_NAV_REGION and not _global_nav_allowed(path, scope):
             el["reason"] = "GLOBAL_NAV_NOT_START"
-        if not el["reason"] and scope is not None:   # 외부 사이트: 등록 주소·위험 경로·링크 속성·위험 라벨 (#67·#70)
-            el["reason"] = (scope.url_rejection(page.url, el["href"]) or scope.link_action_rejection(el["attrs"])
-                            or scope.label_rejection(el["label"]))
+        if not el["reason"] and scope is not None:   # 외부 사이트: #70 ScenarioSafety (등록 주소·위험 경로/라벨·링크 속성)
+            el["reason"] = scope.candidate_rejection(page.url, el)
         if el["reason"]:
             if el["reason"] != "HIDDEN" and el["label"]:
                 excluded.append({"label": el["label"], "region": el["region"], "reason": el["reason"]})

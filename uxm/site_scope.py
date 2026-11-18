@@ -7,12 +7,12 @@
   candidates·browser는 `scope`가 None일 때 지금까지의 코드를 그대로 실행하므로 버전 비교·E 결과가 바뀌지 않는다.
 - `SiteScope(config)`는 사이트 설정(`config/sites/*.json`)에 **등록된 주소로 가는 링크만** 허용한다 (리뷰 1).
 
-허용 규칙은 안전 검사 모듈(#70 `uxm/scenario_safety.ScenarioSafety`)과 같다. #70이 머지되면 아래 판정 함수
-(`url_rejection`·`arrival_rejection`·`link_action_rejection`·`label_rejection`)를 그 모듈 호출로 바꾼다.
+허용 판정은 안전 검사 모듈(#70 `uxm/scenario_safety.ScenarioSafety`)에 맡긴다. 규칙은 그 모듈 한 곳에만 있다.
   - 같은 출처(scheme·host·port)만. 사이트 주소는 설정 `variants`의 주소
   - 등록 주소 = 화면마다 `open`(경로+쿼리, 없으면 `path`). **경로와 쿼리가 모두 같아야** 허용 (쿼리 추가·누락·변경 거부)
   - 모호한 경로(`//`, `\\`, `.`·`..`, 인코딩한 `/`, 제어 문자)와 위험 경로(`/exec/`, 주문서, 로그아웃)는 거부
   - `onclick`·`download`·새 창(`target`)·`role=button`이 있는 링크, 위험 라벨(구매·주문·장바구니 담기·로그아웃 등)은 거부
+  - 목적지가 현재 화면과 같으면 이동이 아니다(`NOT_NAVIGATION`) → 링크 검사에는 **실제 현재 주소**를 넘긴다
 
 화면 이름(pageKey)은 **경로 기준**이다. 성공 조건·지도·경로 기준(`referencePathConfig`)이 경로로 화면을 부르기 때문이다.
 등록 밖 쿼리의 화면은 위 허용 검사에서 막혀 탐색 중에 들어가지 않는다.
@@ -22,42 +22,11 @@
 """
 import json
 import os
-import re
-from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit
 
+from uxm.scenario_safety import ScenarioSafety
+from uxm.scenario_safety import _origin, _url_parts   # 같은 정규화를 쓰기 위해 (#70 모듈의 규칙 그대로)
 from uxm.sitemap import SITES_DIR, SiteConfig, SiteMapError, site_config_from_dict, url_path
-
-# ---- #70 ScenarioSafety와 같은 규칙 (머지 후 그 모듈로 교체)
-DANGEROUS_LABELS = (
-    "구매하기", "바로구매", "주문하기", "장바구니담기", "로그아웃", "비우기", "탈퇴", "삭제", "결제",
-    "buy now", "checkout", "place order", "log out", "logout", "sign out", "delete", "remove",
-)
-DANGEROUS_PATHS = ("/exec/", "/order/orderform.html", "/member/logout", "/logout")
-
-
-def _label_text(value: str) -> str:
-    return re.sub(r"\s+", "", value).casefold()
-
-
-def _origin(url: str) -> tuple[str, str, int] | None:
-    try:
-        u = urlsplit(url)
-        scheme = u.scheme.lower()
-        if scheme not in ("http", "https") or not u.hostname or u.username or u.password:
-            return None
-        return scheme, u.hostname.lower(), u.port or (443 if scheme == "https" else 80)
-    except ValueError:
-        return None
-
-
-def _url_parts(url: str) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """(경로, 쿼리 쌍). 모호한 경로는 ValueError (서버마다 해석이 달라 허용하지 않는다)."""
-    u = urlsplit(url)
-    decoded = unquote(u.path)
-    if ("\\" in decoded or "//" in decoded or any(s in (".", "..") for s in decoded.split("/"))
-            or any(ord(c) < 32 or ord(c) == 127 for c in decoded)):
-        raise ValueError("모호한 URL 경로")
-    return decoded.rstrip("/") or "/", tuple(parse_qsl(u.query, keep_blank_values=True))
 
 
 def _canonical(parts: tuple[str, tuple]) -> str:
@@ -66,85 +35,54 @@ def _canonical(parts: tuple[str, tuple]) -> str:
     return path + ("?" + "&".join(f"{k}={v}" for k, v in query) if query else "")
 
 
-def _dangerous_path(path: str) -> bool:
-    folded = path.casefold()
-    return any(folded == p.rstrip("/") or folded.startswith(p) for p in DANGEROUS_PATHS)
-
-
 class SiteScope:
-    """등록된 주소만 허용하는 탐색 범위 (외부 사이트용)."""
+    """등록된 주소만 허용하는 탐색 범위 (외부 사이트용). 허용 판정은 `ScenarioSafety`(#70)."""
 
     def __init__(self, config: SiteConfig):
         self.config = config
         self.site_id = config.name
         self.base_url = next(iter(config.variants.values()))
+        opens = tuple(config.open_path(key) for key in config.pages)
+        self.safety = ScenarioSafety(self.base_url, opens)   # 사이트 주소·등록 주소가 잘못되면 ValueError
         self.origin = _origin(self.base_url)
-        if self.origin is None:
-            raise ValueError(f"사이트 주소가 올바르지 않습니다: {self.base_url}")
-        self._allowed = {}   # (경로, 쿼리) → pageKey
-        for key in config.pages:
-            full = urljoin(self.base_url, config.open_path(key))
-            if _origin(full) != self.origin:
-                raise ValueError(f"'{key}' 화면 주소가 사이트 밖입니다: {full}")
-            self._allowed[_url_parts(full)] = key
+        self._registered = sorted(_canonical(_url_parts(urljoin(self.base_url, o))) for o in opens)
         self._by_path = {url_path(p) or "/": key for key, p in config.pages.items()}
         self.start_path = url_path(config.pages[config.start_page]) or "/"
 
-    # ---- 허용 판정 (#70과 같은 사유 코드)
+    # ---- 허용 판정: ScenarioSafety에 맡긴다
     def url_rejection(self, current_url: str, href: str | None) -> str | None:
-        """링크가 등록 주소면 None, 아니면 사유. 현재 화면도 같은 출처여야 한다."""
-        if not isinstance(href, str) or not href.strip() or href.strip().startswith("#"):
-            return "NOT_NAVIGATION"
-        if _origin(current_url) != self.origin:
-            return "OUT_OF_SCOPE"
-        try:
-            target = urljoin(current_url, href.strip())
-            if _origin(target) != self.origin:
-                return "OUT_OF_SCOPE"
-            parts = _url_parts(target)
-            if _dangerous_path(parts[0]):
-                return "DANGEROUS_PATH"
-            if parts not in self._allowed:
-                return "OUT_OF_SCOPE"
-            return None
-        except (TypeError, ValueError):
-            return "OUT_OF_SCOPE"
+        """링크가 등록 주소면 None, 아니면 사유. current_url은 **실제 현재 주소** (목적지=현재 화면이면 NOT_NAVIGATION)."""
+        return self.safety.url_rejection(current_url, href)
 
     def arrival_rejection(self, url: str) -> str | None:
         """이동 후 실제 주소(리다이렉트 포함)가 등록 주소인지."""
-        try:
-            if _origin(url) != self.origin:
-                return "OUT_OF_SCOPE"
-            parts = _url_parts(url)
-            if _dangerous_path(parts[0]):
-                return "DANGEROUS_PATH"
-            return None if parts in self._allowed else "OUT_OF_SCOPE"
-        except (TypeError, ValueError):
-            return "OUT_OF_SCOPE"
+        return self.safety.arrival_rejection(url)
 
-    @staticmethod
-    def link_action_rejection(attrs: dict) -> str | None:
-        """링크의 HTML 속성: 스크립트 동작·다운로드·새 창·버튼 역할이면 거부. 속성 정보가 없으면 거부(fail-closed)."""
-        if any(k not in attrs for k in ("onclick", "download", "target", "role")):
-            return "DOM_ATTRIBUTES_MISSING"
-        if (attrs["onclick"] is not None or attrs["download"] is not None
-                or (attrs["target"] or "").lower() not in ("", "_self") or (attrs["role"] or "").lower() == "button"):
-            return "UNSUPPORTED_LINK_ACTION"
-        return None
-
-    @staticmethod
-    def label_rejection(label: str) -> str | None:
-        normalized = _label_text(label or "")
-        return "DANGEROUS_ACTION" if any(_label_text(w) in normalized for w in DANGEROUS_LABELS) else None
+    def candidate_rejection(self, current_url: str, el: dict) -> str | None:
+        """후보 추출·클릭 직전 재추출 때 실제 DOM 값(태그·주소·라벨·링크 속성)으로 검사."""
+        attrs = el.get("attrs") or {}
+        return self.safety.candidate_rejection(current_url, {"tag": el.get("tag"), "href": el.get("href"),
+                                                             "label": el.get("label"), **attrs})
 
     # ---- 브라우저·후보 추출에서 쓰는 이름
-    def link_allowed(self, href: str | None) -> bool:
-        """후보 href(경로+쿼리 또는 주소)가 등록 주소로 가는지. 클릭 직전 확인용."""
-        return self.url_rejection(self.base_url, href) is None
+    def link_allowed(self, href: str | None, current_url: str | None = None) -> bool:
+        """후보 href가 등록 주소로 가는지. 클릭 직전 확인용으로 **실제 현재 주소**를 넘긴다 (없으면 사이트 첫 주소)."""
+        return self.url_rejection(current_url or self.base_url, href) is None
 
-    def in_scope(self, url: str, origin: str) -> bool:
-        """도착한 주소가 같은 사이트의 등록 주소인지 (클릭·뒤로가기 뒤 리다이렉트 포함 확인)."""
-        return _origin(origin) == self.origin and self.arrival_rejection(url) is None
+    def in_scope(self, url: str, origin: str | None = None) -> bool:
+        """도착한 주소가 이 사이트의 등록 주소인지 (클릭·뒤로가기 뒤 리다이렉트 포함 확인).
+
+        출처는 **사이트 설정의 출처**로 판단하고 호출자가 넘긴 `origin`은 쓰지 않는다 (#71 리뷰 2: 외부 사이트로
+        리다이렉트된 뒤 뒤로 가기를 하면 "이탈한 주소의 출처"가 넘어와 정상 복귀도 범위 밖으로 판정됐다).
+        """
+        return self.arrival_rejection(url) is None
+
+    def nav_key(self, url: str) -> str:
+        """클릭 뒤 화면이 바뀌었는지 비교할 값: 출처 + 경로 + 쿼리 (모호한 주소면 원문)."""
+        try:
+            return f"{_origin(url)}{_canonical(_url_parts(url))}"
+        except (TypeError, ValueError):
+            return url
 
     def global_nav_allowed(self, path: str) -> bool:
         """현재 화면에서 상단 메뉴를 후보로 넣는지 (리뷰 2)."""
@@ -153,8 +91,7 @@ class SiteScope:
     def js_args(self) -> dict:
         """후보 추출 JS에 넘길 규칙: 사이트 출처와 등록 주소(경로+쿼리) 목록."""
         scheme, host, port = self.origin
-        return {"mode": "pages", "origin": f"{scheme}://{host}:{port}",
-                "urls": sorted(_canonical(p) for p in self._allowed)}
+        return {"mode": "pages", "origin": f"{scheme}://{host}:{port}", "urls": list(self._registered)}
 
     # ---- 화면 이름 (경로 기준)
     def registered_key(self, url: str | None) -> str | None:
