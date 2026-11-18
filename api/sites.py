@@ -64,12 +64,18 @@ def site_map_of(scope: SiteScope) -> dict | None:
         return None
 
 
+GOAL_UNAVAILABLE_REASONS = ("START_PAGE", "NO_GOAL_TEXT", "UNREACHABLE_ON_SITE_MAP")
+
+
 def public_site(scope: SiteScope) -> dict:
     """`GET /api/sites` 항목.
 
     `goalSelectable`: 도착 화면으로 고를 수 있는지 = 확인 글자(`goalText`)가 있고, 시작 화면이 아니고, 지도가 있으면
     시작 화면에서 닿는 화면. 지도상 닿지 않는 화면을 도착 화면으로 보내면 실행 전에 422가 난다
     (`run_factory.site_map_reference`). 지도가 없으면 닿는지 판단하지 않는다.
+    `goalUnavailableReason`: 고를 수 없는 이유 (`START_PAGE` / `NO_GOAL_TEXT` / `UNREACHABLE_ON_SITE_MAP`), 고를 수 있으면 null.
+    `UNREACHABLE_ON_SITE_MAP`은 "시작 화면에 보이는 링크로는 닿지 않는 화면"이라는 사이트 지도 진단 결과다.
+    `siteMap.unreachablePages`: 지도가 기록한 닿지 않는 화면 목록 (지도가 없으면 null).
     """
     config = scope.config
     site_map = site_map_of(scope)
@@ -78,12 +84,20 @@ def public_site(scope: SiteScope) -> dict:
         goal_text = config.page_texts.get(key)
         reachable = site_map is None or (
             key in site_map["pages"] and sitemap.distances(site_map["pages"], key)[config.start_page] is not None)
+        reason = ("START_PAGE" if key == config.start_page else "NO_GOAL_TEXT" if not goal_text
+                  else None if reachable else "UNREACHABLE_ON_SITE_MAP")
         pages.append({"pageKey": key, "path": path, "label": config.page_labels.get(key, key), "goalText": goal_text,
-                      "goalSelectable": bool(goal_text) and key != config.start_page and reachable})
+                      "goalSelectable": reason is None, "goalUnavailableReason": reason})
+    unreachable = None
+    if site_map is not None:
+        unreachable = [k for k in config.pages if k != config.start_page
+                       and (k not in site_map["pages"]
+                            or sitemap.distances(site_map["pages"], k)[config.start_page] is None)]
     return {"siteId": config.name, "name": config.display_name, "mode": SCENARIO_MODE,
             "startPage": config.start_page, "pages": pages,
             "siteMap": {"available": site_map is not None,
-                        "siteMapVersion": site_map["siteMapVersion"] if site_map else None}}
+                        "siteMapVersion": site_map["siteMapVersion"] if site_map else None,
+                        "unreachablePages": unreachable}}
 
 
 def check_page(scope: SiteScope, path: str, what: str) -> str:

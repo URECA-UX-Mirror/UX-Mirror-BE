@@ -165,12 +165,19 @@ def test_sites_lists_scenario_sites_without_internal_values(client):
     assert site["name"] == "ONS 공식몰 (cafe24 데모)" and site["mode"] == "SCENARIO" and site["startPage"] == "home"
     pages = {p["pageKey"]: p for p in site["pages"]}
     assert pages["review"] == {"pageKey": "review", "path": "/board/review/list.html", "label": "상품 리뷰",
-                               "goalText": "상품 리뷰", "goalSelectable": True}
+                               "goalText": "상품 리뷰", "goalSelectable": True, "goalUnavailableReason": None}
     assert pages["home"]["goalText"] is None and pages["brand"]["goalText"] is None
     assert not pages["home"]["goalSelectable"] and not pages["brand"]["goalSelectable"]   # 시작 화면·확인 글자 없음
     assert pages["qna"]["goalSelectable"] is False and pages["qna"]["goalText"] == "Q&A"   # 지도상 홈에서 갈 수 없음
     assert [k for k, p in pages.items() if p["goalSelectable"]] == ["products", "review", "event", "basket"]
-    assert site["siteMap"] == {"available": True, "siteMapVersion": "sitemap-cafe24-ons-v1"}
+    # 사이트 지도 진단: 시작 화면에 보이는 링크로는 닿지 않는 화면과 그 이유
+    assert {k: p["goalUnavailableReason"] for k, p in pages.items()} == {
+        "home": "START_PAGE", "products": None, "review": None, "qna": "UNREACHABLE_ON_SITE_MAP", "event": None,
+        "guide": "UNREACHABLE_ON_SITE_MAP", "company": "UNREACHABLE_ON_SITE_MAP", "basket": None,
+        "brand": "NO_GOAL_TEXT"}
+    assert all(p["goalSelectable"] == (p["goalUnavailableReason"] is None) for p in pages.values())
+    assert site["siteMap"] == {"available": True, "siteMapVersion": "sitemap-cafe24-ons-v1",
+                               "unreachablePages": ["qna", "guide", "company"]}
     text = str(site)
     assert "cafe24.com" not in text and "meta" not in site and "board_no" not in text   # 주소·내부 값 노출 안 함
 
@@ -237,3 +244,14 @@ def test_preflight_redirect_and_unregistered_page():
         check_goal_screens({"path": "/product/detail.html", "text": "x", "exact": False, "scope": "page"},
                            {"scenario": BASE}, fake_browser({}, opened, []), scope=scope)
     assert e.value.status == 422 and opened == []
+
+
+def test_sites_without_site_map_does_not_judge_reachability(client, monkeypatch):
+    """지도가 없으면 닿는지는 판단하지 않는다 (UNREACHABLE_ON_SITE_MAP 없음, unreachablePages null)."""
+    import api.sites as sites
+    monkeypatch.setattr(sites, "site_map_of", lambda scope: None)
+    c, _, _ = client
+    site = c.get("/api/sites").json()["items"][0]
+    reasons = {p["pageKey"]: p["goalUnavailableReason"] for p in site["pages"]}
+    assert reasons["qna"] is None and reasons["home"] == "START_PAGE" and reasons["brand"] == "NO_GOAL_TEXT"
+    assert site["siteMap"] == {"available": False, "siteMapVersion": None, "unreachablePages": None}
