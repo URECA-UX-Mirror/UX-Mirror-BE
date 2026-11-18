@@ -58,7 +58,8 @@ def model_settings() -> dict:
     }
 
 
-SITE_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), sitemap.SHOP.out)
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SITE_MAP_PATH = os.path.join(ROOT_DIR, sitemap.SHOP.out)
 # 지도를 만든 조건이 Run과 같아야 지도의 간선이 루프가 보는 후보와 같다 (설계 v2.1 2.1)
 _SITE_MAP_CONDITIONS = {"siteVersion": SITE_VERSION, "layoutVersion": LAYOUT_VERSION,
                         "candidatePolicyVersion": CANDIDATE_POLICY_VERSION,
@@ -66,21 +67,30 @@ _SITE_MAP_CONDITIONS = {"siteVersion": SITE_VERSION, "layoutVersion": LAYOUT_VER
 
 
 def site_map_reference(start_path: str, verification: dict, viewport: dict,
-                       path: str | None = None) -> dict | None:
+                       path: str | None = None, site_id: str | None = None) -> dict | None:
     """직접 입력한 목표의 SITE_MAP 경로 기준 (설계 v2.1 4.1). `distances`를 Run에 복사해 지도가 바뀌어도 재현된다.
 
     지도 오류(파일 없음·검증 실패·조건 불일치·도착 화면이 지도에 없음)면 None: 실행은 하고 경로 지표는 null (3.2).
     지도는 정상인데 시작 화면에서 도착 화면으로 가는 길이 없으면 ValueError → 실행 전 422 (5장 3번).
+
+    site_id: 외부 사이트 시나리오 Run (#67). 그 사이트 설정(`config/sites/<site_id>.json`)의 지도 파일(`out`)과
+    고정 조건(`meta`)으로 확인한다. 등록되지 않은 사이트면 ValueError. None이면 MORO MARKET (기존 동작).
     """
+    config, conditions = sitemap.SHOP, _SITE_MAP_CONDITIONS
+    if site_id:
+        from uxm.site_scope import load_scope
+        config = load_scope(site_id).config
+        conditions = {k: config.meta.get(k) for k in _SITE_MAP_CONDITIONS}
+        path = path or os.path.join(ROOT_DIR, config.out)
     try:
         site_map = sitemap.load_site_map(path or SITE_MAP_PATH)
     except sitemap.SiteMapError as e:
         log.warning("사이트 지도를 쓸 수 없어 경로 기준 없이 실행합니다: %s", e)
         return None
-    mismatched = [k for k, v in _SITE_MAP_CONDITIONS.items() if site_map.get(k) != v]
+    mismatched = [k for k, v in conditions.items() if site_map.get(k) != v]
     if site_map.get("viewport") != viewport:
         mismatched.append("viewport")
-    start, goal = sitemap.SHOP.page_key(start_path), sitemap.SHOP.page_key(verification["path"])
+    start, goal = config.page_key(start_path), config.page_key(verification["path"])
     if start != site_map["startPageKey"]:
         mismatched.append("startPageKey")
     if goal not in site_map["pages"]:

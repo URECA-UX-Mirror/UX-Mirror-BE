@@ -19,6 +19,7 @@ Zoro-1이 고른 행동을 그대로 실행하고, 실패를 처리하고, 언�
 steps.jsonl은 한 줄씩 추가만 하므로 Step 한 줄은 행동 결과까지 채운 뒤 쓴다 (계약 18.2 완전한 줄만).
 """
 import concurrent.futures as cf
+import functools
 import importlib
 import math
 import time
@@ -75,14 +76,25 @@ def browser_module():
     return importlib.import_module("uxm.browser")
 
 
-def default_env() -> Env:
+def default_env(scope=None) -> Env:
+    """실제 브라우저 함수. scope(`uxm/site_scope.SiteScope`)를 넘기면 후보 추출·클릭·화면 구분이 그 사이트 기준 (#67).
+    None이면 MORO MARKET 기존 규칙 그대로."""
     b = browser_module()
-    return Env(extract=extract_candidates, verify_goal=goal_mod.verify_goal, click=b.click, go_back=b.go_back,
-               reload=b.reload, capture=b.capture, page_key=b.page_key, page_signature=b.page_signature)
+    if scope is None:
+        return Env(extract=extract_candidates, verify_goal=goal_mod.verify_goal, click=b.click, go_back=b.go_back,
+                   reload=b.reload, capture=b.capture, page_key=b.page_key, page_signature=b.page_signature)
+    return Env(extract=functools.partial(extract_candidates, scope=scope), verify_goal=goal_mod.verify_goal,
+               click=functools.partial(b.click, scope=scope), go_back=functools.partial(b.go_back, scope=scope),
+               reload=b.reload, capture=b.capture, page_key=functools.partial(b.page_key, scope=scope),
+               page_signature=functools.partial(b.page_signature, scope=scope))
 
 
 def run_agent(settings: dict, backend, page, env: Env | None = None) -> dict:
-    return _Loop(settings, backend, page, env or default_env()).run()
+    """settings의 `siteId`가 있으면 그 사이트 설정으로 탐색한다 (외부 사이트 시나리오 테스트, #67)."""
+    if env is None:
+        from uxm.site_scope import load_scope
+        env = default_env(load_scope(settings.get("siteId")))
+    return _Loop(settings, backend, page, env).run()
 
 
 def agent_settings(run: dict, goal: dict | None, run_dir: str, start_url: str, shop_base_url: str) -> dict:
@@ -104,6 +116,7 @@ def agent_settings(run: dict, goal: dict | None, run_dir: str, start_url: str, s
         "referencePathConfig": run.get("referencePathConfig"), "limits": run["limits"], "viewport": run["viewport"],
         "goalJudgmentMode": run["goalJudgmentMode"], "temperature": run["temperature"],
         "promptVersion": run["promptVersion"], "resultOrigin": run["resultOrigin"],
+        "siteId": run.get("siteId"),   # 외부 사이트 시나리오 Run만 (#67). 없으면 MORO MARKET
     }
 
 
