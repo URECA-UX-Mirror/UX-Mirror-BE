@@ -78,6 +78,7 @@ copy .env.example .env
 - 목표는 `goalId`(preset) 또는 `goal` 문장 + 성공 조건 `verification{path, text, exact?, scope?}` 중 하나, 사용자 유형은 `personaId` 또는 `persona` 문장 중 하나. 직접 입력 문장은 빈 값·200자 초과·누출 금지 문자열(`uxm/leak.py` `FORBIDDEN`: `before`, `after`, `variant` 등)이면 실행 전에 `422`. 성공 조건은 preset 로드와 같은 검사(`_check_verification`)를 거친다.
 - Run에는 목표·사용자 유형·`verification`을 저장하고 루프·분석은 Run 값만 읽는다. `verification`은 공백 정리 + `exact=false`·`scope=page` 기본값을 채워 저장한다(preset 실행도 복사). 직접 입력한 목표는 허용 경로가 없어 `referencePathConfig: null` → 경로 이탈·추가 단계는 판정하지 않는다.
 - 같은 `experimentKey`의 두 번째 Run부터는 첫 Run과 `goalId`·`goal`·`personaId`·`persona`·`verification`이 같아야 한다 (다르면 `422`).
+- 실행 전 검사: 직접 입력한 성공 조건은 Run을 만들기 전에 Before·After 쇼핑몰에서 도착 화면을 실제로 열어 확인한다 (`api/preflight.py`, 판정은 루프와 같은 `verify_goal`). 쇼핑몰에 없는 화면·다른 화면으로 이동·글자 없음은 `422`(어느 쪽인지 메시지에 표시), 화면을 열지 못하면 재시도 가능한 `503 BROWSER_ERROR`. 다른 Run이 실행 중이면 브라우저를 띄우지 않고 바로 `409`. preset 목표는 로드 때 검사하므로 건너뛴다.
 - 비교의 `GOAL_MATCHED`는 저장된 목표 문장과 완전한 `verification`을, `PERSONA_MATCHED`는 사용자 유형 문장을 비교한다. 과거 Run에 `verification`이 없으면 현재 preset을 추측하지 않고 `GOAL_MATCHED=false`와 확인 불가 사유를 반환한다.
 - `REFERENCE_PATH_CONFIG_MATCHED`는 양쪽이 명시적 `null`이면 일치하며, 설정이 있으면 버전·허용 경로·최단 경로 길이를 비교한다.
 - preset 목표마다 시작 화면이 정해져 있다 (`refund` = `/shop/home`, C3용 `refund-from-mypage-test` = `/shop/mypage`). 허용 경로가 시작 화면 기준이라 다른 화면에서는 실행하지 않는다. 생략하면 그 값을 쓰고 다르면 `422`.
