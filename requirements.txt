@@ -4,6 +4,7 @@ transformers>=5.12
 accelerate
 safetensors
 requests
+pillow   # vendor/trida-stack 요청 파서
 python-dotenv
 pytest
 # 실행 API (api/main.py)
