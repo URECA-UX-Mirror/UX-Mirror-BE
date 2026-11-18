@@ -67,6 +67,17 @@ def site_map_of(scope: SiteScope) -> dict | None:
 GOAL_UNAVAILABLE_REASONS = ("START_PAGE", "NO_GOAL_TEXT", "UNREACHABLE_ON_SITE_MAP")
 
 
+def unreachable_pages(scope: SiteScope, site_map: dict | None) -> list[str] | None:
+    """지도상 시작 화면에서 닿지 않는 화면. 지도를 만들 때 기록한 `unreachablePages`(#71)를 그대로 쓴다.
+
+    그 값이 없는 지도(모든 화면이 닿아야 하는 사이트)는 빈 목록. 지도가 없으면 None.
+    """
+    if site_map is None:
+        return None
+    recorded = set(site_map.get("unreachablePages") or [])
+    return [k for k in scope.config.pages if k in recorded or (k != scope.config.start_page and k not in site_map["pages"])]
+
+
 def public_site(scope: SiteScope) -> dict:
     """`GET /api/sites` 항목.
 
@@ -79,20 +90,14 @@ def public_site(scope: SiteScope) -> dict:
     """
     config = scope.config
     site_map = site_map_of(scope)
+    unreachable = unreachable_pages(scope, site_map)
     pages = []
     for key, path in config.pages.items():
         goal_text = config.page_texts.get(key)
-        reachable = site_map is None or (
-            key in site_map["pages"] and sitemap.distances(site_map["pages"], key)[config.start_page] is not None)
         reason = ("START_PAGE" if key == config.start_page else "NO_GOAL_TEXT" if not goal_text
-                  else None if reachable else "UNREACHABLE_ON_SITE_MAP")
+                  else "UNREACHABLE_ON_SITE_MAP" if key in (unreachable or ()) else None)
         pages.append({"pageKey": key, "path": path, "label": config.page_labels.get(key, key), "goalText": goal_text,
                       "goalSelectable": reason is None, "goalUnavailableReason": reason})
-    unreachable = None
-    if site_map is not None:
-        unreachable = [k for k in config.pages if k != config.start_page
-                       and (k not in site_map["pages"]
-                            or sitemap.distances(site_map["pages"], k)[config.start_page] is None)]
     return {"siteId": config.name, "name": config.display_name, "mode": SCENARIO_MODE,
             "startPage": config.start_page, "pages": pages,
             "siteMap": {"available": site_map is not None,
@@ -101,8 +106,14 @@ def public_site(scope: SiteScope) -> dict:
 
 
 def check_page(scope: SiteScope, path: str, what: str) -> str:
-    """경로가 그 사이트에 등록된 화면이면 pageKey, 아니면 422."""
+    """경로가 그 사이트에 등록된 화면의 경로와 **정확히 같으면** pageKey, 아니면 422.
+
+    쿼리가 붙은 경로(`/board/review/list.html?board_no=5`)는 화면 구분(쿼리 무시)으로는 같은 화면이지만,
+    Run 기록에 다른 주소가 남지 않도록 받지 않는다. 화면은 실행할 때 설정의 여는 주소(`open`)로 연다.
+    """
     key = scope.registered_key(path) if isinstance(path, str) and path.startswith("/") else None
+    if key is not None and path != scope.config.pages[key]:
+        raise _invalid(f"{what}({path})은 쿼리 없는 등록 경로로 보내야 합니다: {scope.config.pages[key]}")
     if key is None:
         labels = ", ".join(f"{k}({p})" for k, p in scope.config.pages.items())
         raise _invalid(f"{what}({path})은 이 사이트에 등록된 화면이 아닙니다. 등록된 화면: {labels}")

@@ -255,3 +255,32 @@ def test_sites_without_site_map_does_not_judge_reachability(client, monkeypatch)
     reasons = {p["pageKey"]: p["goalUnavailableReason"] for p in site["pages"]}
     assert reasons["qna"] is None and reasons["home"] == "START_PAGE" and reasons["brand"] == "NO_GOAL_TEXT"
     assert site["siteMap"] == {"available": False, "siteMapVersion": None, "unreachablePages": None}
+
+
+@pytest.mark.parametrize("path", ["/board/review/list.html?board_no=5", "/board/review/list.html?board_no=4",
+                                  "/board/review/list.html/"])
+def test_scenario_accepts_only_exact_registered_path(client, path):
+    """쿼리·끝 '/'가 붙은 경로는 같은 화면으로 구분되더라도 받지 않는다 (Run 기록에 다른 주소가 남지 않게)."""
+    c, integ, _ = client
+    r = c.post("/api/runs", json=scenario(verification={"path": path, "text": "상품 리뷰"}))
+    assert r.status_code == 422 and "쿼리 없는 등록 경로" in r.json()["error"]["message"]
+    assert "/board/review/list.html" in r.json()["error"]["message"] and integ.preflight_calls == []
+    r = c.post("/api/runs", json=scenario(startPath=path, experimentKey="scn_start"))
+    assert r.status_code == 422 and "시작 화면" in r.json()["error"]["message"]
+
+
+def test_unreachable_pages_come_from_site_map_record(client, monkeypatch):
+    """닿지 않는 화면은 지도 파일에 기록된 unreachablePages를 그대로 쓴다 (규칙을 한 곳으로)."""
+    import api.sites as sites
+    real = sites.site_map_of
+
+    def recorded_only_event(scope):
+        m = dict(real(scope))
+        m["unreachablePages"] = ["event"]
+        return m
+    monkeypatch.setattr(sites, "site_map_of", recorded_only_event)
+    c, _, _ = client
+    site = c.get("/api/sites").json()["items"][0]
+    assert site["siteMap"]["unreachablePages"] == ["event"]
+    reasons = {p["pageKey"]: p["goalUnavailableReason"] for p in site["pages"]}
+    assert reasons["event"] == "UNREACHABLE_ON_SITE_MAP" and reasons["qna"] is None
