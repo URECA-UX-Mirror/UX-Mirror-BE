@@ -80,7 +80,8 @@ def test_normalized_mass_is_conserved_and_bounded():
     for k in range(1, 12):
         est = reach.estimate(MAP, probs, "A", "G", k)
         parts = (est["reachProbability"], est["lostProbability"], est["unfinishedProbability"])
-        assert sum(parts) == pytest.approx(1.0) and all(0.0 <= x <= 1.0 for x in parts)
+        # 세 값을 각각 소수 6자리로 반올림하므로 합은 최대 1.5e-6까지 어긋난다
+        assert sum(parts) == pytest.approx(1.0, abs=2e-6) and all(0.0 <= x <= 1.0 for x in parts)
         assert all(0.0 <= x <= 1.0 for x in est["reachByStep"])
 
 
