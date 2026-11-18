@@ -232,6 +232,7 @@ $env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
 ```
 
 - 값: `reachProbability`(maxSteps 안), `reachWithinShortestProbability`(지도상 최단 이동 수 안), `reachByStep`, `expectedStepsGivenReach`, `lostProbability`(지도 밖으로 가는 확률), `unfinishedProbability`, `mostLikelyPath`. 결과는 `results/reach/`에 화면별 원본 요청·응답과 함께 저장.
+- 외부 사이트 시나리오(#76): `--site <siteId>`면 사이트 설정(`config/sites/<siteId>.json`)의 주소·지도·탐색 규칙으로 1곳만 추정한다. 후보는 그 사이트 규칙(`SiteScope`)으로 뽑고, 쿼리가 있어야 열리는 화면은 설정의 `open` 주소로 연다. 지도 생성과 같은 규칙이라 실제 화면과 지도를 같은 기준으로 대조한다. 지도가 기록한 닿지 않는 화면(`unreachablePages`)은 모델을 부르지 않는다(cafe24 목표당 8번 → 5번, 간선 대조는 함). 모르는 `siteId`는 명령줄 오류.
 - 이동 수가 넉넉하면 두 사이트 모두 도달 확률이 1에 가까워져서, 차이는 `reachWithinShortestProbability`와 기대 단계로 본다. `--max-steps`가 지도상 최단 이동 수보다 작으면 이 값은 계산할 수 없어 `null`이고 사유는 `nullReasons`(`MAX_STEPS_BELOW_SHORTEST`, 길이 없으면 `GOAL_UNREACHABLE_ON_MAP`).
 - **구조 기준 추정치**다. 이전 화면 기록·되돌아가기·재방문 제한을 넣지 않아 실제 Run과 다를 수 있고, 실제 Run 결과를 대신하지 않는다.
 - 화면마다 모델 확률을 합 1로 정규화한다 (검증은 ±0.02 허용). `lostProbability`는 지도 간선이 없는 후보로 간 확률뿐이고 반올림 오차는 들어가지 않는다. 도달·이탈·미도달 합은 항상 1.
