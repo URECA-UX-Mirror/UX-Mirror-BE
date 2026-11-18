@@ -33,7 +33,8 @@ def test_matches_hand_calculation():
 def test_probability_mass_is_conserved():
     for k in range(1, 12):
         est = reach.estimate(MAP, PROBS, "A", "G", k)
-        assert est["reachProbability"] + est["lostProbability"] + est["unfinishedProbability"] == pytest.approx(1.0)
+        total = est["reachProbability"] + est["lostProbability"] + est["unfinishedProbability"]
+        assert total == pytest.approx(1.0, abs=1e-5)   # 각 값을 소수 6자리로 반올림한 합
 
 
 def test_long_horizon_converges_to_absorption_probability():
@@ -80,7 +81,8 @@ def test_normalized_mass_is_conserved_and_bounded():
     for k in range(1, 12):
         est = reach.estimate(MAP, probs, "A", "G", k)
         parts = (est["reachProbability"], est["lostProbability"], est["unfinishedProbability"])
-        assert sum(parts) == pytest.approx(1.0) and all(0.0 <= x <= 1.0 for x in parts)
+        # 세 값을 각각 소수 6자리로 반올림하므로 합은 최대 1.5e-6까지 1에서 벗어날 수 있다
+        assert sum(parts) == pytest.approx(1.0, abs=1e-5) and all(0.0 <= x <= 1.0 for x in parts)
         assert all(0.0 <= x <= 1.0 for x in est["reachByStep"])
 
 
