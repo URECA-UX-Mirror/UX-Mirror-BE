@@ -121,7 +121,7 @@ def test_scenario_request_rules(client, over, message):
 
 
 def test_goal_unreachable_on_site_map_is_422(client):
-    """지도상 홈에서 갈 길이 없는 화면(qna)은 실행 전에 422 (#71 규칙). /api/sites의 reachable=false와 같다."""
+    """지도상 홈에서 갈 길이 없는 화면(qna)은 실행 전에 422 (#71 규칙). /api/sites의 goalSelectable=false와 같다."""
     c, integ, _ = client
     r = c.post("/api/runs", json=scenario(verification={"path": "/board/product/list.html", "text": "Q&A"}))
     assert r.status_code == 422 and "경로가 없습니다" in r.json()["error"]["message"]
@@ -165,9 +165,11 @@ def test_sites_lists_scenario_sites_without_internal_values(client):
     assert site["name"] == "ONS 공식몰 (cafe24 데모)" and site["mode"] == "SCENARIO" and site["startPage"] == "home"
     pages = {p["pageKey"]: p for p in site["pages"]}
     assert pages["review"] == {"pageKey": "review", "path": "/board/review/list.html", "label": "상품 리뷰",
-                               "goalText": "상품 리뷰", "reachable": True}
+                               "goalText": "상품 리뷰", "goalSelectable": True}
     assert pages["home"]["goalText"] is None and pages["brand"]["goalText"] is None
-    assert pages["qna"]["reachable"] is False   # 지도상 홈에서 갈 수 없음
+    assert not pages["home"]["goalSelectable"] and not pages["brand"]["goalSelectable"]   # 시작 화면·확인 글자 없음
+    assert pages["qna"]["goalSelectable"] is False and pages["qna"]["goalText"] == "Q&A"   # 지도상 홈에서 갈 수 없음
+    assert [k for k, p in pages.items() if p["goalSelectable"]] == ["products", "review", "event", "basket"]
     assert site["siteMap"] == {"available": True, "siteMapVersion": "sitemap-cafe24-ons-v1"}
     text = str(site)
     assert "cafe24.com" not in text and "meta" not in site and "board_no" not in text   # 주소·내부 값 노출 안 함

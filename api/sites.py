@@ -65,19 +65,21 @@ def site_map_of(scope: SiteScope) -> dict | None:
 
 
 def public_site(scope: SiteScope) -> dict:
-    """`GET /api/sites` 항목. `reachable`은 지도 기준 시작 화면에서 갈 수 있는지 (지도가 없으면 null).
+    """`GET /api/sites` 항목.
 
-    지도가 있는데 갈 수 없는 화면을 도착 화면으로 고르면 실행 전에 422가 난다 (`run_factory.site_map_reference`).
+    `goalSelectable`: 도착 화면으로 고를 수 있는지 = 확인 글자(`goalText`)가 있고, 시작 화면이 아니고, 지도가 있으면
+    시작 화면에서 닿는 화면. 지도상 닿지 않는 화면을 도착 화면으로 보내면 실행 전에 422가 난다
+    (`run_factory.site_map_reference`). 지도가 없으면 닿는지 판단하지 않는다.
     """
     config = scope.config
     site_map = site_map_of(scope)
     pages = []
     for key, path in config.pages.items():
-        reachable = None
-        if site_map is not None and key in site_map["pages"]:
-            reachable = key == config.start_page or sitemap.distances(site_map["pages"], key)[config.start_page] is not None
-        pages.append({"pageKey": key, "path": path, "label": config.page_labels.get(key, key),
-                      "goalText": config.page_texts.get(key), "reachable": reachable})
+        goal_text = config.page_texts.get(key)
+        reachable = site_map is None or (
+            key in site_map["pages"] and sitemap.distances(site_map["pages"], key)[config.start_page] is not None)
+        pages.append({"pageKey": key, "path": path, "label": config.page_labels.get(key, key), "goalText": goal_text,
+                      "goalSelectable": bool(goal_text) and key != config.start_page and reachable})
     return {"siteId": config.name, "name": config.display_name, "mode": SCENARIO_MODE,
             "startPage": config.start_page, "pages": pages,
             "siteMap": {"available": site_map is not None,
