@@ -50,6 +50,12 @@ def _link_allowed(href: str, scope=None) -> bool:
     return scope.link_allowed(href) if scope is not None else href.startswith(SCOPE_PREFIX)
 
 
+def _nav_key(url: str, scope=None) -> str:
+    """클릭 뒤 "화면이 바뀌었는지" 비교할 값. MORO는 경로, 외부 사이트는 경로+쿼리 (#71 리뷰 1:
+    같은 경로·다른 쿼리로 리다이렉트돼도 바뀐 것으로 보고 범위를 검사한다)."""
+    return scope.nav_key(url) if scope is not None else _path(url)
+
+
 def _origin(url: str) -> str:
     u = urlsplit(url)
     return f"{u.scheme}://{u.netloc}"
@@ -172,16 +178,21 @@ def click(page, candidate: dict, timeout_ms: int = 10000, scope=None) -> dict:
     except Exception as e:
         return _result("CLICK_FAILED", started, from_path, reason="ACTION_ERROR", error=f"클릭 실패: {e}")
 
-    # 주소가 바뀌는지 기다린다. 안 바뀌면 NO_CHANGE
+    # 주소가 바뀌는지 기다린다. 안 바뀌면 NO_CHANGE (외부 사이트는 경로+쿼리 기준)
+    origin = _origin(from_url)
+    from_key = _nav_key(from_url, scope)
     try:
-        page.wait_for_url(lambda u: _path(u) != from_path, timeout=timeout_ms)
+        page.wait_for_url(lambda u: _nav_key(u, scope) != from_key, timeout=timeout_ms)
     except PlaywrightTimeout:
+        if scope is not None and not _in_scope(page.url, origin, scope):   # NO_CHANGE 전에도 실제 도착 주소 확인
+            return _result("CLICK_FAILED", started, from_path, reason="OUT_OF_SCOPE", executed=True,
+                           error=f"누른 뒤 등록 밖 주소에 있음 ({scope.arrival_rejection(page.url)}): {page.url}",
+                           to_path=_path(page.url))
         return _result("NO_CHANGE", started, from_path, executed=True, to_path=_path(page.url))
     except Exception as e:   # 브라우저가 죽는 등 시간 초과가 아닌 오류를 NO_CHANGE로 숨기지 않는다
         return _result("CLICK_FAILED", started, from_path, reason="ACTION_ERROR", executed=True,
                        error=f"클릭 후 화면 확인 실패: {e}")
 
-    origin = _origin(from_url)
     if not _in_scope(page.url, origin, scope):   # 리다이렉트로 등록 밖 화면에 가면 OUT_OF_SCOPE → 루프가 되돌아감
         why = f" ({scope.arrival_rejection(page.url)})" if scope is not None else ""
         return _result("CLICK_FAILED", started, from_path, reason="OUT_OF_SCOPE", executed=True,

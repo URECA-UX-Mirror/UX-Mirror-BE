@@ -142,9 +142,20 @@ class SiteScope:
         """후보 href(경로+쿼리 또는 주소)가 등록 주소로 가는지. 클릭 직전 확인용."""
         return self.url_rejection(self.base_url, href) is None
 
-    def in_scope(self, url: str, origin: str) -> bool:
-        """도착한 주소가 같은 사이트의 등록 주소인지 (클릭·뒤로가기 뒤 리다이렉트 포함 확인)."""
-        return _origin(origin) == self.origin and self.arrival_rejection(url) is None
+    def in_scope(self, url: str, origin: str | None = None) -> bool:
+        """도착한 주소가 이 사이트의 등록 주소인지 (클릭·뒤로가기 뒤 리다이렉트 포함 확인).
+
+        출처는 **사이트 설정의 출처**로 판단하고 호출자가 넘긴 `origin`은 쓰지 않는다 (#71 리뷰 2: 외부 사이트로
+        리다이렉트된 뒤 뒤로 가기를 하면 "이탈한 주소의 출처"가 넘어와 정상 복귀도 범위 밖으로 판정됐다).
+        """
+        return self.arrival_rejection(url) is None
+
+    def nav_key(self, url: str) -> str:
+        """클릭 뒤 화면이 바뀌었는지 비교할 값: 출처 + 경로 + 쿼리 (모호한 주소면 원문)."""
+        try:
+            return f"{_origin(url)}{_canonical(_url_parts(url))}"
+        except (TypeError, ValueError):
+            return url
 
     def global_nav_allowed(self, path: str) -> bool:
         """현재 화면에서 상단 메뉴를 후보로 넣는지 (리뷰 2)."""

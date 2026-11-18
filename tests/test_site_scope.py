@@ -364,3 +364,114 @@ def test_extract_without_scope_keeps_shop_rule(routed_page):
     out = extract(routed_page)
     assert out["candidates"] == []
     assert {e["reason"] for e in out["excluded"]} <= {"NOT_NAVIGATION", "GLOBAL_NAV_NOT_START"}
+
+
+# ---------------------------------------------------------------- 리다이렉트·복귀 (#71 리뷰 1·2, 서버 없이 route)
+
+OTHER = "https://other.example"
+HOME_HTML = """<!doctype html><html><body style="margin:0"><header>
+<a href="/product/list.html?cate_no=23">제품</a> <a href="/board/review/list.html?board_no=4">상품 리뷰</a>
+<a href="/board/gallery/list.html?board_no=8">이벤트</a></header><main><h1>홈</h1></main></body></html>"""
+PRODUCTS_HTML = "<!doctype html><html><body><main><h2>제품</h2></main></body></html>"
+
+
+def _html(route, body):
+    route.fulfill(status=200, content_type="text/html; charset=utf-8", body=body)
+
+
+def _redirect(route, location):
+    route.fulfill(status=302, headers={"Location": location})
+
+
+def _site(route):
+    """cafe24 화면 흉내: 리뷰는 외부 도메인으로, 이벤트는 같은 경로의 미등록 쿼리로 리다이렉트."""
+    url = route.request.url
+    if url.startswith(OTHER):
+        return _html(route, "<!doctype html><html><body><h1>외부</h1></body></html>")
+    if not url.startswith(BASE):
+        return route.fulfill(status=404, body="")
+    if "/board/review/list.html" in url:
+        return _redirect(route, f"{OTHER}/landing")
+    if "/board/gallery/list.html?board_no=8" in url:
+        return _redirect(route, f"{BASE}/board/gallery/list.html?board_no=99")
+    if "/product/list.html" in url:
+        return _html(route, PRODUCTS_HTML)
+    return _html(route, HOME_HTML)
+
+
+@pytest.fixture
+def site_page():
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        context = browser.new_context(viewport={"width": 1440, "height": 900})
+        context.route("**/*", _site)
+        page = context.new_page()
+        page.goto(f"{BASE}/", wait_until="networkidle")
+        yield page
+        browser.close()
+
+
+def _candidate(page, scope, href):
+    from uxm.candidates import extract
+    return next(c for c in extract(page, scope=scope)["candidates"] if c["href"] == href)
+
+
+def test_same_path_unregistered_query_redirect_is_out_of_scope(site_page, cafe):
+    """리뷰 1: 경로는 같고 쿼리만 미등록 값으로 바뀐 리다이렉트도 NO_CHANGE가 아니라 OUT_OF_SCOPE."""
+    from uxm import browser
+    res = browser.click(site_page, _candidate(site_page, cafe, "/board/gallery/list.html?board_no=8"),
+                        timeout_ms=5000, scope=cafe)
+    assert (res["result"], res["reason"], res["executed"]) == ("CLICK_FAILED", "OUT_OF_SCOPE", True)
+    assert site_page.url.endswith("/board/gallery/list.html?board_no=99")
+
+
+def test_back_from_external_redirect_returns_to_registered_page(site_page, cafe):
+    """리뷰 2: 외부 도메인으로 리다이렉트 → 뒤로 가기 → 등록된 원래 화면이면 NAVIGATED."""
+    from uxm import browser
+    res = browser.click(site_page, _candidate(site_page, cafe, "/board/review/list.html?board_no=4"),
+                        timeout_ms=5000, scope=cafe)
+    # route로 준 다른 출처 302는 크롬 오류 화면(chrome-error://)에 닿을 수 있다. 어느 쪽이든 사이트 밖이다
+    assert (res["result"], res["reason"]) == ("CLICK_FAILED", "OUT_OF_SCOPE") and not site_page.url.startswith(BASE)
+    back = browser.go_back(site_page, "/", timeout_ms=5000, scope=cafe)
+    assert back["result"] == "NAVIGATED", back
+    assert site_page.url.rstrip("/") == BASE
+
+
+def test_registered_navigation_still_navigates(site_page, cafe):
+    from uxm import browser
+    res = browser.click(site_page, _candidate(site_page, cafe, "/product/list.html?cate_no=23"),
+                        timeout_ms=5000, scope=cafe)
+    assert res["result"] == "NAVIGATED" and browser.page_key(site_page.url, cafe) == "products"
+
+
+def test_loop_recovers_from_external_redirect_and_records_events(site_page, cafe, tmp_path):
+    """루프 전체: 리뷰(외부 리다이렉트) → 시스템 뒤로 가기·Event 기록 → 제품 목록 도착 (실제 브라우저, 가짜 모델)."""
+    from types import SimpleNamespace
+    from api import run_factory
+    from api.presets import Presets
+    from uxm.agent import agent_settings, run_agent
+    from uxm.mock import MockBackend
+    from uxm.storage import RunStore, read_jsonl
+    presets = Presets()
+    req = SimpleNamespace(viewport=None, maxSteps=6, variant="before", experimentKey="scope_test", startPath="/")
+    model = {"resultOrigin": "MOCK", "modelVersion": None, "modelEndpointId": "mock", "temperature": 1.52,
+             "goalJudgmentMode": "DOM_ONLY"}
+    run = run_factory.build_run(req, presets.goal("refund"), presets.persona("novice-shopper"), model)
+    run.update(goalId=None, goal="안마의자 종류를 둘러보고 싶다", siteId="cafe24-ons", referencePathConfig=None,
+               verification={"type": "PATH_AND_VISIBLE_TEXT", "path": "/product/list.html", "text": "제품",
+                             "exact": False, "scope": "page"})
+    store = RunStore(run["runId"], runs_dir=str(tmp_path))
+    store.create(run)
+    settings = agent_settings(run, None, store.dir, f"{BASE}/", BASE)
+    backend = MockBackend(["상단 메뉴>/board/review/list.html?board_no=4#1", "상단 메뉴>/product/list.html?cate_no=23#1"])
+    result = run_agent(settings, backend, site_page)   # env 없음 → siteId로 SiteScope Env
+
+    assert (result["status"], result["terminationReason"]) == ("SUCCESS", "GOAL_VERIFIED"), result
+    assert result["summary"]["systemBackCount"] == 1
+    assert [v["pageKey"] for v in result["summary"]["path"]] == ["home", "home", "products"]
+    events = read_jsonl(os.path.join(store.dir, "events.jsonl"))
+    assert any(e["eventType"] == "ACTION_COMPLETED" and e["details"].get("reason") == "OUT_OF_SCOPE" for e in events)
+    assert any(e["eventType"] == "BACK_EXECUTED" and e["eventOrigin"] == "SYSTEM_RECOVERY" for e in events)
+    assert not any(e["eventType"] == "BACK_FAILED" for e in events)   # 리뷰 2: 정상 복귀를 실패로 보지 않음
