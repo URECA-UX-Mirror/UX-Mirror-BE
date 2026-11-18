@@ -85,3 +85,13 @@ def test_loop_storage_uses_same_retry_with_its_own_attempts(tmp_path, monkeypatc
         storage._write_atomic(str(path), "x")
     assert calls["n"] == 5 and not (tmp_path / "run.json.tmp").exists()
     assert store.retry_on_file_lock is storage.retry_on_file_lock   # 실행 API와 같은 함수
+
+
+@pytest.mark.parametrize("attempts", [0, -1])
+def test_retry_needs_at_least_one_attempt(attempts):
+    from uxm.storage import retry_on_file_lock
+    calls = []
+    with pytest.raises(ValueError):
+        retry_on_file_lock(lambda: calls.append(1), attempts=attempts)
+    assert calls == []
+    assert retry_on_file_lock(lambda: "ok", attempts=1) == "ok"

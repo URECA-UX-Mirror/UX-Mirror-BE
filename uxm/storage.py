@@ -60,7 +60,10 @@ def retry_on_file_lock(fn, attempts: int, delay_s: float = FILE_LOCK_RETRY_DELAY
     다른 스레드가 연 파일을 교체·열기하면 Windows는 PermissionError를 낸다 (루프가 run.json을 쓰는 순간
     실행 API가 같은 파일을 읽는 경우 등). 다른 플랫폼에서는 이 오류가 거의 없어 동작이 같다.
     루프 저장(`_write_atomic`)과 실행 API 저장(`api/store.py`)이 같이 쓴다 (#79).
+    attempts는 1 이상 (0이면 fn을 한 번도 부르지 않고 끝나므로 ValueError).
     """
+    if attempts < 1:
+        raise ValueError(f"attempts는 1 이상이어야 합니다: {attempts}")
     for attempt in range(attempts):
         try:
             return fn()
