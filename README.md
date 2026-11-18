@@ -94,14 +94,14 @@ copy .env.example .env
 
 | Method | Path | 설명 |
 |---|---|---|
-| GET | `/api/sites` | 시나리오 사이트 목록. `{siteId, name, mode: SCENARIO, startPage, pages: [{pageKey, path, label, goalText, reachable}], siteMap: {available, siteMapVersion}}` |
+| GET | `/api/sites` | 시나리오 사이트 목록. `{siteId, name, mode: SCENARIO, startPage, pages: [{pageKey, path, label, goalText, goalSelectable}], siteMap: {available, siteMapVersion}}` |
 | POST | `/api/runs` + `siteId` | 시나리오 Run. 응답에 `siteId`·`mode` |
 
 - `siteId`가 없으면 지금까지와 같은 MORO MARKET 버전 비교 Run이다. Run에 `siteId`·`mode` 필드를 쓰지 않는다.
 - 시나리오 Run 규칙: `variant=before`만, 목표는 직접 입력(`goal` + `verification`)만. 시작·도착 화면은 그 사이트에 등록된 화면(`pages`)이어야 한다. 시작 화면을 생략하면 사이트의 `startPage`. 등록되지 않은 `siteId`·MORO MARKET `siteId`·위 규칙 위반은 `422`.
 - 실행 주소와 사이트 버전 값(`siteVersion`, `comparisonContext`의 layout·candidatePolicy·initialBrowserState)은 사이트 설정(`variants`·`meta`)에서 온다. 사이트 주소는 Run과 응답에 넣지 않는다.
 - 실행 전 검사는 사이트 1곳만 확인한다. 쿼리가 있어야 열리는 화면(게시판 등)은 설정의 `open` 주소로 연다. 메시지에 Before/After를 붙이지 않는다.
-- 사이트 지도가 있으면 그 지도로 `SITE_MAP` 경로 기준을 만든다. 지도상 시작 화면에서 갈 수 없는 도착 화면은 `422` "도착 화면으로 가는 경로가 없습니다." (`/api/sites`의 `reachable: false`). 지도가 없으면 `referencePathConfig: null`.
+- 사이트 지도가 있으면 그 지도로 `SITE_MAP` 경로 기준을 만든다. 지도상 시작 화면에서 갈 수 없는 도착 화면은 `422` "도착 화면으로 가는 경로가 없습니다." (`/api/sites`의 `goalSelectable: false`. 고를 수 있는 화면 = 확인 글자 있음 + 시작 화면 아님 + 지도에서 닿음). 지도가 없으면 `referencePathConfig: null`.
 - 같은 `experimentKey`에 버전 비교 Run과 시나리오 Run을 섞을 수 없다 (`siteId`가 다르면 `422`).
 - 비교 API는 시나리오 Run을 대상에서 뺀다. 시나리오 Run만 있는 키는 `404 RUN_NOT_FOUND` "시나리오 실행은 비교하지 않습니다."
 
