@@ -86,15 +86,18 @@ def page_signature(page) -> str:
 
 # ---------------------------------------------------------------- 열기 / 닫기
 
-def open_browser(start_url: str, headless: bool = True) -> dict:
-    """Run마다 새 브라우저. 쇼핑몰 서버가 꺼져 있는 등 시작 자체가 안 되면 RuntimeError (Run을 시작할 수 없음)."""
+def open_browser(start_url: str, headless: bool = True, timeout_ms: int | None = None) -> dict:
+    """Run마다 새 브라우저. 쇼핑몰 서버가 꺼져 있는 등 시작 자체가 안 되면 RuntimeError (Run을 시작할 수 없음).
+
+    timeout_ms: 첫 화면 로딩 제한. None이면 Playwright 기본값(30초). 실행 전 검사는 짧게 준다.
+    """
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
     try:
         browser = pw.chromium.launch(headless=headless)
         context = browser.new_context(viewport=VIEWPORT)
         page = context.new_page()
-        page.goto(start_url, wait_until="networkidle")
+        page.goto(start_url, wait_until="networkidle", timeout=timeout_ms)
     except Exception as e:
         pw.stop()
         raise RuntimeError(f"브라우저를 시작하지 못함: {start_url} ({e})") from e

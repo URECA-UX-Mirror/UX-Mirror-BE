@@ -39,6 +39,14 @@ class Integrations:
         """`(open_browser, close_browser)` 또는 None."""
         return _load("uxm.browser", "open_browser", "close_browser")
 
+    def goal_preflight(self):
+        """직접 입력 성공 조건의 실행 전 검사 `check(verification, base_urls)` (api/preflight.py). 브라우저가 없으면 None."""
+        browser = self.browser()
+        if browser is None:
+            return None
+        from api.preflight import check_goal_screens
+        return lambda verification, base_urls: check_goal_screens(verification, base_urls, browser)
+
     def detect_issues(self):
         found = _load("uxm.analysis", "detect_issues")
         return found[0] if found else None
