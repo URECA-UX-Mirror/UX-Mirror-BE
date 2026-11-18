@@ -55,6 +55,8 @@ copy .env.example .env
 
 ## 실행 API
 
+행사 최종 Before/After 실행과 결과 보존 절차는 [최종 Run 비교·증거 보존 절차](docs/final-run-evaluation.md)를 참고한다.
+
 ```powershell
 .\.venv\Scripts\python -m uvicorn api.main:app --port 8000
 ```
