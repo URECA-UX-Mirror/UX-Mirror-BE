@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "1.0",
+  "instances": [
+    {"siteInstanceId": "site-c0", "candidateId": "C0", "label": "이용정보", "baseUrlEnv": "SHOP_BEFORE_URL", "baseUrl": "http://127.0.0.1:8001"},
+    {"siteInstanceId": "site-c2", "candidateId": "C2", "label": "주문·환불", "baseUrlEnv": "SHOP_AFTER_URL", "baseUrl": "http://127.0.0.1:8002"}
+  ]
+}

@@ -31,6 +31,12 @@ class VerificationInput(BaseModel):
     scope: str | None = None
 
 
+class CreateOptimizationRequest(BaseModel):
+    """UX Optimizer 생성 (고도화 v1.3 10.2). 후보 풀·평가 조건은 서버가 정하고 동결하므로 받지 않는다."""
+    model_config = ConfigDict(extra="forbid")
+    sourceRunId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")   # 기준 진단 Run (선택)
+
+
 class CreateRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

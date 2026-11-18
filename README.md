@@ -88,6 +88,36 @@ copy .env.example .env
 - `validity`·`invalidReason`은 루프가 넘긴 값을 쓰지 않고, 종료 시 `terminationReason`·`error.code`로 항상 다시 정한다 (계약 6.1 유효성 표).
 - `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
 
+## UX Optimizer API (고도화 v1.3, #57)
+
+라벨 후보 풀을 Zoro-1로 평가 → 후보 선정 → 실제 브라우저 재검증 → 최종 판단. 기존 `POST /api/runs`(P0)와 별도 흐름이다.
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | `/api/optimizations` | `{sourceRunId?}` → `202` `{optimizationId, status: CREATED, createdAt}`. 후보 평가를 비동기로 시작 |
+| GET | `/api/optimizations/{id}` | 상태·진행(`progress`)·후보별 평가(`evaluations`)·선정·검증 Run ID·최종 판단·오류 |
+| POST | `/api/optimizations/{id}/verify` | `202` `{optimizationId, status: VERIFYING, verificationPhase: BASELINE, baselineRunId, validationRunId}`. 기준(C0)과 검증 후보 사이트를 차례로 실행 |
+| GET | `/api/optimizations/{id}/report` | 완료된 Optimization의 보고서 (미완료 `409 OPTIMIZATION_NOT_READY`) |
+
+- 상태: `CREATED → EVALUATING → EVALUATED → VERIFYING → COMPLETED`, 실패 시 `FAILED`(`error.failedPhase`·`lastStatus` 보존). 프론트는 1초 폴링, 종료 상태에서 멈춘다.
+- 후보 풀·대상 메뉴·정책 버전: `config/optimization.json` (C0 `이용정보` 기준, C1~C4). 동률일 때 쓰는 의미 명확성 순위 `semanticClarityRank`(C2 1, C3 2, C4 3, C1 4, 작을수록 우선)도 여기 고정하고 평가마다 넘긴다. 생성 시 모델·프롬프트·목표·사이트 조건과 함께 `frozenConditions`·`modelMetadata`에 동결한다. 요청으로 바꿀 수 없다.
+- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 지금은 C0(8001)·C2(8002)만 있고, 라벨 변형 사이트(#37)를 띄우면 한 줄씩 추가한다. 사이트가 없는 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
+- 평가: 후보 화면을 실제로 열어 스냅샷(`raw/snapshot_<C>.json`) → 유효성 검사 → Zoro-1 Direct 1회. 실패 시 재시도하지 않는다.
+  - 기준(C0) 자체: 대상 semanticKey가 있고 라벨이 `originalLabel`, 목적지가 설정과 같은지 먼저 본다. 다르면 모델을 부르지 않고 `FAILED`(`BASELINE_INVALID`).
+  - 후보: C0 대비 후보 수·순서·화면 제목·목적지·영역(region)·다른 라벨·bbox ±2px·누출. 모든 스냅샷은 semanticKey 누락(`SEMANTIC_KEY_MISSING`)·중복(`SEMANTIC_KEY_DUPLICATE`)도 확인한다 (확률을 키로 묶을 때 덮어쓰기 방지).
+  - 결과: `targetOptionProbability`(대상 메뉴), `goalPathProbability`(허용 경로 다음 화면으로 가는 후보 확률 합, 기준은 `goalPathBasis: ALLOWED_PATHS`), `probabilities`(semanticKey 기준), `requestHash`·`snapshotHash`, 원본 요청·응답 `raw/model_request_<C>.json`·`model_response_<C>.json`. 계산할 수 없는 지표는 0이 아니라 `null`이고 사유는 `metricNullReasons`.
+  - 모델이 제한 시간(`modelTimeoutMs`)을 넘기면 그 후보는 `MODEL_TIMEOUT`. 늦은 호출이 끝날 때까지 같은 시간만큼 더 기다린 뒤 다음 후보로 가고, 그래도 안 끝나면 평가를 `FAILED`(`MODEL_TIMEOUT`)로 멈춘다. 그 호출이 실제로 끝날 때까지는 시간 제한 없이 일반 Run·새 Optimization이 409이고, health `activeOptimization.status`는 `MODEL_CALL_PENDING` (호출 중첩 방지).
+  - 후보 화면을 열지 못하면 `BROWSER_ERROR` "후보 화면을 열지 못했습니다." 원본 예외(내부 주소 포함)는 서버 로그에만 남긴다.
+- 지표 검증·후보 선정·최종 판단은 4번 `uxm/optimizer_policy.py`(`compute_evaluation_metrics`, `select_candidate`, `judge_verification`)를 부른다. 모듈이 없으면 `503 OPTIMIZER_POLICY_UNAVAILABLE`.
+- 검증 Run은 기존 Runner로 만들어 `results/runs/`에 그대로 저장한다. `experimentKey = optimizationId`, 기준은 `variant=before`, 후보는 `after`(기존 비교 API 재사용), 역할은 `optimizationContext.executionRole`(`BASELINE`/`CANDIDATE`).
+  - 목표·사용자 유형·성공 조건·경로 기준·제한·viewport는 생성 때 동결한 `frozenConditions`로 만든다. 검증 시작 때 현재 preset·모델 설정(`goalJudgmentMode` 포함)이 동결 값과 다르면 `422 EXPERIMENT_CONDITION_MISMATCH`.
+  - 검증 Run을 만들기 전에 기준·선정 후보 화면을 다시 찍어 평가 때 스냅샷과 비교한다(같은 Site Instance, 같은 `snapshotHash`). 다르면 `FAILED`(`SITE_INSTANCE_CHANGED`), 다시 열지 못하면 `FAILED`(`SITE_RECHECK_FAILED`)이고 Run은 만들지 않는다. 확인 결과는 `siteRecheck`.
+  - **결과는 `variant`가 아니라 `optimizationContext.siteInstanceId`·`label`로 본다.** C1·C3·C4 Run도 `variant=after`이고 `siteVersion`은 그대로 `shop-v1`이라 Run 필드만으로는 어느 라벨 사이트인지 구분되지 않는다.
+- 후보 평가·검증 중에는 `POST /api/runs`도 `409 RUN_ALREADY_ACTIVE`(메시지 "Optimization … 후보 평가가/후보 검증 실행이 진행 중입니다."). 검증 중에는 기준 Run과 후보 Run 사이 빈 구간에도 막고, 이 Optimization의 검증 Run만 통과한다. 진행 중인 Optimization은 `/api/health`의 `activeOptimization`(`{optimizationId, status}` 또는 `null`)에 보인다.
+- Optimization 실패 코드(`error.code`): `BASELINE_INVALID`, `BASELINE_NOT_EVALUATED`, `MODEL_TIMEOUT`, `SITE_INSTANCE_CHANGED`, `SITE_RECHECK_FAILED`, `RUN_TIMEOUT`, `OPTIMIZATION_INTERRUPTED`(서버 재시작), `OPTIMIZATION_FAILED`.
+- 오류: `404 OPTIMIZATION_NOT_FOUND`, `409 OPTIMIZATION_NOT_READY`·`OPTIMIZATION_ALREADY_PROCESSED`·`RUN_ALREADY_ACTIVE`, `422 INVALID_SITE_INSTANCE`·`EXPERIMENT_CONDITION_MISMATCH`, `503 MODEL_UNAVAILABLE`·`OPTIMIZER_POLICY_UNAVAILABLE`.
+- 저장: `results/optimizations/<optimizationId>/optimization.json` + `raw/`.
+
 ## 프론트엔드 실제 API 연동 테스트
 
 프론트 저장소에서 `npm ci`, 백엔드 가상환경에서 의존성 설치와

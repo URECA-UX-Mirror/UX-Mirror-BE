@@ -22,9 +22,11 @@ from api.comparison import build_comparison
 from api.errors import (AnalysisError, ApiError, analysis_error_handler, api_error_handler,
                         http_error_handler, unexpected_error_handler, validation_error_handler)
 from api.integrations import Integrations
+from api.optimizer import Optimizer, public_view
 from api.presets import Presets, _check_verification, normalize_verification
 from api.runner import Runner, with_detected_types
-from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateRunRequest
+from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateOptimizationRequest, CreateRunRequest
+from api.site_instances import SiteRegistry
 from api.store import DEFAULT_RESULTS_DIR, RunStore, is_safe_id
 from api.timeutil import now_iso
 from uxm.leak import FORBIDDEN
@@ -33,19 +35,25 @@ from uxm.prompts import PROMPT_VERSION
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
 
-def create_app(results_dir: str | None = None, integrations: Integrations | None = None) -> FastAPI:
-    store = RunStore(results_dir or os.getenv("UXM_RESULTS_DIR") or DEFAULT_RESULTS_DIR)
+def create_app(results_dir: str | None = None, integrations: Integrations | None = None,
+               site_registry: SiteRegistry | None = None) -> FastAPI:
+    results_dir = results_dir or os.getenv("UXM_RESULTS_DIR") or DEFAULT_RESULTS_DIR
+    store = RunStore(results_dir)
     integrations = integrations or Integrations()
     presets = Presets()
     runner = Runner(store, integrations)
+    optimizer = Optimizer(results_dir, store, runner, integrations, presets, site_registry=site_registry)
+    runner.site_base_url, runner.external_busy = optimizer.sites.base_url, optimizer.busy_reason
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         runner.recover_interrupted()
+        optimizer.recover_interrupted()
         yield
 
     app = FastAPI(title="UX MIRROR API", version=run_factory.SCHEMA_VERSION, lifespan=lifespan)
     app.state.store, app.state.runner, app.state.presets = store, runner, presets
+    app.state.optimizer = optimizer
 
     origins = [o.strip() for o in os.getenv("UXM_CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",") if o.strip()]
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["*"])
@@ -96,6 +104,9 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
         if goal["goalId"] is None:   # 직접 입력한 성공 조건은 실제 화면에서 먼저 확인한다 (preset은 로드 때 검사)
             if runner.active_run_id is not None:   # 브라우저를 띄우기 전에 바로 알려 준다 (create에서도 다시 확인)
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
+            busy = optimizer.busy_reason()
+            if busy:
+                raise ApiError(409, "RUN_ALREADY_ACTIVE", busy, retryable=True)
             integrations.goal_preflight()(goal["verification"], runner_module.SHOP_URLS)
         run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
         runner.create(run, goal)
@@ -172,6 +183,38 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             raise ApiError(404, "RUN_NOT_FOUND", "해당 experimentKey의 실행이 없습니다.")
         return build_comparison(store, integrations, experiment_key)
 
+    # ---- UX Optimizer (고도화 v1.3 10장)
+    def require_model() -> None:
+        if not _model_reachable(run_factory.model_settings()["config"]):
+            raise ApiError(503, "MODEL_UNAVAILABLE", "모델 서비스가 준비되지 않았습니다.", retryable=True)
+
+    def load_optimization_or_404(opt_id: str) -> dict:
+        if not is_safe_id(opt_id):
+            raise ApiError(404, "OPTIMIZATION_NOT_FOUND", "Optimization을 찾을 수 없습니다.")
+        return optimizer.load_or_404(opt_id)
+
+    @app.post("/api/optimizations", status_code=202)
+    def create_optimization(req: CreateOptimizationRequest | None = None):
+        require_model()
+        opt = optimizer.create((req or CreateOptimizationRequest()).sourceRunId)
+        return {k: opt[k] for k in ("optimizationId", "status", "createdAt")}
+
+    @app.get("/api/optimizations/{optimization_id}")
+    def get_optimization(optimization_id: str):
+        return public_view(load_optimization_or_404(optimization_id))
+
+    @app.post("/api/optimizations/{optimization_id}/verify", status_code=202)
+    def verify_optimization(optimization_id: str):
+        load_optimization_or_404(optimization_id)
+        require_model()
+        opt = optimizer.start_verification(optimization_id)
+        return {k: opt[k] for k in ("optimizationId", "status", "verificationPhase", "baselineRunId", "validationRunId")}
+
+    @app.get("/api/optimizations/{optimization_id}/report")
+    def get_optimization_report(optimization_id: str):
+        load_optimization_or_404(optimization_id)
+        return optimizer.report(optimization_id)
+
     # ---- 17.8
     @app.get("/api/health")
     def health():
@@ -187,6 +230,8 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             "browser": {"ready": browser_ready},
             "agent": {"ready": agent_ready},
             "activeRun": runner.active_run_id,
+            # UX Optimizer 평가·검증 중이면 일반 실행은 409다. activeRun만 보면 비어 있어 같이 알려 준다 (정자비 11-18)
+            "activeOptimization": optimizer.active_job(),
             "checkedAt": now_iso(),
         }
 
