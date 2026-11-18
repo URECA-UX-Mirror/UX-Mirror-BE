@@ -11,19 +11,38 @@
 제외된 클릭 요소는 exclusionReasons로 남긴다.
 
 semanticKey는 백엔드 전용. 라벨이 아니라 영역·목적지·DOM 순서로 만들어 Before/After에서 같은 값이 나온다.
+
+외부 사이트 (#67): `scope`(`uxm/site_scope.SiteScope`)를 넘기면 규칙 1·5가 사이트 설정을 따른다.
+  1'. 허용 도메인의 **등록된 화면(pages)으로 가는 링크만** (버튼·폼 제출은 href가 없어 자연히 제외)
+  5'. 상단 메뉴는 사이트 정책(`globalNavPolicy`)에 따라 시작 화면만 또는 모든 화면
+  후보 href는 도메인을 뺀 정규화 경로 + 쿼리. `scope`가 None이면 위 규칙 1~5 그대로다 (MORO MARKET).
 """
 from urllib.parse import urlsplit
 
 VIEWPORT = {"width": 1440, "height": 900}
 START_PATH = "/shop/home"          # 상단 공통 메뉴를 후보로 넣는 유일한 화면
 GLOBAL_NAV_REGION = "상단 메뉴"
+SHOP_PREFIX = "/shop/"             # scope가 없을 때(MORO MARKET) 이동 후보 링크의 접두어
 
 DANGEROUS_WORDS = ("회원 탈퇴", "회원탈퇴", "로그아웃", "접수하기", "결제하기", "삭제", "탈퇴")
 CLICKABLE_SELECTOR = "a, button, [role=button], input[type=submit]"   # domIndex 기준. browser.py와 공유
 
 _JS = r"""
 (args) => {
-  const [vw, vh, dangerous, selector] = args;
+  const [vw, vh, dangerous, selector, scope] = args;
+  // 이동 후보 링크인지 (규칙 1). prefix = MORO MARKET 기존 규칙, pages = 등록된 화면만 (#67)
+  const navOf = (el, raw) => {
+    if (el.tagName !== 'A' || !raw) return null;
+    if (scope.mode === 'prefix') return raw.startsWith(scope.prefix) ? raw : null;
+    if (raw.startsWith('#') || /^(javascript|mailto|tel):/i.test(raw)) return null;
+    let u;
+    try { u = new URL(el.href); } catch (e) { return null; }
+    if (!scope.hosts.includes(u.host)) return null;
+    const p = u.pathname.split(';')[0].replace(/\/$/, '') || '/';
+    return scope.paths.includes(p) ? p + u.search : null;
+  };
+  const pathOf = (h) => scope.mode === 'prefix' ? h.replace(/\/$/, '')
+                                                 : (h.split('?')[0].split(';')[0].replace(/\/$/, '') || '/');
   const isIcon = (n) => n && n.closest && n.closest('.material-symbols-outlined');
   const isBreadcrumb = (el) => {
     if (el.closest('nav[aria-label="Breadcrumb" i], [aria-label="breadcrumb" i]')) return true;
@@ -73,18 +92,20 @@ _JS = r"""
     c.querySelectorAll('.material-symbols-outlined').forEach(s => s.remove());
     return (c.textContent || '').replace(/\s+/g, ' ').trim();
   };
-  const here = location.pathname.replace(/\/$/, '');
+  const here = pathOf(location.pathname);
   const out = [];
   document.querySelectorAll(selector).forEach((el, domIndex) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     const label = labelOf(el);
-    const href = el.tagName === 'A' ? el.getAttribute('href') : null;
+    const raw = el.tagName === 'A' ? el.getAttribute('href') : null;
+    const nav = navOf(el, raw);
+    const href = scope.mode === 'prefix' ? raw : (nav || raw);   // 외부 사이트 후보는 정규화 경로
     let reason = null;
     if (r.width === 0 || r.height === 0 || cs.visibility === 'hidden' || cs.display === 'none') reason = 'HIDDEN';
     else if (dangerous.some(w => (el.innerText || '').includes(w))) reason = 'DANGEROUS_ACTION';
-    else if (!href || !href.startsWith('/shop/')) reason = 'NOT_NAVIGATION';
-    else if (href.replace(/\/$/, '') === here) reason = 'SELF_LINK';
+    else if (!nav) reason = 'NOT_NAVIGATION';
+    else if (pathOf(nav) === here) reason = 'SELF_LINK';
     else if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) reason = 'OUT_OF_VIEWPORT';
     if (!reason && !label) reason = 'NO_VISIBLE_LABEL';
     const region = regionOf(el);
@@ -97,18 +118,24 @@ _JS = r"""
 """
 
 
-def extract(page, keep_dom_index: bool = False) -> dict:
+def _global_nav_allowed(path: str, scope) -> bool:
+    return scope.global_nav_allowed(path) if scope is not None else path == START_PATH
+
+
+def extract(page, keep_dom_index: bool = False, scope=None) -> dict:
     """현재 페이지에서 후보와 제외 목록을 뽑는다. 페이지는 수정하지 않는다.
 
     keep_dom_index=True는 browser.click 전용: 클릭 직전 다시 뽑은 후보에 요소 순번(domIndex)을 붙인다.
     domIndex는 브라우저 런타임 전용이라 기본 출력(Step·후보 JSON·API·모델)에는 넣지 않는다 (계약 8.1).
+    scope: 외부 사이트 탐색 범위(`uxm/site_scope.SiteScope`). None이면 MORO MARKET 기존 규칙.
     """
     vp = page.viewport_size
-    raw = page.evaluate(_JS, [vp["width"], vp["height"], list(DANGEROUS_WORDS), CLICKABLE_SELECTOR])
+    js_scope = scope.js_args() if scope is not None else {"mode": "prefix", "prefix": SHOP_PREFIX}
+    raw = page.evaluate(_JS, [vp["width"], vp["height"], list(DANGEROUS_WORDS), CLICKABLE_SELECTOR, js_scope])
     path = urlsplit(page.url).path.rstrip("/")
     candidates, excluded, seen = [], [], {}
     for el in raw:
-        if not el["reason"] and el["region"] == GLOBAL_NAV_REGION and path != START_PATH:
+        if not el["reason"] and el["region"] == GLOBAL_NAV_REGION and not _global_nav_allowed(path, scope):
             el["reason"] = "GLOBAL_NAV_NOT_START"
         if el["reason"]:
             if el["reason"] != "HIDDEN" and el["label"]:

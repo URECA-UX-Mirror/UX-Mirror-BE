@@ -33,12 +33,23 @@ class SiteMapError(Exception):
         self.reasons = reasons
 
 
+GLOBAL_NAV_POLICIES = ("START_ONLY", "ALL_PAGES")
+
+
+def url_path(href: str) -> str:
+    """주소의 경로 부분. 경로 매개변수(`;jsessionid=…`)와 끝 `/`는 뗀다 (루트는 빈 문자열)."""
+    return urlsplit(href).path.split(";", 1)[0].rstrip("/")
+
+
 @dataclass(frozen=True)
 class SiteConfig:
     """지도를 만들 사이트 설정. 실제 사이트를 추가할 때는 설정 파일(`config/sites/*.json`)만 새로 만든다.
 
-    화면 목록은 사람이 적는다(링크 따라가기 수집은 범위 밖). 후보 추출 규칙(`uxm/candidates.py`)은 아직
-    쇼핑몰(`/shop/`, 시작 화면 `/shop/home`)에 묶여 있어, 다른 사이트는 그 규칙을 사이트별로 바꾼 뒤에 지도가 나온다.
+    화면 목록은 사람이 적는다(링크 따라가기 수집은 범위 밖). 후보 추출·화면 구분은 사이트를 넘기지 않으면
+    쇼핑몰 규칙(`/shop/`, 시작 화면 `/shop/home`)이고, 다른 사이트는 `uxm/site_scope.py`가 이 설정으로 정한다 (#67).
+
+    `pages` 값은 경로 문자열(기존 형식) 또는 `{"path", "label", "text"}` 객체(화면 이름·도착 확인 글자, #67).
+    어느 형식이든 `pages`에는 경로만 남기고 이름·글자는 `page_labels`·`page_texts`에 둔다 (지도 해시는 경로만 씀).
     """
     name: str
     pages: dict[str, str]                 # pageKey → path (지원 화면 목록)
@@ -50,15 +61,19 @@ class SiteConfig:
     site_map_version: str = "sitemap-v1"
     out: str = ""                         # 지도 파일 경로 (저장소 루트 기준)
     preset_check: bool = False            # config/presets.json 허용 경로와 대조할지 (그 사이트용 preset이 있을 때만)
+    display_name: str = ""                # 화면에 보일 사이트 이름 (없으면 name)
+    page_labels: dict[str, str] = field(default_factory=dict)   # pageKey → 화면 이름
+    page_texts: dict[str, str] = field(default_factory=dict)    # pageKey → 도착 확인 글자 (도착 화면 후보)
+    global_nav_policy: str = "START_ONLY"   # 상단 메뉴를 후보로 넣을 화면: 시작 화면만 / 모든 화면 (리뷰 2)
 
     def page_key(self, href: str | None) -> str | None:
-        """후보 href → 지원 화면 pageKey. 쿼리·끝 `/`는 무시. 지원 화면이 아니면 None."""
+        """후보 href → 지원 화면 pageKey. 쿼리·경로 매개변수·끝 `/`는 무시. 지원 화면이 아니면 None."""
         if not href:
             return None
         parts = urlsplit(href)
         if parts.netloc and parts.netloc not in self.allowed_hosts:   # 바깥 도메인 제외
             return None
-        path = parts.path.rstrip("/")
+        path = url_path(href)
         if not (path + "/").startswith(self.path_prefix):
             return None
         for key, page_path in self.pages.items():
@@ -71,27 +86,58 @@ SITES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 SITE_FIELDS = ("name", "pages", "startPage", "pathPrefix", "variants", "siteMapVersion", "out")
 
 
+def _split_pages(raw: dict) -> tuple[dict[str, str], dict[str, str], dict[str, str], list[str]]:
+    """`pages` 값(문자열 또는 객체) → (경로, 이름, 확인 글자, 문제 목록)."""
+    paths, labels, texts, reasons = {}, {}, {}, []
+    for key, value in raw.items():
+        if isinstance(value, str):
+            path = value
+        elif isinstance(value, dict):
+            path = value.get("path")
+            for f, out in (("label", labels), ("text", texts)):
+                if f in value:
+                    if isinstance(value[f], str) and value[f].strip():
+                        out[key] = value[f].strip()
+                    else:
+                        reasons.append(f"'{key}' 화면의 {f}는 빈 값이 아닌 문자열이어야 함")
+        else:
+            path = None
+        if not isinstance(path, str) or not path.startswith("/"):
+            reasons.append(f"'{key}' 화면의 path가 '/'로 시작하는 문자열이 아님")
+            continue
+        paths[key] = path
+    return paths, labels, texts, reasons
+
+
 def site_config_from_dict(data: dict) -> SiteConfig:
     """사이트 설정 파일 내용 → SiteConfig. 빠진 필드·잘못된 값이면 SiteMapError."""
     reasons = [f"사이트 설정 필드 '{f}' 없음" for f in SITE_FIELDS if f not in data]
+    paths, labels, texts = {}, {}, {}
     if not reasons:
         if not isinstance(data["pages"], dict) or not data["pages"]:
             reasons.append("pages가 비어 있음")
-        elif data["startPage"] not in data["pages"]:
-            reasons.append(f"시작 화면 '{data['startPage']}'이 pages에 없음")
+        else:
+            paths, labels, texts, page_reasons = _split_pages(data["pages"])
+            reasons += page_reasons
+            if data["startPage"] not in data["pages"]:
+                reasons.append(f"시작 화면 '{data['startPage']}'이 pages에 없음")
         if not isinstance(data["variants"], dict) or not data["variants"]:
             reasons.append("variants(사이트 주소)가 비어 있음")
         if not str(data["pathPrefix"]).endswith("/"):
             reasons.append("pathPrefix는 '/'로 끝나야 함 (예: /shop/)")
-        elif any(not (p.rstrip("/") + "/").startswith(data["pathPrefix"]) for p in data["pages"].values()):
+        elif any(not (p.rstrip("/") + "/").startswith(data["pathPrefix"]) for p in paths.values()):
             reasons.append(f"pathPrefix '{data['pathPrefix']}' 밖의 화면이 pages에 있음")
+        if data.get("globalNavPolicy", "START_ONLY") not in GLOBAL_NAV_POLICIES:
+            reasons.append(f"globalNavPolicy는 {GLOBAL_NAV_POLICIES} 중 하나여야 함")
     if reasons:
         raise SiteMapError(reasons)
-    return SiteConfig(name=data["name"], pages=dict(data["pages"]), start_page=data["startPage"],
+    return SiteConfig(name=data["name"], pages=paths, start_page=data["startPage"],
                       path_prefix=data["pathPrefix"], meta=dict(data.get("meta", {})),
                       allowed_hosts=tuple(data.get("allowedHosts", ())), variants=dict(data["variants"]),
                       site_map_version=data["siteMapVersion"], out=data["out"],
-                      preset_check=bool(data.get("presetCheck", False)))
+                      preset_check=bool(data.get("presetCheck", False)),
+                      display_name=data.get("displayName") or data["name"], page_labels=labels, page_texts=texts,
+                      global_nav_policy=data.get("globalNavPolicy", "START_ONLY"))
 
 
 def load_site_config(path: str) -> SiteConfig:
