@@ -61,6 +61,90 @@ def test_invalid_inputs():
         reach.estimate(MAP, PROBS, "A", "G", 0)
 
 
+# A에서 도착 화면 G로 가는 후보가 둘 (리뷰 #62-1: 허용 오차 안의 합계)
+TWO_WAY = {"siteMapVersion": "t", "siteMapHash": "h2", "pages": {
+    "A": {"path": "/a", "edges": [{"semanticKey": "x", "to": "G"}, {"semanticKey": "y", "to": "G"}]},
+    "G": {"path": "/g", "edges": []}}}
+
+
+@pytest.mark.parametrize("p", [0.505, 0.495])   # 합계 1.01, 0.99: validate_probabilities(±0.02)는 통과한다
+def test_probability_sum_within_tolerance_is_normalized(p):
+    est = reach.estimate(TWO_WAY, {"A": {"x": p, "y": p}}, "A", "G", 3)
+    assert est["reachProbability"] == 1.0 and est["lostProbability"] == 0.0   # 1.01도, 이탈 0.01도 아님
+    assert est["unfinishedProbability"] == 0.0 and est["reachByStep"] == [1.0, 0.0, 0.0]
+    assert est["mostLikelyPath"]["probability"] <= 1.0
+
+
+def test_normalized_mass_is_conserved_and_bounded():
+    probs = {"A": {"a1": 0.51, "a2": 0.31, "a3": 0.19}, "B": {"b1": 0.6, "b2": 0.41}}   # 합 1.01, 1.01
+    for k in range(1, 12):
+        est = reach.estimate(MAP, probs, "A", "G", k)
+        parts = (est["reachProbability"], est["lostProbability"], est["unfinishedProbability"])
+        assert sum(parts) == pytest.approx(1.0) and all(0.0 <= x <= 1.0 for x in parts)
+        assert all(0.0 <= x <= 1.0 for x in est["reachByStep"])
+
+
+def test_zero_probability_move_does_not_make_incomplete():
+    """확률 0인 이동으로만 닿는 화면은 확률이 없어도 INCOMPLETE가 아니다 (리뷰 #62-2)."""
+    site_map = {"siteMapVersion": "t", "siteMapHash": "h3", "pages": {
+        "A": {"path": "/a", "edges": [{"semanticKey": "g", "to": "G"}, {"semanticKey": "b", "to": "B"}]},
+        "B": {"path": "/b", "edges": [{"semanticKey": "g", "to": "G"}]},
+        "G": {"path": "/g", "edges": []}}}
+    est = reach.estimate(site_map, {"A": {"g": 1.0, "b": 0.0}}, "A", "G", 2)
+    assert est["status"] == "COMPLETE" and est["missingPages"] == []
+    assert est["reachProbability"] == 1.0 and est["unfinishedProbability"] == 0.0
+    assert est["mostLikelyPath"] == {"path": ["A", "G"], "probability": 1.0}
+
+
+def test_map_mismatch_is_not_a_normal_result():
+    mismatch = {"A": {"added": [{"semanticKey": "a9", "to": "B"}], "removed": []}}
+    est = reach.estimate(MAP, PROBS, "A", "G", 3, map_mismatches=mismatch)
+    assert est["status"] == "MAP_MISMATCH" and est["mapMismatches"] == mismatch
+    ok = reach.estimate(MAP, PROBS, "A", "G", 3)
+    assert ok["mapMismatches"] == {}
+    assert reach.compare(ok, est) == {"comparable": False, "mismatched": ["siteStructure"]}
+
+
+def test_compare_of_incomplete_estimates_is_flagged():
+    a = reach.estimate(MAP, {"A": PROBS["A"]}, "A", "G", 3)
+    b = reach.estimate(MAP, PROBS, "A", "G", 3)
+    cmp = reach.compare(a, b)
+    assert cmp["comparable"] and not cmp["bothComplete"] and "개선 판단 근거로 쓰지 않는다" in cmp["note"]
+    assert "note" not in reach.compare(b, b)
+
+
+def _site_map():
+    from uxm.sitemap import load_site_map
+    return load_site_map(os.path.join(ROOT, "config", "sitemaps", "sitemap-shop-v1.json"))
+
+
+def _candidates_from_map(site_map, page_key):
+    """지도 간선을 그대로 후보로 되돌린 것 (href = 목적지 화면 주소)."""
+    pages = site_map["pages"]
+    return [{"semanticKey": e["semanticKey"], "href": pages[e["to"]]["path"]} for e in pages[page_key]["edges"]]
+
+
+def test_map_mismatch_detects_changed_added_removed_edges():
+    """실제 화면 간선이 지도와 다르면 찾아낸다. 지도 밖으로 가는 후보는 원래 이탈이라 차이가 아니다 (리뷰 #62-3)."""
+    from uxm.sitemap import SHOP
+    site_map = _site_map()
+    home = site_map["pages"]["home"]
+    cands = _candidates_from_map(site_map, "home")
+    assert reach.map_mismatch(SHOP, home, cands) is None
+    assert reach.map_mismatch(SHOP, home, cands + [{"semanticKey": "본문>/shop/cart#1", "href": "/shop/cart"},
+                                                   {"semanticKey": "외부>https://x#1", "href": "https://example.com/"}]) is None
+    first = home["edges"][0]
+    other = next(k for k, v in site_map["pages"].items() if k != first["to"])
+    moved = [dict(c, href=site_map["pages"][other]["path"]) if c["semanticKey"] == first["semanticKey"] else c
+             for c in cands]
+    assert reach.map_mismatch(SHOP, home, moved) == {
+        "added": [{"semanticKey": first["semanticKey"], "to": other}], "removed": [first]}
+    extra = cands + [{"semanticKey": "본문>/shop/support#9", "href": "/shop/support"}]
+    assert reach.map_mismatch(SHOP, home, extra) == {
+        "added": [{"semanticKey": "본문>/shop/support#9", "to": "support"}], "removed": []}
+    assert reach.map_mismatch(SHOP, home, cands[1:]) == {"added": [], "removed": [first]}
+
+
 def test_compare_requires_same_conditions():
     a = reach.estimate(MAP, PROBS, "A", "G", 3)
     b = reach.estimate(MAP, {**PROBS, "A": {"a1": 0.2, "a2": 0.7, "a3": 0.1}}, "A", "G", 3)
@@ -95,7 +179,7 @@ def test_real_shops_with_real_site_map(shops):
         backend = KeywordBackend()
         session = open_browser(url + "/shop/home")
         try:
-            probs, records = reach.collect_page_probabilities(
+            probs, records, mismatches = reach.collect_page_probabilities(
                 session["page"], url, site_map, backend, goal="환불 신청 화면 찾기", persona="처음 쓰는 사용자",
                 skip={"refund"})
         finally:
@@ -104,7 +188,8 @@ def test_real_shops_with_real_site_map(shops):
         assert len(backend.requests) == len(probs)
         assert all(r["state"]["goal"] == "환불 신청 화면 찾기" for r in backend.requests)
         # 후보 semanticKey가 지도 간선과 같은 규칙이라 지도 밖 확률은 일부(같은 화면 앵커 등)만
-        out[variant] = reach.estimate(site_map, probs, "home", "refund", 8)
+        assert mismatches == {}   # 두 쇼핑몰 모두 실제 간선이 지도와 같다
+        out[variant] = reach.estimate(site_map, probs, "home", "refund", 8, map_mismatches=mismatches)
         assert out[variant]["status"] == "COMPLETE"
     cmp = reach.compare(out["before"], out["after"])
     assert cmp["comparable"] and cmp["bothComplete"]
@@ -114,3 +199,21 @@ def test_real_shops_with_real_site_map(shops):
     assert out["before"]["shortestSteps"] == out["after"]["shortestSteps"] == 2
     assert cmp["deltaReachWithinShortestProbability"] > 0.05 and cmp["deltaExpectedStepsGivenReach"] < 0
     assert out["after"]["mostLikelyPath"]["path"] == ["home", "orders", "refund"]
+
+
+def test_real_shop_differing_from_map_is_map_mismatch(shops):
+    """지도에서 간선 하나를 지우면 실제 쇼핑몰 화면과 달라져 MAP_MISMATCH로 나온다."""
+    pytest.importorskip("playwright")
+    import copy
+    from uxm.browser import close_browser, open_browser
+    site_map = copy.deepcopy(_site_map())
+    dropped = site_map["pages"]["home"]["edges"].pop(0)
+    session = open_browser(shops["before"] + "/shop/home")
+    try:
+        probs, _, mismatches = reach.collect_page_probabilities(
+            session["page"], shops["before"], site_map, KeywordBackend(), goal="환불 신청 화면 찾기",
+            persona="처음 쓰는 사용자", skip={"refund"})
+    finally:
+        close_browser(session)
+    assert mismatches == {"home": {"added": [dropped], "removed": []}}
+    assert reach.estimate(site_map, probs, "home", "refund", 8, map_mismatches=mismatches)["status"] == "MAP_MISMATCH"

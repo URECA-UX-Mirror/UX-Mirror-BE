@@ -51,12 +51,12 @@ def main(argv=None) -> dict:
     for name, url in sites.items():
         session = open_browser(url.rstrip("/") + site_map["pages"][start]["path"])
         try:
-            probs, records = reach.collect_page_probabilities(
+            probs, records, mismatches = reach.collect_page_probabilities(
                 session["page"], url, site_map, backend, goal=args.goal, persona=args.persona,
                 temperature=cfg["temperature"], skip={args.goal_page})
         finally:
             close_browser(session)
-        est = reach.estimate(site_map, probs, start, args.goal_page, args.max_steps)
+        est = reach.estimate(site_map, probs, start, args.goal_page, args.max_steps, map_mismatches=mismatches)
         results[name] = {"estimate": est, "pageProbabilities": probs, "pages": records}
         print(f"[{name}] 도달 {est['reachProbability']}  최단 {est['shortestSteps']}번 안 도달 "
               f"{est['reachWithinShortestProbability']}  도달 시 기대 단계 {est['expectedStepsGivenReach']}  "
