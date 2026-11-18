@@ -41,7 +41,8 @@
     }
   ],
   "executionOrder": ["e-refund-1119", "e-orders-1119", "e-support-1119"],
-  "gitCommit": "TODO: E-1 직전 develop HEAD (#60 머지 후)",
+  "gitCommit": "6520d5e",
+  "gitCommitNote": "develop HEAD = Merge PR #60 (실행 전 검사). 직접 입력 회귀 regress-60 통과 (11/18, 로컬 4bit, 통합 확인 Run과 Step별 확률 동일)",
   "modelVersion": "trillionlabs/Zoro-1",
   "modelEndpointId": "TODO: E-1 직전 /api/health model.endpointId (ZORO_BACKEND=http)",
   "temperature": 1.52,
