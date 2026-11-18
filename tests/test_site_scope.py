@@ -147,7 +147,22 @@ def test_page_key_falls_back_to_path_for_unregistered(cafe):
     "/shopinfo/guide.html", "/", "/product/list.html?cate_no=23",
 ])
 def test_registered_url_allowed(cafe, href):
-    assert cafe.url_rejection(f"{BASE}/", href) is None and cafe.link_allowed(href)
+    here = f"{BASE}/order/basket.html"
+    assert cafe.url_rejection(here, href) is None and cafe.link_allowed(href, here)
+
+
+def test_uses_scenario_safety_with_registered_open_urls(cafe):
+    """허용 판정은 #70 ScenarioSafety 한 곳 (등록 주소 = 화면별 open)."""
+    from uxm.scenario_safety import ScenarioSafety
+    assert isinstance(cafe.safety, ScenarioSafety)
+    assert "/board/review/list.html?board_no=4" in cafe.safety.pages and "/" in cafe.safety.pages
+
+
+def test_link_check_uses_real_current_url(cafe):
+    """목적지가 현재 화면이면 이동이 아니다: 홈 링크는 홈에서는 거부, 다른 화면에서는 허용."""
+    assert cafe.url_rejection(f"{BASE}/", "/") == "NOT_NAVIGATION"
+    assert not cafe.link_allowed("/", f"{BASE}/")
+    assert cafe.link_allowed("/", f"{BASE}/board/review/list.html?board_no=4")
 
 
 @pytest.mark.parametrize("href,why", [
@@ -182,25 +197,23 @@ def test_arrival_requires_registered_url(cafe):
     assert not cafe.in_scope("http://evil.example/order/basket.html", BASE)  # 다른 사이트
 
 
-@pytest.mark.parametrize("attrs,why", [
-    ({"onclick": None, "download": None, "target": None, "role": None}, None),
-    ({"onclick": None, "download": None, "target": "_self", "role": None}, None),
-    ({"onclick": "submit()", "download": None, "target": None, "role": None}, "UNSUPPORTED_LINK_ACTION"),
-    ({"onclick": "", "download": None, "target": None, "role": None}, "UNSUPPORTED_LINK_ACTION"),
-    ({"onclick": None, "download": "", "target": None, "role": None}, "UNSUPPORTED_LINK_ACTION"),
-    ({"onclick": None, "download": None, "target": "_blank", "role": None}, "UNSUPPORTED_LINK_ACTION"),
-    ({"onclick": None, "download": None, "target": None, "role": "button"}, "UNSUPPORTED_LINK_ACTION"),
-    ({"onclick": None}, "DOM_ATTRIBUTES_MISSING"), (None, "DOM_ATTRIBUTES_MISSING"),
+NO_ATTRS = {"onclick": None, "download": None, "target": None, "role": None}
+
+
+@pytest.mark.parametrize("el,why", [
+    ({"tag": "a", "href": "/board/review/list.html?board_no=4", "label": "상품 리뷰", "attrs": NO_ATTRS}, None),
+    ({"tag": "a", "href": "/order/basket.html", "label": "0 장바구니", "attrs": NO_ATTRS}, None),
+    ({"tag": "a", "href": "/order/basket.html", "label": "장바구니 담기", "attrs": NO_ATTRS}, "DANGEROUS_ACTION"),
+    ({"tag": "a", "href": "/order/basket.html", "label": "장바구니", "attrs": {**NO_ATTRS, "onclick": "add()"}},
+     "UNSUPPORTED_LINK_ACTION"),
+    ({"tag": "a", "href": "/order/basket.html", "label": "장바구니", "attrs": {**NO_ATTRS, "target": "_blank"}},
+     "UNSUPPORTED_LINK_ACTION"),
+    ({"tag": "a", "href": "/order/basket.html", "label": "장바구니", "attrs": {"onclick": None}}, "DOM_ATTRIBUTES_MISSING"),
+    ({"tag": "a", "href": "/order/basket.html", "label": "장바구니", "attrs": None}, "DOM_ATTRIBUTES_MISSING"),
+    ({"tag": "button", "href": None, "label": "장바구니", "attrs": NO_ATTRS}, "NOT_LINK"),
 ])
-def test_link_action_rejection(attrs, why):
-    assert SiteScope.link_action_rejection(attrs or {}) == why
-
-
-@pytest.mark.parametrize("label,why", [("상품 리뷰", None), ("0 장바구니", None), ("장바구니 담기", "DANGEROUS_ACTION"),
-                                       ("바로 구매", "DANGEROUS_ACTION"), ("주문하기", "DANGEROUS_ACTION"),
-                                       ("Log Out", "DANGEROUS_ACTION"), ("CHECKOUT", "DANGEROUS_ACTION")])
-def test_label_rejection(label, why):
-    assert SiteScope.label_rejection(label) == why
+def test_candidate_rejection_passes_dom_values_to_safety(cafe, el, why):
+    assert cafe.candidate_rejection(f"{BASE}/", el) == why
 
 
 def test_global_nav_policy(cafe):

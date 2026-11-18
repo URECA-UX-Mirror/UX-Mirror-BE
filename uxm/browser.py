@@ -46,8 +46,9 @@ def _in_scope(url: str, origin: str, scope=None) -> bool:
     return f"{u.scheme}://{u.netloc}" == origin and (_path(url) + "/").startswith(SCOPE_PREFIX)
 
 
-def _link_allowed(href: str, scope=None) -> bool:
-    return scope.link_allowed(href) if scope is not None else href.startswith(SCOPE_PREFIX)
+def _link_allowed(href: str, scope=None, current_url: str | None = None) -> bool:
+    """클릭해도 되는 링크인지. 외부 사이트는 실제 현재 주소 기준으로 #70 안전 검사."""
+    return scope.link_allowed(href, current_url) if scope is not None else href.startswith(SCOPE_PREFIX)
 
 
 def _nav_key(url: str, scope=None) -> str:
@@ -152,7 +153,7 @@ def click(page, candidate: dict, timeout_ms: int = 10000, scope=None) -> dict:
     href = candidate.get("href") or ""
     label = candidate.get("label") or ""
 
-    if not _link_allowed(href, scope):
+    if not _link_allowed(href, scope, from_url):
         return _result("CLICK_FAILED", started, from_path, reason="OUT_OF_SCOPE",
                        error=f"테스트 사이트 밖 링크라 누르지 않음: {href or '(없음)'}")
     if any(w in label for w in DANGEROUS_WORDS):
