@@ -64,7 +64,13 @@ class SiteConfig:
     display_name: str = ""                # 화면에 보일 사이트 이름 (없으면 name)
     page_labels: dict[str, str] = field(default_factory=dict)   # pageKey → 화면 이름
     page_texts: dict[str, str] = field(default_factory=dict)    # pageKey → 도착 확인 글자 (도착 화면 후보)
+    page_open: dict[str, str] = field(default_factory=dict)     # pageKey → 열 때 쓸 주소(경로+쿼리). 없으면 path
     global_nav_policy: str = "START_ONLY"   # 상단 메뉴를 후보로 넣을 화면: 시작 화면만 / 모든 화면 (리뷰 2)
+    require_all_reachable: bool = True      # 지도 검증 3: 모든 화면이 시작 화면에서 닿아야 하는지
+
+    def open_path(self, key: str) -> str:
+        """지도 생성·사전 검사에서 그 화면을 열 주소 (게시판 목록처럼 쿼리가 있어야 열리는 화면용)."""
+        return self.page_open.get(key, self.pages[key])
 
     def page_key(self, href: str | None) -> str | None:
         """후보 href → 지원 화면 pageKey. 쿼리·경로 매개변수·끝 `/`는 무시. 지원 화면이 아니면 None."""
@@ -86,14 +92,21 @@ SITES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 SITE_FIELDS = ("name", "pages", "startPage", "pathPrefix", "variants", "siteMapVersion", "out")
 
 
-def _split_pages(raw: dict) -> tuple[dict[str, str], dict[str, str], dict[str, str], list[str]]:
-    """`pages` 값(문자열 또는 객체) → (경로, 이름, 확인 글자, 문제 목록)."""
-    paths, labels, texts, reasons = {}, {}, {}, []
+def _split_pages(raw: dict) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str], list[str]]:
+    """`pages` 값(문자열 또는 객체) → (경로, 이름, 확인 글자, 여는 주소, 문제 목록)."""
+    paths, labels, texts, opens, reasons = {}, {}, {}, {}, []
     for key, value in raw.items():
         if isinstance(value, str):
             path = value
         elif isinstance(value, dict):
             path = value.get("path")
+            if "open" in value:
+                o = value["open"]
+                if not (isinstance(o, str) and o.startswith("/") and isinstance(path, str)
+                        and url_path(o) == path.rstrip("/")):
+                    reasons.append(f"'{key}' 화면의 open은 path와 같은 경로(+쿼리)여야 함")
+                else:
+                    opens[key] = o
             for f, out in (("label", labels), ("text", texts)):
                 if f in value:
                     if isinstance(value[f], str) and value[f].strip():
@@ -106,18 +119,18 @@ def _split_pages(raw: dict) -> tuple[dict[str, str], dict[str, str], dict[str, s
             reasons.append(f"'{key}' 화면의 path가 '/'로 시작하는 문자열이 아님")
             continue
         paths[key] = path
-    return paths, labels, texts, reasons
+    return paths, labels, texts, opens, reasons
 
 
 def site_config_from_dict(data: dict) -> SiteConfig:
     """사이트 설정 파일 내용 → SiteConfig. 빠진 필드·잘못된 값이면 SiteMapError."""
     reasons = [f"사이트 설정 필드 '{f}' 없음" for f in SITE_FIELDS if f not in data]
-    paths, labels, texts = {}, {}, {}
+    paths, labels, texts, opens = {}, {}, {}, {}
     if not reasons:
         if not isinstance(data["pages"], dict) or not data["pages"]:
             reasons.append("pages가 비어 있음")
         else:
-            paths, labels, texts, page_reasons = _split_pages(data["pages"])
+            paths, labels, texts, opens, page_reasons = _split_pages(data["pages"])
             reasons += page_reasons
             if data["startPage"] not in data["pages"]:
                 reasons.append(f"시작 화면 '{data['startPage']}'이 pages에 없음")
@@ -137,7 +150,8 @@ def site_config_from_dict(data: dict) -> SiteConfig:
                       site_map_version=data["siteMapVersion"], out=data["out"],
                       preset_check=bool(data.get("presetCheck", False)),
                       display_name=data.get("displayName") or data["name"], page_labels=labels, page_texts=texts,
-                      global_nav_policy=data.get("globalNavPolicy", "START_ONLY"))
+                      page_open=opens, global_nav_policy=data.get("globalNavPolicy", "START_ONLY"),
+                      require_all_reachable=bool(data.get("requireAllReachable", True)))
 
 
 def load_site_config(path: str) -> SiteConfig:
@@ -250,11 +264,12 @@ def build_site_map(config: SiteConfig, extracted: dict[str, dict[str, list[dict]
     pages = base
 
     # 검증 3: 모든 지원 화면에 시작 화면에서 가는 길이 있는가
-    for key in config.pages:
-        if key == config.start_page:
-            continue
-        if distances(pages, key)[config.start_page] is None:
-            reasons.append(f"시작 화면 '{config.start_page}'에서 '{key}'로 가는 길이 없음")
+    # 외부 사이트(requireAllReachable=false)는 실패 대신 지도에 기록한다: 첫 화면에 링크가 없어 닿지 않는 화면 자체가
+    # 그 사이트의 발견 사항이고, 그 화면을 도착 화면으로 고르면 실행 API가 422로 알린다 (#67)
+    unreachable = [key for key in config.pages
+                   if key != config.start_page and distances(pages, key)[config.start_page] is None]
+    if config.require_all_reachable:
+        reasons += [f"시작 화면 '{config.start_page}'에서 '{key}'로 가는 길이 없음" for key in unreachable]
 
     # 검증 4: 기존 preset 허용 경로와 맞는가
     for check in preset_checks or []:
@@ -268,8 +283,11 @@ def build_site_map(config: SiteConfig, extracted: dict[str, dict[str, list[dict]
     if reasons:
         raise SiteMapError(reasons)
 
-    return {"siteMapVersion": version, "siteMapHash": site_map_hash(pages), **config.meta,
-            "startPageKey": config.start_page, "generatedAt": generated_at, "pages": pages}
+    out = {"siteMapVersion": version, "siteMapHash": site_map_hash(pages), **config.meta,
+           "startPageKey": config.start_page, "generatedAt": generated_at, "pages": pages}
+    if not config.require_all_reachable:
+        out["unreachablePages"] = unreachable   # 시작 화면에서 닿지 않는 화면 (해시 대상 아님)
+    return out
 
 
 def site_map_reference(site_map: dict, goal_page: str, start_page: str | None = None) -> dict:

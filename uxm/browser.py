@@ -183,8 +183,9 @@ def click(page, candidate: dict, timeout_ms: int = 10000, scope=None) -> dict:
 
     origin = _origin(from_url)
     if not _in_scope(page.url, origin, scope):   # 리다이렉트로 등록 밖 화면에 가면 OUT_OF_SCOPE → 루프가 되돌아감
+        why = f" ({scope.arrival_rejection(page.url)})" if scope is not None else ""
         return _result("CLICK_FAILED", started, from_path, reason="OUT_OF_SCOPE", executed=True,
-                       error=f"누른 뒤 테스트 사이트 밖으로 나감: {page.url}", to_path=_path(page.url))
+                       error=f"누른 뒤 테스트 사이트 밖으로 나감{why}: {page.url}", to_path=_path(page.url))
     try:
         page.wait_for_load_state("networkidle", timeout=timeout_ms)
     except PlaywrightTimeout:

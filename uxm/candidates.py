@@ -12,10 +12,12 @@
 
 semanticKey는 백엔드 전용. 라벨이 아니라 영역·목적지·DOM 순서로 만들어 Before/After에서 같은 값이 나온다.
 
-외부 사이트 (#67): `scope`(`uxm/site_scope.SiteScope`)를 넘기면 규칙 1·5가 사이트 설정을 따른다.
-  1'. 허용 도메인의 **등록된 화면(pages)으로 가는 링크만** (버튼·폼 제출은 href가 없어 자연히 제외)
+외부 사이트 (#67): `scope`(`uxm/site_scope.SiteScope`)를 넘기면 규칙 1·4·5가 사이트 설정을 따른다.
+  1'. 같은 출처의 **등록 주소(경로+쿼리 완전 일치)로 가는 링크만** (버튼·폼 제출은 href가 없어 자연히 제외)
+  4'. 위험 경로·위험 라벨, onclick·download·새 창·role=button 링크 제외 (#70 안전 검사와 같은 규칙)
   5'. 상단 메뉴는 사이트 정책(`globalNavPolicy`)에 따라 시작 화면만 또는 모든 화면
-  후보 href는 도메인을 뺀 정규화 경로 + 쿼리. `scope`가 None이면 위 규칙 1~5 그대로다 (MORO MARKET).
+  후보 href는 도메인을 뺀 경로 + 쿼리. `scope`가 None이면 위 규칙 1~5 그대로다 (MORO MARKET).
+  클릭 직전 `browser.click`이 다시 추출하므로 같은 검사를 실제 DOM 값으로 한 번 더 한다.
 """
 from urllib.parse import urlsplit
 
@@ -30,19 +32,29 @@ CLICKABLE_SELECTOR = "a, button, [role=button], input[type=submit]"   # domIndex
 _JS = r"""
 (args) => {
   const [vw, vh, dangerous, selector, scope] = args;
-  // 이동 후보 링크인지 (규칙 1). prefix = MORO MARKET 기존 규칙, pages = 등록된 화면만 (#67)
+  // 이동 후보 링크인지 (규칙 1). prefix = MORO MARKET 기존 규칙.
+  // pages(#67) = 같은 출처 링크만 남기고 경로+쿼리로 바꾼다. 등록 주소·위험 경로·링크 속성 판정은 Python(SiteScope)에서.
+  const originOf = (u) => `${u.protocol.slice(0, -1)}://${u.hostname.toLowerCase()}:${u.port || (u.protocol === 'https:' ? '443' : '80')}`;
+  const canonOf = (u) => {   // SiteScope._canonical과 같은 모양: 디코딩한 경로 + 쿼리 쌍
+    let p;
+    try { p = decodeURIComponent(u.pathname); } catch (e) { p = u.pathname; }
+    p = p.replace(/\/$/, '') || '/';
+    const q = [...new URLSearchParams(u.search)].map(([k, v]) => `${k}=${v}`).join('&');
+    return q ? `${p}?${q}` : p;
+  };
   const navOf = (el, raw) => {
     if (el.tagName !== 'A' || !raw) return null;
     if (scope.mode === 'prefix') return raw.startsWith(scope.prefix) ? raw : null;
-    if (raw.startsWith('#') || /^(javascript|mailto|tel):/i.test(raw)) return null;
+    if (raw.startsWith('#') || /^(javascript|mailto|tel|data):/i.test(raw)) return null;
     let u;
     try { u = new URL(el.href); } catch (e) { return null; }
-    if (!scope.hosts.includes(u.host)) return null;
-    const p = u.pathname.split(';')[0].replace(/\/$/, '') || '/';
-    return scope.paths.includes(p) ? p + u.search : null;
+    if (u.username || u.password || originOf(u) !== scope.origin) return null;
+    return u.pathname + u.search;
   };
-  const pathOf = (h) => scope.mode === 'prefix' ? h.replace(/\/$/, '')
-                                                 : (h.split('?')[0].split(';')[0].replace(/\/$/, '') || '/');
+  const selfOf = (nav) => scope.mode === 'prefix' ? nav.replace(/\/$/, '') : canonOf(new URL(nav, location.href));
+  const attrsOf = (el) => scope.mode === 'prefix' ? null : {
+    onclick: el.getAttribute('onclick'), download: el.getAttribute('download'),
+    target: el.getAttribute('target'), role: el.getAttribute('role')};
   const isIcon = (n) => n && n.closest && n.closest('.material-symbols-outlined');
   const isBreadcrumb = (el) => {
     if (el.closest('nav[aria-label="Breadcrumb" i], [aria-label="breadcrumb" i]')) return true;
@@ -92,7 +104,7 @@ _JS = r"""
     c.querySelectorAll('.material-symbols-outlined').forEach(s => s.remove());
     return (c.textContent || '').replace(/\s+/g, ' ').trim();
   };
-  const here = pathOf(location.pathname);
+  const here = scope.mode === 'prefix' ? location.pathname.replace(/\/$/, '') : canonOf(new URL(location.href));
   const out = [];
   document.querySelectorAll(selector).forEach((el, domIndex) => {
     const r = el.getBoundingClientRect();
@@ -105,11 +117,12 @@ _JS = r"""
     if (r.width === 0 || r.height === 0 || cs.visibility === 'hidden' || cs.display === 'none') reason = 'HIDDEN';
     else if (dangerous.some(w => (el.innerText || '').includes(w))) reason = 'DANGEROUS_ACTION';
     else if (!nav) reason = 'NOT_NAVIGATION';
-    else if (pathOf(nav) === here) reason = 'SELF_LINK';
+    else if (selfOf(nav) === here) reason = 'SELF_LINK';
     else if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) reason = 'OUT_OF_VIEWPORT';
     if (!reason && !label) reason = 'NO_VISIBLE_LABEL';
     const region = regionOf(el);
     out.push({domIndex, tag: el.tagName.toLowerCase(), label: label || labelOfAll(el), href, region, reason,
+              attrs: attrsOf(el),
               context: reason ? null : contextOf(el, region),
               bbox: {x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height)}});
   });
@@ -137,6 +150,9 @@ def extract(page, keep_dom_index: bool = False, scope=None) -> dict:
     for el in raw:
         if not el["reason"] and el["region"] == GLOBAL_NAV_REGION and not _global_nav_allowed(path, scope):
             el["reason"] = "GLOBAL_NAV_NOT_START"
+        if not el["reason"] and scope is not None:   # 외부 사이트: 등록 주소·위험 경로·링크 속성·위험 라벨 (#67·#70)
+            el["reason"] = (scope.url_rejection(page.url, el["href"]) or scope.link_action_rejection(el["attrs"])
+                            or scope.label_rejection(el["label"]))
         if el["reason"]:
             if el["reason"] != "HIDDEN" and el["label"]:
                 excluded.append({"label": el["label"], "region": el["region"], "reason": el["reason"]})
