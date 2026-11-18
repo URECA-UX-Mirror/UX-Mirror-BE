@@ -33,6 +33,9 @@ def select_pair(store: RunStore, experiment_key: str) -> tuple[dict, dict]:
     runs = [r for r in store.list_runs() if r.get("experimentKey") == experiment_key]
     if not runs:
         raise ApiError(404, "RUN_NOT_FOUND", "해당 experimentKey의 실행이 없습니다.")
+    runs = [r for r in runs if r.get("mode") != "SCENARIO"]   # 시나리오 Run은 비교하지 않는다 (#74, 리뷰 3)
+    if not runs:
+        raise ApiError(404, "RUN_NOT_FOUND", "시나리오 실행은 비교하지 않습니다.")
     finals = {v: final_run([r for r in runs if r.get("variant") == v]) for v in ("before", "after")}
     if any(r is not None and r.get("status") in ("READY", "RUNNING") for r in finals.values()):
         raise ApiError(409, "COMPARISON_NOT_READY", "비교할 실행이 아직 끝나지 않았습니다.", retryable=True)

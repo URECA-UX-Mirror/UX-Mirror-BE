@@ -59,15 +59,20 @@ def _check_start_path(goal: dict) -> None:
         raise ValueError(f"goalId={goal['goalId']}: 허용 경로는 모두 시작 화면 {page}에서 시작해야 합니다.")
 
 
-def _check_verification(goal: dict) -> None:
-    """목표 판정 조건이 계약 2.3 형식인지. 루프에 넘기는 변환(`success_condition`)도 여기서 한 번 돌려 본다."""
+def _check_verification(goal: dict, path_check=None) -> None:
+    """목표 판정 조건이 계약 2.3 형식인지. 루프에 넘기는 변환(`success_condition`)도 여기서 한 번 돌려 본다.
+
+    path_check: 시나리오 실행(#74)에서 도착 화면을 그 사이트 화면 목록으로 확인하는 함수. 없으면 MORO MARKET `/shop/...`.
+    """
     gid = goal.get("goalId") or "(직접 입력)"
     v = goal.get("verification")
     if not isinstance(v, dict):
         raise ValueError(f"goalId={gid}: verification이 필요합니다.")
     if v.get("type") != GOAL_CHECK_TYPE:
         raise ValueError(f"goalId={gid}: verification.type은 {GOAL_CHECK_TYPE}이어야 합니다.")
-    if not isinstance(v.get("path"), str) or not v["path"].startswith("/shop/"):
+    if path_check is not None:
+        path_check(v.get("path"))
+    elif not isinstance(v.get("path"), str) or not v["path"].startswith("/shop/"):
         raise ValueError(f"goalId={gid}: verification.path는 /shop/...이어야 합니다.")
     if not isinstance(v.get("text"), str) or not v["text"].strip():
         raise ValueError(f"goalId={gid}: verification.text가 비어 있습니다.")

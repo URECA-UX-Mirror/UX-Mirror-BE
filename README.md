@@ -29,6 +29,7 @@ shop/
   stitch_moro_market/    # Stitch 시안 원본 (쇼핑몰 수정은 여기 또는 build_shop.py에서)
   moro-before/, moro-after/  # 생성 결과 (직접 수정 금지). 서버: cd shop\moro-before 후 py -3.11 server.py
                              # 테스트 모드: 첫 주소에 ?testMode=nochange(마이페이지 쿠폰함 눌러도 안 바뀜) | deadend(고객센터 배송 현황 확인 숨김)
+  moro-c1/, moro-c3/, moro-c4/  # Optimizer 라벨 후보 변형 (build_shop.py --label, 직접 수정 금지). 서버: cd shop\moro-c1 후 py -3.11 server.py --port 8003 (C3 8004, C4 8005)
 api/             # 실행 API (FastAPI). 다른 모듈과의 연결은 api/integrations.py 한 곳
 config/presets.json  # 목표·페르소나 preset (성공 조건·허용 경로는 Backend 전용)
 tests/           # 모델 없이 도는 테스트
@@ -88,6 +89,24 @@ copy .env.example .env
 - `validity`·`invalidReason`은 루프가 넘긴 값을 쓰지 않고, 종료 시 `terminationReason`·`error.code`로 항상 다시 정한다 (계약 6.1 유효성 표).
 - `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
 
+## 시나리오 테스트 API (외부 사이트, #74)
+
+버전 비교(MORO MARKET v1/v2)와 별도로, 등록한 외부 사이트 1곳에서 사용자 상황(목표)으로 Run 1개를 돌린다 (팀 문서 「외부 사이트 시나리오 테스트」 4.3). 사이트 설정은 `config/sites/<siteId>.json`, 탐색 범위는 `uxm/site_scope.py`(#71).
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | `/api/sites` | 시나리오 사이트 목록. `{siteId, name, mode: SCENARIO, startPage, pages: [{pageKey, path, label, goalText, goalSelectable, goalUnavailableReason}], siteMap: {available, siteMapVersion, unreachablePages}}` |
+| POST | `/api/runs` + `siteId` | 시나리오 Run. 응답에 `siteId`·`mode` |
+
+- `siteId`가 없으면 지금까지와 같은 MORO MARKET 버전 비교 Run이다. Run에 `siteId`·`mode` 필드를 쓰지 않는다.
+- 시나리오 Run 규칙: `variant=before`만, 목표는 직접 입력(`goal` + `verification`)만. 시작·도착 화면은 그 사이트에 등록된 화면(`pages`)의 경로와 정확히 같아야 한다(쿼리·끝 `/`가 붙으면 `422`, 화면은 설정의 `open` 주소로 연다). 시작 화면을 생략하면 사이트의 `startPage`. 등록되지 않은 `siteId`·MORO MARKET `siteId`·위 규칙 위반은 `422`.
+- 실행 주소와 사이트 버전 값(`siteVersion`, `comparisonContext`의 layout·candidatePolicy·initialBrowserState)은 사이트 설정(`variants`·`meta`)에서 온다. 사이트 주소는 Run과 응답에 넣지 않는다.
+- 실행 전 검사는 사이트 1곳만 확인한다. 쿼리가 있어야 열리는 화면(게시판 등)은 설정의 `open` 주소로 연다. 메시지에 Before/After를 붙이지 않는다.
+- 사이트 지도가 있으면 그 지도로 `SITE_MAP` 경로 기준을 만든다. 지도상 시작 화면에서 갈 수 없는 도착 화면은 `422` "도착 화면으로 가는 경로가 없습니다." (`/api/sites`의 `goalSelectable: false`. 고를 수 있는 화면 = 확인 글자 있음 + 시작 화면 아님 + 지도에서 닿음). 지도가 없으면 `referencePathConfig: null`.
+- 사이트 지도 진단: 도착 화면으로 고를 수 없는 이유는 `goalUnavailableReason`(`START_PAGE` / `NO_GOAL_TEXT` / `UNREACHABLE_ON_SITE_MAP`). `UNREACHABLE_ON_SITE_MAP`은 "시작 화면에 보이는 링크로는 닿지 않는 화면"이고, 목록은 `siteMap.unreachablePages`(지도를 만들 때 기록한 값 그대로). cafe24는 `qna`·`guide`·`company`이며 실행하지 않고 이 진단으로 보여 준다(경고 후 실행 허용은 행사 뒤 고도화).
+- 같은 `experimentKey`에 버전 비교 Run과 시나리오 Run을 섞을 수 없다 (`siteId`가 다르면 `422`).
+- 비교 API는 시나리오 Run을 대상에서 뺀다. 시나리오 Run만 있는 키는 `404 RUN_NOT_FOUND` "시나리오 실행은 비교하지 않습니다."
+
 ## UX Optimizer API (고도화 v1.3, #57)
 
 라벨 후보 풀을 Zoro-1로 평가 → 후보 선정 → 실제 브라우저 재검증 → 최종 판단. 기존 `POST /api/runs`(P0)와 별도 흐름이다.
@@ -101,7 +120,7 @@ copy .env.example .env
 
 - 상태: `CREATED → EVALUATING → EVALUATED → VERIFYING → COMPLETED`, 실패 시 `FAILED`(`error.failedPhase`·`lastStatus` 보존). 프론트는 1초 폴링, 종료 상태에서 멈춘다.
 - 후보 풀·대상 메뉴·정책 버전: `config/optimization.json` (C0 `이용정보` 기준, C1~C4). 동률일 때 쓰는 의미 명확성 순위 `semanticClarityRank`(C2 1, C3 2, C4 3, C1 4, 작을수록 우선)도 여기 고정하고 평가마다 넘긴다. 생성 시 모델·프롬프트·목표·사이트 조건과 함께 `frozenConditions`·`modelMetadata`에 동결한다. 요청으로 바꿀 수 없다.
-- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 지금은 C0(8001)·C2(8002)만 있고, 라벨 변형 사이트(#37)를 띄우면 한 줄씩 추가한다. 사이트가 없는 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
+- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 후보 5개가 모두 등록돼 있다: C0 8001(`moro-before`), C1 8003(`moro-c1`), C2 8002(`moro-after`), C3 8004(`moro-c3`), C4 8005(`moro-c4`). Optimizer를 돌리기 전에 서버 5개를 띄운다. 꺼진 후보는 그 후보만 `FAILED`(`BROWSER_ERROR`)로 남는다. 등록되지 않은 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
 - 평가: 후보 화면을 실제로 열어 스냅샷(`raw/snapshot_<C>.json`) → 유효성 검사 → Zoro-1 Direct 1회. 실패 시 재시도하지 않는다.
   - 기준(C0) 자체: 대상 semanticKey가 있고 라벨이 `originalLabel`, 목적지가 설정과 같은지 먼저 본다. 다르면 모델을 부르지 않고 `FAILED`(`BASELINE_INVALID`).
   - 후보: C0 대비 후보 수·순서·화면 제목·목적지·영역(region)·다른 라벨·bbox ±2px·누출. 모든 스냅샷은 semanticKey 누락(`SEMANTIC_KEY_MISSING`)·중복(`SEMANTIC_KEY_DUPLICATE`)도 확인한다 (확률을 키로 묶을 때 덮어쓰기 방지).
@@ -213,6 +232,7 @@ $env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
 ```
 
 - 값: `reachProbability`(maxSteps 안), `reachWithinShortestProbability`(지도상 최단 이동 수 안), `reachByStep`, `expectedStepsGivenReach`, `lostProbability`(지도 밖으로 가는 확률), `unfinishedProbability`, `mostLikelyPath`. 결과는 `results/reach/`에 화면별 원본 요청·응답과 함께 저장.
+- 외부 사이트 시나리오(#76): `--site <siteId>`면 사이트 설정(`config/sites/<siteId>.json`)의 주소·지도·탐색 규칙으로 1곳만 추정한다. 후보는 그 사이트 규칙(`SiteScope`)으로 뽑고, 쿼리가 있어야 열리는 화면은 설정의 `open` 주소로 연다. 지도 생성과 같은 규칙이라 실제 화면과 지도를 같은 기준으로 대조한다. 지도가 기록한 닿지 않는 화면(`unreachablePages`)은 모델을 부르지 않는다(cafe24 목표당 8번 → 5번, 간선 대조는 함). 모르는 `siteId`는 명령줄 오류.
 - 이동 수가 넉넉하면 두 사이트 모두 도달 확률이 1에 가까워져서, 차이는 `reachWithinShortestProbability`와 기대 단계로 본다. `--max-steps`가 지도상 최단 이동 수보다 작으면 이 값은 계산할 수 없어 `null`이고 사유는 `nullReasons`(`MAX_STEPS_BELOW_SHORTEST`, 길이 없으면 `GOAL_UNREACHABLE_ON_MAP`).
 - **구조 기준 추정치**다. 이전 화면 기록·되돌아가기·재방문 제한을 넣지 않아 실제 Run과 다를 수 있고, 실제 Run 결과를 대신하지 않는다.
 - 화면마다 모델 확률을 합 1로 정규화한다 (검증은 ±0.02 허용). `lostProbability`는 지도 간선이 없는 후보로 간 확률뿐이고 반올림 오차는 들어가지 않는다. 도달·이탈·미도달 합은 항상 1.

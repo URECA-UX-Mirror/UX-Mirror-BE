@@ -246,3 +246,110 @@ def test_real_shop_differing_from_map_is_map_mismatch(shops):
         close_browser(session)
     assert mismatches == {"home": {"added": [dropped], "removed": []}}
     assert reach.estimate(site_map, probs, "home", "refund", 8, map_mismatches=mismatches)["status"] == "MAP_MISMATCH"
+
+
+# ---------------------------------------------------------------- 시나리오 사이트 (#76)
+
+def test_collect_uses_site_scope_open_paths_and_site_config():
+    """사이트 범위를 주면 그 사이트 규칙으로 후보를 뽑고, 쿼리가 있는 여는 주소로 열고, 그 사이트 설정으로 대조한다."""
+    from uxm.site_scope import load_scope
+    from uxm.sitemap import load_site_map
+    scope = load_scope("cafe24-ons")
+    site_map = load_site_map(os.path.join(ROOT, scope.config.out))
+    pages = site_map["pages"]
+    path_of = {k: scope.config.open_path(k) for k in scope.config.pages}
+
+    class Page:
+        url = None
+
+        def goto(self, url, wait_until=None):
+            self.url = url
+    seen = []
+
+    def extract(page, scope=None):
+        seen.append(scope)
+        key = next(k for k, p in path_of.items() if page.url.endswith(p))
+        cands = [{"optionId": f"option_{i + 1:02d}", "semanticKey": e["semanticKey"], "label": e["to"],
+                  "region": "본문", "href": path_of[e["to"]], "bbox": {"x": 0, "y": 0, "width": 1, "height": 1}}
+                 for i, e in enumerate(pages[key]["edges"])]
+        return {"title": key, "url": page.url, "candidates": cands, "excluded": []}
+    page = Page()
+    opened = []
+    real_goto = page.goto
+    page.goto = lambda url, wait_until=None: (opened.append(url), real_goto(url))
+    probs, records, mismatches = reach.collect_page_probabilities(
+        page, scope.base_url, site_map, KeywordBackend(), goal="후기가 궁금하다", persona="처음 쓰는 사용자",
+        extract=extract, skip={"review"}, scope=scope)
+    assert mismatches == {}   # 사이트 설정(쿼리 무시 경로)으로 대조해서 지도와 같다
+    assert all(s is scope for s in seen) and len(seen) == len(pages)
+    assert scope.base_url + "/board/product/list.html?board_no=6" in opened   # 게시판은 쿼리가 있는 주소로 연다
+    assert set(probs) == set(pages) - {"review"}
+    est = reach.estimate(site_map, probs, "home", "review", 8, map_mismatches=mismatches)
+    assert est["status"] == "COMPLETE" and est["reachProbability"] > 0
+
+
+def test_collect_without_scope_keeps_moro_behaviour():
+    from uxm.sitemap import load_site_map
+    site_map = load_site_map(os.path.join(ROOT, "config", "sitemaps", "sitemap-shop-v1.json"))
+
+    class Page:
+        url = None
+
+        def goto(self, url, wait_until=None):
+            self.url = url
+    calls = []
+
+    def extract(page):   # scope 인자 없이 불린다 (기존 함수 모양)
+        calls.append(page.url)
+        return {"title": "", "url": page.url, "candidates": [], "excluded": []}
+    reach.collect_page_probabilities(Page(), "http://127.0.0.1:8001", site_map, KeywordBackend(),
+                                     goal="g", persona="p", extract=extract)
+    assert calls == ["http://127.0.0.1:8001" + p["path"] for _, p in sorted(site_map["pages"].items())]
+
+
+def _fake_site_run(monkeypatch, tmp_path, argv):
+    """estimate_reach.main을 가짜 브라우저·후보 추출·모델로 돌린다. 모델이 받은 화면 제목 목록을 돌려준다."""
+    import importlib
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    er = importlib.import_module("estimate_reach")
+    from uxm import candidates
+    from uxm.site_scope import load_scope
+    from uxm.sitemap import load_site_map
+    scope = load_scope("cafe24-ons")
+    pages = load_site_map(os.path.join(ROOT, scope.config.out))["pages"]
+    path_of = {k: scope.config.open_path(k) for k in scope.config.pages}
+
+    class Page:
+        url = None
+
+        def goto(self, url, wait_until=None):
+            self.url = url
+
+    def extract(page, scope=None, keep_dom_index=False):
+        key = next(k for k, p in sorted(path_of.items(), key=lambda kv: -len(kv[1])) if page.url.endswith(p))
+        cands = [{"optionId": f"option_{i + 1:02d}", "semanticKey": e["semanticKey"], "label": e["to"],
+                  "region": "본문", "href": path_of[e["to"]], "bbox": {"x": 0, "y": 0, "width": 1, "height": 1}}
+                 for i, e in enumerate(pages[key]["edges"])]
+        return {"title": key, "url": page.url, "candidates": cands, "excluded": []}
+    monkeypatch.setattr(candidates, "extract", extract)
+    backend = KeywordBackend()
+    browser = (lambda url: {"page": Page()}, lambda s: None)
+    out = er.main(argv + ["--out", str(tmp_path / "out.json")], backend=backend, browser=browser)
+    return out, [r["state"]["pageTitle"] for r in backend.requests]
+
+
+def test_site_estimate_skips_unreachable_pages(monkeypatch, tmp_path):
+    """지도가 기록한 닿지 않는 화면(cafe24: qna·guide·company)은 모델을 부르지 않는다 (8번 → 5번, 리뷰 반영)."""
+    out, asked = _fake_site_run(monkeypatch, tmp_path, ["--site", "cafe24-ons", "--goal-page", "review", "--goal", "후기"])
+    assert sorted(asked) == ["basket", "brand", "event", "home", "products"]
+    est = out["results"]["cafe24-ons"]["estimate"]
+    assert est["status"] == "COMPLETE" and est["mapMismatches"] == {}   # 간선 대조는 닿지 않는 화면도 그대로 한다
+
+
+def test_unknown_site_is_a_clean_cli_error(capsys):
+    import importlib
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    er = importlib.import_module("estimate_reach")
+    with pytest.raises(SystemExit) as e:
+        er.main(["--site", "no-such-site"])
+    assert e.value.code == 2 and "등록되지 않은 사이트" in capsys.readouterr().err

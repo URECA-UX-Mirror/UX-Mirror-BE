@@ -53,3 +53,5 @@ class CreateRunRequest(BaseModel):
     startPath: str = DEFAULT_START_PATH
     viewport: Viewport | None = None
     promptVersion: str | None = None
+    # 외부 사이트 시나리오 테스트 (#74). 등록된 사이트 설정(config/sites/<siteId>.json)만. 없으면 MORO MARKET 버전 비교
+    siteId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")

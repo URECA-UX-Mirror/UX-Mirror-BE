@@ -181,18 +181,26 @@ def map_mismatch(config: SiteConfig, page: dict, candidates: list[dict]) -> dict
 
 def collect_page_probabilities(page, base_url: str, site_map: dict, backend, *, goal: str, persona: str,
                                temperature=None, extract=None, skip=(),
-                               config: SiteConfig = SHOP) -> tuple[dict, list[dict], dict]:
+                               config: SiteConfig = SHOP, scope=None) -> tuple[dict, list[dict], dict]:
     """지도 화면마다 열어서 후보 추출 → 지도 간선 대조 → 모델 요청(목표·사용자 유형, 이력 없음) → 누출 검사 → 모델 1회.
 
     page: Playwright Page (열린 브라우저 하나를 돌려 쓴다).
     반환: ({pageKey: {semanticKey: p}}, 화면별 기록, {pageKey: 간선 차이}). 간선 차이가 있으면 `estimate`에 넘긴다.
     skip: 확률이 필요 없는 화면(보통 도착 화면). 간선 대조는 skip 화면도 한다.
+    scope: 외부 사이트 시나리오(`uxm/site_scope.SiteScope`, #76). 주면 그 사이트 규칙으로 후보를 뽑고, 설정의 여는 주소
+    (`open`, 게시판처럼 쿼리가 있어야 열리는 화면)로 화면을 열고, 그 사이트 설정으로 지도와 대조한다.
+    지도 생성(`scripts/build_sitemap.py`)과 같은 규칙이라 간선이 같게 나온다. None이면 MORO MARKET 기존 동작.
     """
     if extract is None:
         from uxm.candidates import extract
+    if scope is not None:
+        config = scope.config
+        base_extract = extract
+        extract = lambda p: base_extract(p, scope=scope)  # noqa: E731
     out, records, mismatches = {}, [], {}
     for key, info in sorted(site_map["pages"].items()):
-        page.goto(base_url.rstrip("/") + info["path"], wait_until="networkidle")
+        path = config.open_path(key) if scope is not None and key in config.pages else info["path"]
+        page.goto(base_url.rstrip("/") + path, wait_until="networkidle")
         extracted = extract(page)
         diff = map_mismatch(config, info, extracted["candidates"])
         if diff:

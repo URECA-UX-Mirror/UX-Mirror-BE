@@ -163,7 +163,7 @@ class Runner:
             raise _RunFailure("MODEL_ERROR", "MODEL_UNAVAILABLE", "모델 서버에 연결하지 못했습니다.") from e
 
         base_url = self._base_url(run)
-        start_url = base_url + run["startPath"]
+        start_url = self._start_url(run, base_url)
         try:
             session = open_browser(start_url)
         except Exception as e:
@@ -178,8 +178,30 @@ class Runner:
             except Exception:
                 log.exception("close_browser failed")
 
+    @staticmethod
+    def _scenario_scope(run: dict):
+        from uxm.site_scope import load_scope
+        try:
+            return load_scope(run["siteId"])
+        except ValueError as e:
+            raise _RunFailure("BROWSER_ERROR", "BROWSER_ERROR", "등록되지 않은 사이트입니다.") from e
+
+    def _start_url(self, run: dict, base_url: str) -> str:
+        """시작 주소. 시나리오 Run은 등록된 화면의 여는 주소(쿼리가 필요한 게시판 등, #74)."""
+        if not run.get("siteId"):
+            return base_url + run["startPath"]
+        from api.sites import page_url
+        scope = self._scenario_scope(run)
+        key = scope.registered_key(run["startPath"])
+        if key is None:
+            raise _RunFailure("BROWSER_ERROR", "BROWSER_ERROR", "시작 화면이 사이트에 등록되어 있지 않습니다.")
+        return page_url(scope, key)
+
     def _base_url(self, run: dict) -> str:
-        """P0 Run은 variant별 고정 쇼핑몰. Optimization 검증 Run은 등록된 Site Instance 주소 (클라이언트 지정 불가)."""
+        """P0 Run은 variant별 고정 쇼핑몰. Optimization 검증 Run은 등록된 Site Instance 주소 (클라이언트 지정 불가).
+        시나리오 Run은 사이트 설정의 주소 (#74)."""
+        if run.get("siteId"):
+            return self._scenario_scope(run).base_url.rstrip("/")
         ctx = run.get("optimizationContext")
         if not ctx:
             return SHOP_URLS[run["variant"]]
