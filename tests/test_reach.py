@@ -305,3 +305,51 @@ def test_collect_without_scope_keeps_moro_behaviour():
     reach.collect_page_probabilities(Page(), "http://127.0.0.1:8001", site_map, KeywordBackend(),
                                      goal="g", persona="p", extract=extract)
     assert calls == ["http://127.0.0.1:8001" + p["path"] for _, p in sorted(site_map["pages"].items())]
+
+
+def _fake_site_run(monkeypatch, tmp_path, argv):
+    """estimate_reach.main을 가짜 브라우저·후보 추출·모델로 돌린다. 모델이 받은 화면 제목 목록을 돌려준다."""
+    import importlib
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    er = importlib.import_module("estimate_reach")
+    from uxm import candidates
+    from uxm.site_scope import load_scope
+    from uxm.sitemap import load_site_map
+    scope = load_scope("cafe24-ons")
+    pages = load_site_map(os.path.join(ROOT, scope.config.out))["pages"]
+    path_of = {k: scope.config.open_path(k) for k in scope.config.pages}
+
+    class Page:
+        url = None
+
+        def goto(self, url, wait_until=None):
+            self.url = url
+
+    def extract(page, scope=None, keep_dom_index=False):
+        key = next(k for k, p in sorted(path_of.items(), key=lambda kv: -len(kv[1])) if page.url.endswith(p))
+        cands = [{"optionId": f"option_{i + 1:02d}", "semanticKey": e["semanticKey"], "label": e["to"],
+                  "region": "본문", "href": path_of[e["to"]], "bbox": {"x": 0, "y": 0, "width": 1, "height": 1}}
+                 for i, e in enumerate(pages[key]["edges"])]
+        return {"title": key, "url": page.url, "candidates": cands, "excluded": []}
+    monkeypatch.setattr(candidates, "extract", extract)
+    backend = KeywordBackend()
+    browser = (lambda url: {"page": Page()}, lambda s: None)
+    out = er.main(argv + ["--out", str(tmp_path / "out.json")], backend=backend, browser=browser)
+    return out, [r["state"]["pageTitle"] for r in backend.requests]
+
+
+def test_site_estimate_skips_unreachable_pages(monkeypatch, tmp_path):
+    """지도가 기록한 닿지 않는 화면(cafe24: qna·guide·company)은 모델을 부르지 않는다 (8번 → 5번, 리뷰 반영)."""
+    out, asked = _fake_site_run(monkeypatch, tmp_path, ["--site", "cafe24-ons", "--goal-page", "review", "--goal", "후기"])
+    assert sorted(asked) == ["basket", "brand", "event", "home", "products"]
+    est = out["results"]["cafe24-ons"]["estimate"]
+    assert est["status"] == "COMPLETE" and est["mapMismatches"] == {}   # 간선 대조는 닿지 않는 화면도 그대로 한다
+
+
+def test_unknown_site_is_a_clean_cli_error(capsys):
+    import importlib
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    er = importlib.import_module("estimate_reach")
+    with pytest.raises(SystemExit) as e:
+        er.main(["--site", "no-such-site"])
+    assert e.value.code == 2 and "등록되지 않은 사이트" in capsys.readouterr().err

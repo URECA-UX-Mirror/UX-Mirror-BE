@@ -47,13 +47,21 @@ def main(argv=None, backend=None, browser=None) -> dict:
     scope = None
     if args.site:
         from uxm.site_scope import load_scope
-        scope = load_scope(args.site)
+        try:
+            scope = load_scope(args.site)
+        except ValueError as e:
+            ap.error(str(e))
         if args.url:
             ap.error("--site와 --url은 같이 쓰지 않습니다 (사이트 주소는 사이트 설정에서 온다)")
         if args.site_map == SITE_MAP:
             args.site_map = os.path.join(ROOT, scope.config.out)
     site_map = load_site_map(args.site_map)
     start = args.start_page or site_map["startPageKey"]
+    # 지도가 기록한, 시작 화면에서 닿지 않는 화면은 도달 확률에 영향이 없어 모델을 부르지 않는다 (행사 GPU 시간 절약).
+    # 시작 화면을 바꾸면 이 기록과 맞지 않으므로 지도 기본 시작 화면일 때만 쓴다. 간선 대조는 그대로 한다.
+    unreachable = set(site_map.get("unreachablePages") or []) if start == site_map["startPageKey"] else set()
+    if args.goal_page in unreachable:
+        print(f"[주의] 도착 화면 '{args.goal_page}'은 지도상 시작 화면에서 닿지 않습니다. 도달 확률은 0입니다.")
     if scope is not None:
         sites = {args.site: scope.base_url}
     else:
@@ -73,7 +81,7 @@ def main(argv=None, backend=None, browser=None) -> dict:
         try:
             probs, records, mismatches = reach.collect_page_probabilities(
                 session["page"], url, site_map, backend, goal=args.goal, persona=args.persona,
-                temperature=cfg["temperature"], skip={args.goal_page}, scope=scope)
+                temperature=cfg["temperature"], skip={args.goal_page} | unreachable, scope=scope)
         finally:
             close_browser(session)
         est = reach.estimate(site_map, probs, start, args.goal_page, args.max_steps, map_mismatches=mismatches)
