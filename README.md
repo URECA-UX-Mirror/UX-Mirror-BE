@@ -55,6 +55,8 @@ copy .env.example .env
 
 ## 실행 API
 
+행사 최종 Before/After 실행과 결과 보존 절차는 [최종 Run 비교·증거 보존 절차](docs/final-run-evaluation.md)를 참고한다.
+
 ```powershell
 .\.venv\Scripts\python -m uvicorn api.main:app --port 8000
 ```
@@ -68,6 +70,7 @@ copy .env.example .env
 | GET | `/api/runs/{runId}/steps` | 저장이 끝난 Step |
 | GET | `/api/runs/{runId}/issues` | UX 검토 후보 (`PENDING`/`COMPLETED`/`FAILED`) |
 | GET | `/api/runs/{runId}/screenshots/{stepId}?kind=original\|overlay` | 스크린샷 |
+| GET | `/api/runs/{runId}/screenshots/goal` | 도착 화면 스크린샷 (Step이 없는 경로 마지막 노드, OI-3). 도착하지 않았거나 사진이 없으면 `404` |
 | GET | `/api/comparisons/{experimentKey}` | Before/After 비교 (VALID 최종 Run, 두 Run의 Issue 분석이 모두 `COMPLETED`일 때만) |
 | GET | `/api/health` | 모델·브라우저·에이전트 준비 상태 |
 
