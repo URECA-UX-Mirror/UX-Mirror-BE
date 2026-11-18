@@ -75,9 +75,15 @@ def reference(run):
             path = urlsplit(url).path.rstrip("/") or "/"
             return path.rsplit("/", 1)[-1] if path.startswith("/shop/") else path
         try:
-            matches_run = (page_key(start_path) == value["startPageKey"]
-                           and page_key(goal_path) == value["goalPageKey"])
-        except ValueError:
+            if run.get("siteId"):
+                from uxm.site_scope import load_scope
+                scope = load_scope(run["siteId"])
+                matches_run = (scope.registered_key(start_path) == value["startPageKey"]
+                               and scope.registered_key(goal_path) == value["goalPageKey"])
+            else:
+                matches_run = (page_key(start_path) == value["startPageKey"]
+                               and page_key(goal_path) == value["goalPageKey"])
+        except (TypeError, ValueError):
             matches_run = False
         if not matches_run:
             return False, None, "사이트 지도 시작·목표 화면이 Run과 맞지 않습니다."

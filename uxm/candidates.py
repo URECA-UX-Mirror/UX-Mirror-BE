@@ -11,19 +11,50 @@
 제외된 클릭 요소는 exclusionReasons로 남긴다.
 
 semanticKey는 백엔드 전용. 라벨이 아니라 영역·목적지·DOM 순서로 만들어 Before/After에서 같은 값이 나온다.
+
+외부 사이트 (#67): `scope`(`uxm/site_scope.SiteScope`)를 넘기면 규칙 1·4·5가 사이트 설정을 따른다.
+  1'. 같은 출처의 **등록 주소(경로+쿼리 완전 일치)로 가는 링크만** (버튼·폼 제출은 href가 없어 자연히 제외)
+  4'. 위험 경로·위험 라벨, onclick·download·새 창·role=button 링크 제외 (#70 `ScenarioSafety.candidate_rejection`)
+  5'. 상단 메뉴는 사이트 정책(`globalNavPolicy`)에 따라 시작 화면만 또는 모든 화면
+  후보 href는 도메인을 뺀 경로 + 쿼리. `scope`가 None이면 위 규칙 1~5 그대로다 (MORO MARKET).
+  클릭 직전 `browser.click`이 다시 추출하므로 같은 검사를 실제 DOM 값으로 한 번 더 한다.
 """
 from urllib.parse import urlsplit
 
 VIEWPORT = {"width": 1440, "height": 900}
 START_PATH = "/shop/home"          # 상단 공통 메뉴를 후보로 넣는 유일한 화면
 GLOBAL_NAV_REGION = "상단 메뉴"
+SHOP_PREFIX = "/shop/"             # scope가 없을 때(MORO MARKET) 이동 후보 링크의 접두어
 
 DANGEROUS_WORDS = ("회원 탈퇴", "회원탈퇴", "로그아웃", "접수하기", "결제하기", "삭제", "탈퇴")
 CLICKABLE_SELECTOR = "a, button, [role=button], input[type=submit]"   # domIndex 기준. browser.py와 공유
 
 _JS = r"""
 (args) => {
-  const [vw, vh, dangerous, selector] = args;
+  const [vw, vh, dangerous, selector, scope] = args;
+  // 이동 후보 링크인지 (규칙 1). prefix = MORO MARKET 기존 규칙.
+  // pages(#67) = 같은 출처 링크만 남기고 경로+쿼리로 바꾼다. 등록 주소·위험 경로·링크 속성 판정은 Python(SiteScope)에서.
+  const originOf = (u) => `${u.protocol.slice(0, -1)}://${u.hostname.toLowerCase()}:${u.port || (u.protocol === 'https:' ? '443' : '80')}`;
+  const canonOf = (u) => {   // SiteScope._canonical과 같은 모양: 디코딩한 경로 + 쿼리 쌍
+    let p;
+    try { p = decodeURIComponent(u.pathname); } catch (e) { p = u.pathname; }
+    p = p.replace(/\/$/, '') || '/';
+    const q = [...new URLSearchParams(u.search)].map(([k, v]) => `${k}=${v}`).join('&');
+    return q ? `${p}?${q}` : p;
+  };
+  const navOf = (el, raw) => {
+    if (el.tagName !== 'A' || !raw) return null;
+    if (scope.mode === 'prefix') return raw.startsWith(scope.prefix) ? raw : null;
+    if (raw.startsWith('#') || /^(javascript|mailto|tel|data):/i.test(raw)) return null;
+    let u;
+    try { u = new URL(el.href); } catch (e) { return null; }
+    if (u.username || u.password || originOf(u) !== scope.origin) return null;
+    return u.pathname + u.search;
+  };
+  const selfOf = (nav) => scope.mode === 'prefix' ? nav.replace(/\/$/, '') : canonOf(new URL(nav, location.href));
+  const attrsOf = (el) => scope.mode === 'prefix' ? null : {
+    onclick: el.getAttribute('onclick'), download: el.getAttribute('download'),
+    target: el.getAttribute('target'), role: el.getAttribute('role')};
   const isIcon = (n) => n && n.closest && n.closest('.material-symbols-outlined');
   const isBreadcrumb = (el) => {
     if (el.closest('nav[aria-label="Breadcrumb" i], [aria-label="breadcrumb" i]')) return true;
@@ -73,22 +104,25 @@ _JS = r"""
     c.querySelectorAll('.material-symbols-outlined').forEach(s => s.remove());
     return (c.textContent || '').replace(/\s+/g, ' ').trim();
   };
-  const here = location.pathname.replace(/\/$/, '');
+  const here = scope.mode === 'prefix' ? location.pathname.replace(/\/$/, '') : canonOf(new URL(location.href));
   const out = [];
   document.querySelectorAll(selector).forEach((el, domIndex) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     const label = labelOf(el);
-    const href = el.tagName === 'A' ? el.getAttribute('href') : null;
+    const raw = el.tagName === 'A' ? el.getAttribute('href') : null;
+    const nav = navOf(el, raw);
+    const href = scope.mode === 'prefix' ? raw : (nav || raw);   // 외부 사이트 후보는 정규화 경로
     let reason = null;
     if (r.width === 0 || r.height === 0 || cs.visibility === 'hidden' || cs.display === 'none') reason = 'HIDDEN';
     else if (dangerous.some(w => (el.innerText || '').includes(w))) reason = 'DANGEROUS_ACTION';
-    else if (!href || !href.startsWith('/shop/')) reason = 'NOT_NAVIGATION';
-    else if (href.replace(/\/$/, '') === here) reason = 'SELF_LINK';
+    else if (!nav) reason = 'NOT_NAVIGATION';
+    else if (selfOf(nav) === here) reason = 'SELF_LINK';
     else if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) reason = 'OUT_OF_VIEWPORT';
     if (!reason && !label) reason = 'NO_VISIBLE_LABEL';
     const region = regionOf(el);
     out.push({domIndex, tag: el.tagName.toLowerCase(), label: label || labelOfAll(el), href, region, reason,
+              attrs: attrsOf(el),
               context: reason ? null : contextOf(el, region),
               bbox: {x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height)}});
   });
@@ -97,19 +131,27 @@ _JS = r"""
 """
 
 
-def extract(page, keep_dom_index: bool = False) -> dict:
+def _global_nav_allowed(path: str, scope) -> bool:
+    return scope.global_nav_allowed(path) if scope is not None else path == START_PATH
+
+
+def extract(page, keep_dom_index: bool = False, scope=None) -> dict:
     """현재 페이지에서 후보와 제외 목록을 뽑는다. 페이지는 수정하지 않는다.
 
     keep_dom_index=True는 browser.click 전용: 클릭 직전 다시 뽑은 후보에 요소 순번(domIndex)을 붙인다.
     domIndex는 브라우저 런타임 전용이라 기본 출력(Step·후보 JSON·API·모델)에는 넣지 않는다 (계약 8.1).
+    scope: 외부 사이트 탐색 범위(`uxm/site_scope.SiteScope`). None이면 MORO MARKET 기존 규칙.
     """
     vp = page.viewport_size
-    raw = page.evaluate(_JS, [vp["width"], vp["height"], list(DANGEROUS_WORDS), CLICKABLE_SELECTOR])
+    js_scope = scope.js_args() if scope is not None else {"mode": "prefix", "prefix": SHOP_PREFIX}
+    raw = page.evaluate(_JS, [vp["width"], vp["height"], list(DANGEROUS_WORDS), CLICKABLE_SELECTOR, js_scope])
     path = urlsplit(page.url).path.rstrip("/")
     candidates, excluded, seen = [], [], {}
     for el in raw:
-        if not el["reason"] and el["region"] == GLOBAL_NAV_REGION and path != START_PATH:
+        if not el["reason"] and el["region"] == GLOBAL_NAV_REGION and not _global_nav_allowed(path, scope):
             el["reason"] = "GLOBAL_NAV_NOT_START"
+        if not el["reason"] and scope is not None:   # 외부 사이트: #70 ScenarioSafety (등록 주소·위험 경로/라벨·링크 속성)
+            el["reason"] = scope.candidate_rejection(page.url, el)
         if el["reason"]:
             if el["reason"] != "HIDDEN" and el["label"]:
                 excluded.append({"label": el["label"], "region": el["region"], "reason": el["reason"]})

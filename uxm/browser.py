@@ -14,6 +14,9 @@ ActionResult
     executed  실제로 클릭/뒤로가기/새로고침을 했는지
     error     사람이 읽는 문구 (성공이면 None)
     fromPath, toPath, startedAt, finishedAt
+
+외부 사이트 (#67): 함수마다 `scope`(`uxm/site_scope.SiteScope`)를 받는다. 넘기면 클릭 범위·도착 주소 확인·화면 이름표가
+사이트 설정의 등록된 화면 기준이고, None이면 지금까지의 `/shop/` 규칙 그대로다 (MORO MARKET).
 """
 import os
 from datetime import datetime, timedelta, timezone
@@ -36,9 +39,22 @@ def _path(url: str) -> str:
     return urlsplit(url).path.rstrip("/") or "/"
 
 
-def _in_scope(url: str, origin: str) -> bool:
+def _in_scope(url: str, origin: str, scope=None) -> bool:
+    if scope is not None:
+        return scope.in_scope(url, origin)
     u = urlsplit(url)
     return f"{u.scheme}://{u.netloc}" == origin and (_path(url) + "/").startswith(SCOPE_PREFIX)
+
+
+def _link_allowed(href: str, scope=None, current_url: str | None = None) -> bool:
+    """클릭해도 되는 링크인지. 외부 사이트는 실제 현재 주소 기준으로 #70 안전 검사."""
+    return scope.link_allowed(href, current_url) if scope is not None else href.startswith(SCOPE_PREFIX)
+
+
+def _nav_key(url: str, scope=None) -> str:
+    """클릭 뒤 "화면이 바뀌었는지" 비교할 값. MORO는 경로, 외부 사이트는 경로+쿼리 (#71 리뷰 1:
+    같은 경로·다른 쿼리로 리다이렉트돼도 바뀐 것으로 보고 범위를 검사한다)."""
+    return scope.nav_key(url) if scope is not None else _path(url)
 
 
 def _origin(url: str) -> str:
@@ -53,8 +69,10 @@ def _result(result, started, from_path, *, reason=None, executed=False, error=No
 
 # ---------------------------------------------------------------- 화면 이름표
 
-def page_key(url: str) -> str:
-    """Before/After 공통 논리 페이지. /shop/orders?testMode=x → orders"""
+def page_key(url: str, scope=None) -> str:
+    """Before/After 공통 논리 페이지. /shop/orders?testMode=x → orders. 외부 사이트는 사이트 설정의 pageKey."""
+    if scope is not None:
+        return scope.page_key(url)
     path = _path(url)
     return path.rsplit("/", 1)[-1] if path.startswith(SCOPE_PREFIX) else path
 
@@ -73,13 +91,13 @@ def _test_mode(page) -> str | None:
     return mode
 
 
-def page_signature(page) -> str:
+def page_signature(page, scope=None) -> str:
     """Run 내부 재방문 판단용 `{pageKey}_{상태}` (계약 7.1).
 
     상태는 testMode가 실제로 적용되는 화면이면 그 값(deadend, nochange), 아니면 default.
     예: home_default, support_deadend. Backend 전용 값이라 모델 입력에는 들어가지 않는다.
     """
-    key = page_key(page.url)
+    key = page_key(page.url, scope)
     mode = _test_mode(page)
     return f"{key}_{mode}" if mode and TESTMODE_PAGE.get(mode) == key else f"{key}_default"
 
@@ -122,20 +140,20 @@ def _same_bbox(a: dict, b: dict) -> bool:
     return all(abs(a[k] - b[k]) <= BBOX_TOLERANCE_PX for k in ("x", "y", "width", "height"))
 
 
-def _find_target(page, candidate: dict) -> list[dict]:
+def _find_target(page, candidate: dict, scope=None) -> list[dict]:
     """클릭 직전에 후보를 다시 뽑아 같은 목적지·글자·위치인 요소를 찾는다 (extract와 같은 규칙)."""
-    fresh = extract(page, keep_dom_index=True)["candidates"]
+    fresh = extract(page, keep_dom_index=True, scope=scope)["candidates"]
     return [c for c in fresh if c["href"] == candidate["href"] and c["label"] == candidate["label"]
             and _same_bbox(c["bbox"], candidate["bbox"])]
 
 
-def click(page, candidate: dict, timeout_ms: int = 10000) -> dict:
+def click(page, candidate: dict, timeout_ms: int = 10000, scope=None) -> dict:
     started, from_url = _now(), page.url
     from_path = _path(from_url)
     href = candidate.get("href") or ""
     label = candidate.get("label") or ""
 
-    if not href.startswith(SCOPE_PREFIX):
+    if not _link_allowed(href, scope, from_url):
         return _result("CLICK_FAILED", started, from_path, reason="OUT_OF_SCOPE",
                        error=f"테스트 사이트 밖 링크라 누르지 않음: {href or '(없음)'}")
     if any(w in label for w in DANGEROUS_WORDS):
@@ -146,7 +164,7 @@ def click(page, candidate: dict, timeout_ms: int = 10000) -> dict:
                        error="위치 정보가 없는 후보는 클릭할 수 없음 (GO_BACK은 go_back 사용)")
 
     try:
-        matches = _find_target(page, candidate)
+        matches = _find_target(page, candidate, scope)
     except Exception as e:
         return _result("CLICK_FAILED", started, from_path, reason="ACTION_ERROR", error=f"후보 재확인 실패: {e}")
     if not matches:
@@ -161,19 +179,25 @@ def click(page, candidate: dict, timeout_ms: int = 10000) -> dict:
     except Exception as e:
         return _result("CLICK_FAILED", started, from_path, reason="ACTION_ERROR", error=f"클릭 실패: {e}")
 
-    # 주소가 바뀌는지 기다린다. 안 바뀌면 NO_CHANGE
+    # 주소가 바뀌는지 기다린다. 안 바뀌면 NO_CHANGE (외부 사이트는 경로+쿼리 기준)
+    origin = _origin(from_url)
+    from_key = _nav_key(from_url, scope)
     try:
-        page.wait_for_url(lambda u: _path(u) != from_path, timeout=timeout_ms)
+        page.wait_for_url(lambda u: _nav_key(u, scope) != from_key, timeout=timeout_ms)
     except PlaywrightTimeout:
+        if scope is not None and not _in_scope(page.url, origin, scope):   # NO_CHANGE 전에도 실제 도착 주소 확인
+            return _result("CLICK_FAILED", started, from_path, reason="OUT_OF_SCOPE", executed=True,
+                           error=f"누른 뒤 등록 밖 주소에 있음 ({scope.arrival_rejection(page.url)}): {page.url}",
+                           to_path=_path(page.url))
         return _result("NO_CHANGE", started, from_path, executed=True, to_path=_path(page.url))
     except Exception as e:   # 브라우저가 죽는 등 시간 초과가 아닌 오류를 NO_CHANGE로 숨기지 않는다
         return _result("CLICK_FAILED", started, from_path, reason="ACTION_ERROR", executed=True,
                        error=f"클릭 후 화면 확인 실패: {e}")
 
-    origin = _origin(from_url)
-    if not _in_scope(page.url, origin):
+    if not _in_scope(page.url, origin, scope):   # 리다이렉트로 등록 밖 화면에 가면 OUT_OF_SCOPE → 루프가 되돌아감
+        why = f" ({scope.arrival_rejection(page.url)})" if scope is not None else ""
         return _result("CLICK_FAILED", started, from_path, reason="OUT_OF_SCOPE", executed=True,
-                       error=f"누른 뒤 테스트 사이트 밖으로 나감: {page.url}", to_path=_path(page.url))
+                       error=f"누른 뒤 테스트 사이트 밖으로 나감{why}: {page.url}", to_path=_path(page.url))
     try:
         page.wait_for_load_state("networkidle", timeout=timeout_ms)
     except PlaywrightTimeout:
@@ -187,7 +211,7 @@ def click(page, candidate: dict, timeout_ms: int = 10000) -> dict:
 
 # ---------------------------------------------------------------- 뒤로 가기 / 새로고침
 
-def go_back(page, expected_path: str, timeout_ms: int = 10000) -> dict:
+def go_back(page, expected_path: str, timeout_ms: int = 10000, scope=None) -> dict:
     """돌아갈 주소(expected_path)는 2번이 넘긴다. 실제로 그 주소에 도착했을 때만 NAVIGATED."""
     started, from_url = _now(), page.url
     from_path = _path(from_url)
@@ -201,7 +225,7 @@ def go_back(page, expected_path: str, timeout_ms: int = 10000) -> dict:
     if resp is None and to_path == from_path:
         return _result("BACK_FAILED", started, from_path, reason="NO_HISTORY", executed=True,
                        error="브라우저 기록이 없어 돌아갈 화면이 없음", to_path=to_path)
-    if not _in_scope(page.url, _origin(from_url)):
+    if not _in_scope(page.url, _origin(from_url), scope):
         # 새 탭의 about:blank 등 Run 이전 기록으로 빠졌다 → 원래 화면으로 되돌리고 기록 없음으로 처리 (기획안 7.4.1)
         try:
             page.go_forward(wait_until="networkidle", timeout=timeout_ms)

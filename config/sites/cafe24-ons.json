@@ -1,0 +1,30 @@
+{
+  "name": "cafe24-ons",
+  "displayName": "ONS 공식몰 (cafe24 데모)",
+  "pages": {
+    "home": {"path": "/", "label": "홈"},
+    "products": {"path": "/product/list.html", "open": "/product/list.html?cate_no=23", "label": "제품 목록", "text": "제품"},
+    "review": {"path": "/board/review/list.html", "open": "/board/review/list.html?board_no=4", "label": "상품 리뷰", "text": "상품 리뷰"},
+    "qna": {"path": "/board/product/list.html", "open": "/board/product/list.html?board_no=6", "label": "상품 문의 (Q&A)", "text": "Q&A"},
+    "event": {"path": "/board/gallery/list.html", "open": "/board/gallery/list.html?board_no=8", "label": "이벤트", "text": "EVENT"},
+    "guide": {"path": "/shopinfo/guide.html", "label": "이용안내", "text": "이용안내"},
+    "company": {"path": "/shopinfo/company.html", "label": "회사소개", "text": "회사소개"},
+    "basket": {"path": "/order/basket.html", "label": "장바구니", "text": "장바구니"},
+    "brand": {"path": "/ons/html/brand.html", "label": "브랜드스토리"}
+  },
+  "startPage": "home",
+  "pathPrefix": "/",
+  "allowedHosts": ["ecudemo360127.cafe24.com"],
+  "globalNavPolicy": "ALL_PAGES",
+  "requireAllReachable": false,
+  "variants": {"live": "https://ecudemo360127.cafe24.com"},
+  "siteMapVersion": "sitemap-cafe24-ons-v1",
+  "out": "config/sitemaps/sitemap-cafe24-ons-v1.json",
+  "meta": {
+    "siteVersion": "cafe24-ons-live",
+    "layoutVersion": "cafe24-ons-layout-live",
+    "candidatePolicyVersion": "candidate-scenario-v1",
+    "initialBrowserStateId": "clean-context-v1",
+    "viewport": {"width": 1440, "height": 900}
+  }
+}

@@ -12,8 +12,10 @@
     .venv\\Scripts\\python.exe scripts\\build_sitemap.py --dry-run             # 파일을 쓰지 않고 결과만 출력
     .venv\\Scripts\\python.exe scripts\\build_sitemap.py --site config\\sites\\other.json --url main=https://example.com
 
-다른 사이트: 설정 파일을 새로 만들고 `--site`로 넘긴다. 단, 후보 추출 규칙(`uxm/candidates.py`)이 아직
-쇼핑몰(`/shop/`, 시작 화면 `/shop/home`)에 묶여 있어 그 규칙을 사이트별로 바꾸기 전에는 후보가 나오지 않는다.
+다른 사이트: 설정 파일을 새로 만들고 `--site`로 넘긴다. 후보는 그 설정의 등록된 화면으로 가는 링크만 뽑는다
+(`uxm/site_scope.py`, #67). 쿼리가 있어야 열리는 화면은 설정 `pages.<key>.open`으로 연다.
+
+    .venv\\Scripts\\python.exe scripts\\build_sitemap.py --site config\\sites\\cafe24-ons.json --dry-run
 """
 import argparse
 import glob
@@ -50,13 +52,22 @@ def open_page(url: str) -> tuple[dict, int | None]:
     return {"playwright": pw, "browser": b, "context": context, "page": page}, (response.status if response else None)
 
 
+def site_scope(config: sitemap.SiteConfig):
+    """MORO MARKET은 None(기존 후보 규칙 그대로), 다른 사이트는 등록된 화면 기준 범위 (#67)."""
+    if config.name == sitemap.SHOP.name:
+        return None
+    from uxm.site_scope import SiteScope
+    return SiteScope(config)
+
+
 def extract_site(base_url: str, config: sitemap.SiteConfig) -> dict[str, list[dict] | None]:
     """화면마다 새 브라우저로 열어 후보를 뽑는다. 열기 실패·오류 응답·다른 화면 도착이면 None (지도 생성 실패로 이어짐)."""
     from uxm import browser, candidates   # playwright는 여기서만 필요
+    scope = site_scope(config)
     out: dict[str, list[dict] | None] = {}
     for key, path in config.pages.items():
         try:
-            session, status = open_page(base_url.rstrip("/") + path)
+            session, status = open_page(base_url.rstrip("/") + config.open_path(key))
         except Exception as e:   # 사이트 꺼짐·로딩 실패
             print(f"  {key}: 열기 실패 ({e})", file=sys.stderr)
             out[key] = None
@@ -67,7 +78,7 @@ def extract_site(base_url: str, config: sitemap.SiteConfig) -> dict[str, list[di
                 print(f"  {key}: {problem}", file=sys.stderr)
                 out[key] = None
             else:
-                out[key] = candidates.extract(session["page"])["candidates"]
+                out[key] = candidates.extract(session["page"], scope=scope)["candidates"]
         except Exception as e:
             print(f"  {key}: 후보 추출 실패 ({e})", file=sys.stderr)
             out[key] = None
@@ -136,6 +147,8 @@ def main() -> int:
         return 1
 
     print(f"\n{site_map['siteMapVersion']}  {site_map['siteMapHash']}")
+    if site_map.get("unreachablePages"):
+        print("시작 화면에서 닿지 않는 화면: " + ", ".join(site_map["unreachablePages"]))
     for key, page in site_map["pages"].items():
         print(f"  {key:8} → {', '.join(sorted({e['to'] for e in page['edges']})) or '(없음)'}")
     print("\n도착 화면별 최단 거리 (시작 화면 기준):")
