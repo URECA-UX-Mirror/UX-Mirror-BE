@@ -45,7 +45,6 @@ OPTIMIZATION_CONFIG_PATH = os.path.join(ROOT, "config", "optimization.json")
 SCHEMA_VERSION = "1.0"
 MAX_STEPS = 8
 VERIFY_RUN_WAIT_S = 600
-MODEL_STUCK_WAIT_S = 300   # 제한 시간을 넘긴 모델 호출이 끝나기를 기다리는 최대 시간 (그동안 다른 실행을 막는다)
 ACTIVE_STATUSES = ("CREATED", "EVALUATING", "VERIFYING")
 REPORT_LIMITATIONS = ("기준과 검증 후보를 각각 1회만 실행한 단일 관찰값이다. 실행 간 변동성은 검증하지 않았다. "
                       "IMPROVEMENT_OBSERVED는 사전 정의한 개선 조건이 관찰됐다는 뜻이며 UX 개선을 입증하지 않는다.")
@@ -95,7 +94,8 @@ class Optimizer:
         self._lock = threading.Lock()
         self._job: tuple[str, str] | None = None     # (optimizationId, "EVALUATING"|"VERIFYING")
         self._thread: threading.Thread | None = None
-        self._stuck_model_call: cf.Future | None = None
+        # 제한 시간을 넘기고도 끝나지 않은 모델 호출 (optimizationId, future). 끝날 때까지 모델을 쓰는 새 작업을 막는다
+        self._stuck_model_call: tuple[str, cf.Future] | None = None
         # 후보 화면 스냅샷. 1번 모듈이 제공하면 api/integrations.py에서 교체한다.
         self.snapshot = self._capture_snapshot
 
@@ -106,6 +106,9 @@ class Optimizer:
 
         검증 중에는 기준 Run과 후보 Run 사이의 빈 구간에도 막아야 한다. 이 Optimization의 검증 Run만 통과시킨다.
         """
+        stuck = self._pending_model_call()
+        if stuck is not None:   # 끝나지 않은 모델 호출과 겹치지 않게 (시간 제한 없이 끝날 때까지)
+            return f"Optimization {stuck} 의 이전 모델 호출이 아직 끝나지 않았습니다."
         job = self._job
         if job is None:
             return None
@@ -116,9 +119,21 @@ class Optimizer:
         return f"Optimization {opt_id} {what} 진행 중입니다."
 
     def active_job(self) -> dict | None:
-        """`/api/health`용: 진행 중인 Optimization (없으면 None)."""
+        """`/api/health`용: 진행 중인 Optimization (없으면 None). 끝나지 않은 모델 호출만 남았으면 MODEL_CALL_PENDING."""
         job = self._job
-        return {"optimizationId": job[0], "status": job[1]} if job else None
+        if job:
+            return {"optimizationId": job[0], "status": job[1]}
+        stuck = self._pending_model_call()
+        return {"optimizationId": stuck, "status": "MODEL_CALL_PENDING"} if stuck else None
+
+    def _pending_model_call(self) -> str | None:
+        stuck = self._stuck_model_call
+        if stuck is None:
+            return None
+        if stuck[1].done():
+            self._stuck_model_call = None
+            return None
+        return stuck[0]
 
     def wait(self, timeout: float | None = None) -> None:
         """테스트용: 진행 중인 평가·검증이 끝날 때까지 기다린다."""
@@ -176,6 +191,7 @@ class Optimizer:
             "selectionPolicyVersion": cfg["selectionPolicyVersion"],
             "verificationPolicyVersion": cfg["verificationPolicyVersion"],
             "verification": None,
+            "siteRecheck": None,
             "finalDecision": None,
             "resultOrigin": settings["resultOrigin"],
             "frozenConditions": {
@@ -196,7 +212,7 @@ class Optimizer:
         }
         # Runner의 생성 잠금도 같이 잡아, 확인과 시작 사이에 일반 Run이 끼어들지 못하게 한다
         with self._lock, self.runner.creation_lock:
-            if self.runner.active_run_id is not None or self._job is not None:
+            if self.runner.active_run_id is not None or self._job is not None or self._pending_model_call():
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이나 후보 평가가 진행 중입니다.", retryable=True)
             self.store.save(opt)
             self._start(opt_id, "EVALUATING", self._evaluate)
@@ -212,14 +228,7 @@ class Optimizer:
         try:
             target(opt_id)
         finally:
-            stuck, self._stuck_model_call = self._stuck_model_call, None
-            if stuck is not None:   # 끝나지 않은 모델 호출과 다음 실행이 겹치지 않게 끝날 때까지 막아 둔다
-                try:
-                    stuck.result(timeout=MODEL_STUCK_WAIT_S)
-                except Exception:
-                    pass
-                if not stuck.done():
-                    log.error("optimization %s: 모델 호출이 %ss 뒤에도 끝나지 않음", opt_id, MODEL_STUCK_WAIT_S)
+            # 끝나지 않은 모델 호출이 있으면 _stuck_model_call에 남아 있어, 작업이 끝나도 그 호출이 끝날 때까지 busy_reason이 막는다
             with self._lock:
                 self._job = None
 
@@ -320,7 +329,8 @@ class Optimizer:
             return ev, snap
         ev["candidateValidity"] = "VALID"
         ev["rawRequestRef"] = self.store.save_raw(opt["optimizationId"], f"model_request_{cand['candidateId']}", request)
-        response, latency, err = self._call_model(backend, request, settings, frozen["limits"]["modelTimeoutMs"])
+        response, latency, err = self._call_model(backend, request, settings, frozen["limits"]["modelTimeoutMs"],
+                                                  opt["optimizationId"])
         opt["executionMetadata"]["modelCallCount"] += 1
         ev["modelLatencyMs"], ev["evaluatedAt"] = latency, now_iso()
         if err:
@@ -346,11 +356,12 @@ class Optimizer:
             ev["metricNullReasons"]["goalPathProbability"] = "NO_REFERENCE_PATH"
         return ev, snap
 
-    def _call_model(self, backend, request, settings, timeout_ms) -> tuple[dict | None, int, dict | None]:
+    def _call_model(self, backend, request, settings, timeout_ms, opt_id: str) -> tuple[dict | None, int, dict | None]:
         """모델 1회 호출. 제한 시간을 넘기면 그 후보는 MODEL_TIMEOUT.
 
         스레드는 강제로 멈출 수 없으므로, 늦은 호출이 실제로 끝날 때까지(같은 시간만큼 더) 기다린 뒤 다음 후보로 간다.
-        그래도 안 끝나면 호출이 겹치지 않도록 평가를 중단한다 (끝날 때까지 다른 실행도 막는다, `_run_job`).
+        그래도 안 끝나면 호출이 겹치지 않도록 평가를 중단한다. 그 호출이 실제로 끝날 때까지는 시간 제한 없이
+        일반 Run·다른 Optimization 시작을 막는다 (`busy_reason`, `_pending_model_call`).
         """
         started = time.perf_counter()
         pool = cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="uxm-opt-model")
@@ -363,7 +374,7 @@ class Optimizer:
             try:
                 future.result(timeout=timeout_ms / 1000)
             except cf.TimeoutError:
-                self._stuck_model_call = future
+                self._stuck_model_call = (opt_id, future)
                 raise _JobFailure("MODEL_TIMEOUT", "모델 호출이 제한 시간 뒤에도 끝나지 않아 후보 평가를 중단했습니다.")
             except Exception:
                 pass
@@ -394,7 +405,7 @@ class Optimizer:
                 raise ApiError(409, "OPTIMIZATION_NOT_READY", "후보 평가가 끝난 뒤에만 검증할 수 있습니다.")
             if not opt["verificationCandidateId"]:
                 raise ApiError(409, "OPTIMIZATION_NOT_READY", "검증할 후보가 선정되지 않았습니다.")
-            if self.runner.active_run_id is not None or self._job is not None:
+            if self.runner.active_run_id is not None or self._job is not None or self._pending_model_call():
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
             for cid in self._baseline_id(opt), opt["verificationCandidateId"]:
                 if self._site_for(opt, cid) is None:
@@ -443,6 +454,9 @@ class Optimizer:
             _, _, judge = self.policy()
             plan = (("BASELINE", self._baseline_id(opt), "before", "baselineRunId"),
                     ("CANDIDATE", opt["verificationCandidateId"], "after", "validationRunId"))
+            # 평가 뒤 사이트가 바뀌었으면 평가한 화면과 다른 화면을 검증하게 된다. Run을 만들기 전에 다시 확인한다
+            opt["siteRecheck"] = {cid: self._recheck_site(opt, cid) for _, cid, _, _ in plan}
+            self.store.save(opt)
             runs = {}
             for phase, cid, variant, field in plan:
                 opt["verificationPhase"] = phase
@@ -471,6 +485,25 @@ class Optimizer:
         finally:
             opt["executionMetadata"]["verificationTimeMs"] = round((time.monotonic() - started) * 1000)
             self.store.save(opt)
+
+    def _recheck_site(self, opt: dict, cid: str) -> dict:
+        """검증 직전, 후보 사이트의 현재 화면이 평가 때 스냅샷과 같은지 (같은 Site Instance·같은 snapshotHash).
+
+        다르거나 확인할 수 없으면 검증을 중단한다. 예외 문구는 내부 주소가 있을 수 있어 로그에만 남긴다.
+        """
+        ev = next(e for e in opt["evaluations"] if e["candidateId"] == cid)
+        site = self._site_for(opt, cid)
+        if site is None or site["siteInstanceId"] != ev["siteInstanceId"] or not ev["snapshotHash"]:
+            raise _JobFailure("SITE_INSTANCE_CHANGED", f"후보 {cid}의 사이트가 평가 때와 다릅니다.")
+        try:
+            snap = self.snapshot(site, opt["frozenConditions"])
+        except Exception:
+            log.exception("recheck snapshot failed for %s", cid)
+            raise _JobFailure("SITE_RECHECK_FAILED", f"후보 {cid}의 화면을 다시 확인하지 못했습니다.") from None
+        if snap["snapshotHash"] != ev["snapshotHash"]:
+            self.store.save_raw(opt["optimizationId"], f"recheck_snapshot_{cid}", snap)
+            raise _JobFailure("SITE_INSTANCE_CHANGED", f"후보 {cid}의 화면이 평가 때와 다릅니다.")
+        return {"siteInstanceId": site["siteInstanceId"], "snapshotHash": snap["snapshotHash"], "checkedAt": now_iso()}
 
     def _build_run(self, opt: dict, cid: str, variant: str, phase: str) -> tuple[dict, dict]:
         """검증 Run과 그 목표. 목표·사용자 유형·성공 조건·경로 기준·제한은 생성 때 동결한 값을 쓴다 (현재 preset 아님)."""

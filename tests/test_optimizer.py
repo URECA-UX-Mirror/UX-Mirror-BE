@@ -363,21 +363,56 @@ def test_model_timeout_waits_for_late_call_before_next(make, monkeypatch):
     assert backend.max_running == 1
 
 
-def test_stuck_model_call_stops_evaluation_and_keeps_runs_blocked(make, monkeypatch):
-    """두 배를 기다려도 안 끝나면 평가를 멈추고, 그 호출이 끝날 때까지 다른 실행을 막는다."""
+class HangingBackend(LabelBackend):
+    """지정한 라벨에서 테스트가 풀어 줄 때까지 돌아오지 않는 가짜 모델."""
+
+    def __init__(self, label: str):
+        super().__init__()
+        self.label, self.release, self.running, self.max_running = label, threading.Event(), 0, 0
+        self.lock = threading.Lock()
+
+    def decide(self, request, temperature=None):
+        crit = request["questions"]["next_click"]["criteria"].values()
+        with self.lock:
+            self.running += 1
+            self.max_running = max(self.max_running, self.running)
+        try:
+            if any(t.endswith("] " + self.label) for t in crit):
+                self.release.wait(30)
+            return super().decide(request, temperature)
+        finally:
+            with self.lock:
+                self.running -= 1
+
+
+def test_stuck_model_call_keeps_model_work_blocked_until_it_ends(make, monkeypatch):
+    """두 배를 기다려도 안 끝나면 평가를 멈추고, 그 호출이 실제로 끝날 때까지 시간 제한 없이
+    일반 Run·새 Optimization을 막는다 (리뷰 #58 2차-1)."""
     monkeypatch.setitem(run_factory.DEFAULT_LIMITS, "modelTimeoutMs", 200)
-    backend = SlowBackend({"주문·배송": 1.0})
+    backend = HangingBackend("주문·배송")
     client, app, _ = make(FakeIntegrations(backend=backend))
     opt_id = client.post("/api/optimizations").json()["optimizationId"]
-    deadline = time.monotonic() + 5
-    while app.state.optimizer.store.load(opt_id)["status"] != "FAILED" and time.monotonic() < deadline:
-        time.sleep(0.02)
+    app.state.optimizer.wait(5)   # 평가 작업 자체는 끝났다 (_job 해제)
     opt = app.state.optimizer.store.load(opt_id)
     assert opt["status"] == "FAILED" and opt["error"]["code"] == "MODEL_TIMEOUT"
-    assert backend.running == 1   # 늦은 호출이 아직 돈다 (1.0초 중 약 0.4초 시점)
-    assert app.state.optimizer.busy_reason() is not None   # 그동안 일반 실행도 막힌다
-    app.state.optimizer.wait(5)
-    assert app.state.optimizer.busy_reason() is None and backend.max_running == 1
+    assert app.state.optimizer._job is None and backend.running == 1   # 늦은 호출은 아직 돈다
+    time.sleep(0.5)   # 어떤 대기 제한을 지나도 풀리지 않는다
+    r = client.post("/api/runs", json={"experimentKey": "after-stuck", "variant": "before", "goalId": "refund",
+                                       "personaId": "novice-shopper"})
+    assert r.status_code == 409 and "이전 모델 호출이 아직 끝나지 않았습니다" in r.json()["error"]["message"]
+    assert client.post("/api/optimizations").json()["error"]["code"] == "RUN_ALREADY_ACTIVE"
+    assert client.get("/api/health").json()["activeOptimization"] == {"optimizationId": opt_id,
+                                                                      "status": "MODEL_CALL_PENDING"}
+    backend.release.set()
+    deadline = time.monotonic() + 5
+    while backend.running and time.monotonic() < deadline:
+        time.sleep(0.02)
+    time.sleep(0.05)
+    assert app.state.optimizer.busy_reason() is None and client.get("/api/health").json()["activeOptimization"] is None
+    assert client.post("/api/runs", json={"experimentKey": "after-stuck", "variant": "before", "goalId": "refund",
+                                          "personaId": "novice-shopper"}).status_code == 201
+    app.state.runner.wait(5)
+    assert backend.max_running == 1
 
 
 def test_model_failure_is_recorded_without_retry(make):
@@ -540,6 +575,46 @@ def test_verify_uses_frozen_conditions_and_refuses_changed_preset(make):
         presets.goals["refund"] = original
     assert client.post(f"/api/optimizations/{opt['optimizationId']}/verify").status_code == 202
     app.state.optimizer.wait(20)
+
+
+@pytest.mark.parametrize("change, code", [
+    ("label", "SITE_INSTANCE_CHANGED"),      # 평가 뒤 후보 사이트의 화면이 바뀜
+    ("error", "SITE_RECHECK_FAILED"),        # 다시 열지 못함
+    ("instance", "SITE_INSTANCE_CHANGED"),   # 등록된 사이트 인스턴스가 다른 것으로 바뀜
+])
+def test_verify_stops_when_site_changed_after_evaluation(make, tmp_path, change, code):
+    """검증 직전에 기준·선정 후보 화면을 평가 때 스냅샷과 다시 비교하고, 다르면 Run을 만들지 않는다 (리뷰 #58 2차-2)."""
+    sites = registry(tmp_path)
+    client, app, integ = make(sites=sites)
+    opt = create_and_evaluate(client, app)
+    if change == "label":
+        app.state.optimizer.snapshot = lambda inst, frozen: label_snapshot(
+            inst["label"], (lambda cs: cs[1].update(label="고객 지원")) if inst["candidateId"] == "C2" else None)
+    elif change == "error":
+        def broken(inst, frozen):
+            raise RuntimeError(f"connection refused {inst['baseUrl']}")
+        app.state.optimizer.snapshot = broken
+    else:
+        sites.instances["site-c2-new"] = dict(sites.instances.pop("site-c2"), siteInstanceId="site-c2-new")
+    r = client.post(f"/api/optimizations/{opt['optimizationId']}/verify")
+    assert r.status_code == 202
+    app.state.optimizer.wait(10)
+    done = client.get(f"/api/optimizations/{opt['optimizationId']}")
+    body = done.json()
+    assert body["status"] == "FAILED" and body["error"]["code"] == code, body["error"]
+    assert body["baselineRunId"] is None and integ.start_urls == []   # 검증 Run을 만들지 않았다
+    assert "127.0.0.1" not in done.text
+
+
+def test_verify_records_site_recheck(make):
+    client, app, _ = make()
+    opt = create_and_evaluate(client, app)
+    client.post(f"/api/optimizations/{opt['optimizationId']}/verify")
+    app.state.optimizer.wait(20)
+    done = client.get(f"/api/optimizations/{opt['optimizationId']}").json()
+    evs = {e["candidateId"]: e for e in done["evaluations"]}
+    assert done["status"] == "COMPLETED" and set(done["siteRecheck"]) == {"C0", "C2"}
+    assert all(done["siteRecheck"][c]["snapshotHash"] == evs[c]["snapshotHash"] for c in ("C0", "C2"))
 
 
 def test_verify_requires_registered_site_for_selected_candidate(make, tmp_path):
