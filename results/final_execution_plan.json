@@ -1,52 +1,61 @@
 {
   "finalExecutionPlanId": "final-plan-1119",
-  "status": "DRAFT",
-  "frozenAt": null,
-  "note": "E-1 직전에 modelEndpointId 확인 후 status=FROZEN, frozenAt 기록. 그 뒤 수정 금지 (테스트 시나리오 '최종 실행 계획'). 팀 결정 최종본(11/18 저녁) 기준.",
-  "decisionDoc": "팀 결정 최종본 (11/18 저녁)",
+  "status": "FROZEN",
+  "frozenAt": "2026-11-18T23:44:08+09:00",
+  "note": "이 파일은 머지 후 수정 금지 (테스트 시나리오 '최종 실행 계획'). 모델 서버 식별자(endpointId)와 실제 실행 커밋은 결정이 아니라 실행 환경 값이라 run_log.md에 기록한다.",
+  "decisionDoc": "팀 결정 최종본 (11/18 저녁) + 상황 문장 평가 사전 등록 (11/18) — 목표를 메뉴 단어 없는 상황 문장 S1~S4로 확정",
   "executionMode": "DIRECT_INPUT_SITE_MAP",
   "repeat": false,
   "totalPairCount": 1,
   "totalPairCountScope": "목표별 쌍 수 (테스트 시나리오의 totalPairCount 1 또는 4 의미를 목표마다 적용). 반복(4쌍) 없음",
-  "planPairCount": {"required": 1, "max": 3, "detail": "환불 1쌍 필수 + 주문 1쌍(우선) + 고객센터 1쌍(가능하면) = 최대 3쌍. 실행하지 못한 목표는 사유 기록"},
+  "planPairCount": {"required": 4, "max": 4, "detail": "S1~S4 목표마다 1쌍, 4개 모두 필수 (결과를 보고 고른 인상을 피하려고 우선순위를 두지 않음). 실행하지 못한 목표는 사유를 run_log.md와 발표 자료에 기록"},
   "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
   "maxSteps": 8,
+  "mainMetric": "home에서 정답 메뉴(도착 화면 방향 링크)를 고를 확률 — 목표 × Before/After. Run 한 번의 경로·단계 수는 예시 장면",
   "goals": [
     {
       "goalIndex": 1,
-      "name": "환불",
+      "name": "S1 환불",
       "priority": "REQUIRED",
-      "goal": "최근 구매한 상품의 환불 신청 화면 찾기",
+      "goal": "지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다",
       "verification": {"path": "/shop/refund", "text": "환불 / 반품 신청", "exact": false, "scope": "page"},
       "expectedShortestSteps": 2,
-      "pairs": [{"pairIndex": 1, "experimentKey": "e-refund-1119", "plannedOrder": "B→A"}]
+      "pairs": [{"pairIndex": 1, "experimentKey": "e-s1-1119", "plannedOrder": "B→A"}]
     },
     {
       "goalIndex": 2,
-      "name": "주문",
-      "priority": "PREFERRED",
-      "goal": "주문·배송 조회 화면 찾기",
+      "name": "S2 배송",
+      "priority": "REQUIRED",
+      "goal": "어제 산 물건이 지금 어디쯤 오고 있는지 알고 싶다",
       "verification": {"path": "/shop/orders", "text": "주문 / 배송 조회", "exact": false, "scope": "page"},
       "expectedShortestSteps": 1,
-      "pairs": [{"pairIndex": 1, "experimentKey": "e-orders-1119", "plannedOrder": "B→A"}]
+      "pairs": [{"pairIndex": 1, "experimentKey": "e-s2-1119", "plannedOrder": "B→A"}]
     },
     {
       "goalIndex": 3,
-      "name": "고객센터",
-      "priority": "OPTIONAL_REFERENCE",
-      "goal": "고객센터 문의 화면 찾기",
+      "name": "S3 쿠폰",
+      "priority": "REQUIRED",
+      "goal": "내가 가진 할인 쿠폰이 몇 장 남았는지 보고 싶다",
+      "verification": {"path": "/shop/mypage", "text": "김모로 님", "exact": false, "scope": "page"},
+      "expectedShortestSteps": 1,
+      "pairs": [{"pairIndex": 1, "experimentKey": "e-s3-1119", "plannedOrder": "B→A"}]
+    },
+    {
+      "goalIndex": 4,
+      "name": "S4 문의",
+      "priority": "REQUIRED",
+      "goal": "받은 상품에 문제가 있어서 직원에게 직접 물어보고 싶다",
       "verification": {"path": "/shop/support", "text": "자주 묻는 질문", "exact": false, "scope": "page"},
       "expectedShortestSteps": 1,
-      "pairs": [{"pairIndex": 1, "experimentKey": "e-support-1119", "plannedOrder": "B→A"}],
-      "ifSkipped": "사유를 run_log.md와 발표 자료에 기록"
+      "pairs": [{"pairIndex": 1, "experimentKey": "e-s4-1119", "plannedOrder": "B→A"}]
     }
   ],
-  "executionOrder": ["e-refund-1119", "e-orders-1119", "e-support-1119"],
-  "gitCommit": "6520d5e",
-  "gitCommitScope": "실행 코드 기준 커밋 (develop = Merge PR #60 실행 전 검사). 직접 입력 회귀 regress-60 통과 (11/18, 로컬 4bit, 통합 확인 Run과 Step별 확률 동일)",
-  "executionCommitRule": "실제 실행 환경의 체크아웃 커밋(이 manifest 머지 후 develop HEAD)은 manifest가 아니라 run_log.md에 기록한다. E-1 전에 `git diff --name-only 6520d5e <실행 커밋>` 결과가 results/final_execution_plan.json(과 run_log.md)뿐인지 확인한다. 그 외 파일이 바뀌었으면 E-1을 시작하지 않고 팀과 확인한다.",
+  "executionOrder": ["e-s1-1119", "e-s2-1119", "e-s3-1119", "e-s4-1119"],
+  "gitCommit": "c2278a4",
+  "gitCommitScope": "실행 코드 기준 커밋 (develop = Merge PR #77; #70·#71·#75 외부 사이트 작업 포함). E 전 MORO 회귀 regress-75 통과 (11/18, 로컬 4bit, 통합 확인 Run과 경로·Step별 판단값·후보 확률·검토 후보까지 동일)",
+  "executionCommitRule": "실제 실행 환경의 체크아웃 커밋(이 manifest 머지 후 develop HEAD)은 run_log.md에 기록한다. E-1 전에 `git diff --name-only c2278a4 <실행 커밋>` 결과가 results/final_execution_plan.json(과 run_log.md)뿐인지 확인한다. 그 외 파일이 바뀌었으면 E-1을 시작하지 않고 팀과 확인한다.",
   "modelVersion": "trillionlabs/Zoro-1",
-  "modelEndpointId": "TODO: E-1 직전 /api/health model.endpointId (ZORO_BACKEND=http)",
+  "modelEndpointRule": "모델 서버 식별자는 E-1 직전 /api/health의 model.endpointId(ZORO_BACKEND=http)를 run_log.md에 기록한다. model.modelVersion이 위 modelVersion과 다르면 E-1을 시작하지 않는다.",
   "temperature": 1.52,
   "goalJudgmentMode": "DOM_ONLY",
   "promptVersion": "v2",
@@ -70,13 +79,14 @@
     "maxSamePageVisits": 3
   },
   "rules": [
-    "목표마다 Before → After, 같은 experimentKey (화면 '실험 키'에 입력 후 조회하고 실행)",
+    "목표마다 Before → After, 같은 experimentKey (화면 '실험 키'에 입력 후 조회하고 실행). 버전 비교 Run이라 siteId는 보내지 않는다",
     "실행한 목표의 유효한 결과는 기대와 달라도 모두 공개. 재실행은 테스트 시나리오 '재실행 규칙'의 인프라 장애만",
-    "Run마다 run_log.md에 finalExecutionPlanId, pairIndex, experimentKey, variant, actualOrder, startedAt, runId, executionCommit을 한 줄씩 추가만"
+    "Run마다 run_log.md에 finalExecutionPlanId, pairIndex, experimentKey, variant, actualOrder, startedAt, runId, executionCommit, modelEndpointId를 한 줄씩 추가만"
   ],
   "replay": [
-    {"experimentKey": "e-refund-1119", "label": "환불"},
-    {"experimentKey": "e-orders-1119", "label": "주문"},
-    {"experimentKey": "e-support-1119", "label": "고객센터"}
+    {"experimentKey": "e-s1-1119", "label": "환불"},
+    {"experimentKey": "e-s2-1119", "label": "배송"},
+    {"experimentKey": "e-s3-1119", "label": "쿠폰"},
+    {"experimentKey": "e-s4-1119", "label": "문의"}
   ]
 }
