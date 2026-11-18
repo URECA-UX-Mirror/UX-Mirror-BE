@@ -7,6 +7,9 @@
     .venv\\Scripts\\python scripts\\estimate_reach.py --goal-page orders --max-steps 5
     .venv\\Scripts\\python scripts\\estimate_reach.py --goal "환불 신청 화면 찾기" --persona "70대, 인터넷 쇼핑이 서툰 사용자"
     .venv\\Scripts\\python scripts\\estimate_reach.py --url C1=http://127.0.0.1:8003   # 다른 사이트(라벨 변형 등) 추가
+    .venv\\Scripts\\python scripts\\estimate_reach.py --site cafe24-ons --goal-page review --goal "써 본 사람들의 후기가 궁금하다"
+
+--site: 외부 사이트 시나리오(#76). 사이트 설정(config/sites/<siteId>.json)의 주소·지도·탐색 규칙으로 1곳만 추정한다.
 
 값은 구조 기준 추정치다(이전 화면 기록·되돌아가기 없음). 실제 Run 결과를 대신하지 않는다.
 """
@@ -27,7 +30,8 @@ SHOP_URLS = {"before": os.getenv("SHOP_BEFORE_URL", "http://127.0.0.1:8001"),
              "after": os.getenv("SHOP_AFTER_URL", "http://127.0.0.1:8002")}
 
 
-def main(argv=None) -> dict:
+def main(argv=None, backend=None, browser=None) -> dict:
+    """backend·browser: 테스트용 주입 (없으면 .env 모델, 실제 브라우저)."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--goal-page", default="refund")
     ap.add_argument("--start-page", default=None, help="기본: 지도의 시작 화면")
@@ -36,16 +40,32 @@ def main(argv=None) -> dict:
     ap.add_argument("--max-steps", type=int, default=8)
     ap.add_argument("--site-map", default=SITE_MAP)
     ap.add_argument("--url", action="append", default=[], metavar="NAME=URL", help="비교할 사이트 (기본 before·after)")
+    ap.add_argument("--site", default=None, help="시나리오 사이트 siteId (config/sites/<siteId>.json). 주면 그 사이트 1곳만")
     ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
 
+    scope = None
+    if args.site:
+        from uxm.site_scope import load_scope
+        scope = load_scope(args.site)
+        if args.url:
+            ap.error("--site와 --url은 같이 쓰지 않습니다 (사이트 주소는 사이트 설정에서 온다)")
+        if args.site_map == SITE_MAP:
+            args.site_map = os.path.join(ROOT, scope.config.out)
     site_map = load_site_map(args.site_map)
     start = args.start_page or site_map["startPageKey"]
-    sites = dict(SHOP_URLS) if not args.url else dict(u.split("=", 1) for u in args.url)
+    if scope is not None:
+        sites = {args.site: scope.base_url}
+    else:
+        sites = dict(SHOP_URLS) if not args.url else dict(u.split("=", 1) for u in args.url)
     cfg = config.load()
-    from uxm.backends import make_backend
-    from uxm.browser import close_browser, open_browser
-    backend = make_backend(cfg)
+    if backend is None:
+        from uxm.backends import make_backend
+        backend = make_backend(cfg)
+    if browser is None:
+        from uxm.browser import close_browser, open_browser
+    else:
+        open_browser, close_browser = browser
 
     results = {}
     for name, url in sites.items():
@@ -53,7 +73,7 @@ def main(argv=None) -> dict:
         try:
             probs, records, mismatches = reach.collect_page_probabilities(
                 session["page"], url, site_map, backend, goal=args.goal, persona=args.persona,
-                temperature=cfg["temperature"], skip={args.goal_page})
+                temperature=cfg["temperature"], skip={args.goal_page}, scope=scope)
         finally:
             close_browser(session)
         est = reach.estimate(site_map, probs, start, args.goal_page, args.max_steps, map_mismatches=mismatches)
@@ -68,7 +88,7 @@ def main(argv=None) -> dict:
     if comparison:
         print(f"[{names[1]} − {names[0]}] {comparison}")
 
-    out = {"engineVersion": reach.ENGINE_VERSION, "goal": args.goal, "persona": args.persona,
+    out = {"engineVersion": reach.ENGINE_VERSION, "siteId": args.site, "goal": args.goal, "persona": args.persona,
            "goalPageKey": args.goal_page, "startPageKey": start, "maxSteps": args.max_steps,
            "model": {k: cfg[k] for k in ("backend", "base_url", "temperature")}, "sites": sites,
            "results": results, "comparison": comparison, "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
