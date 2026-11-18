@@ -26,6 +26,7 @@ from api.optimizer import Optimizer, public_view
 from api.presets import Presets, _check_verification, normalize_verification
 from api.runner import Runner, with_detected_types
 from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateOptimizationRequest, CreateRunRequest
+from api import sites as sites_module
 from api.site_instances import SiteRegistry
 from api.store import DEFAULT_RESULTS_DIR, RunStore, is_safe_id
 from api.timeutil import now_iso
@@ -77,6 +78,9 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
     # ---- 17.2
     @app.post("/api/runs", status_code=201)
     def create_run(req: CreateRunRequest):
+        scope = sites_module.resolve_site(req.siteId)   # 외부 사이트 시나리오 (#74). None이면 MORO MARKET 버전 비교
+        if scope is not None:
+            return create_scenario_run(req, scope)
         goal, persona = _resolve_goal(req, presets), _resolve_persona(req, presets)
         if req.promptVersion is not None and req.promptVersion != PROMPT_VERSION:
             raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
@@ -113,6 +117,47 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
         return {k: run[k] for k in ("runId", "experimentKey", "variant", "status", "createdAt")} | {
             "maxSteps": run["limits"]["maxSteps"]}
 
+    def create_scenario_run(req: CreateRunRequest, scope):
+        """외부 사이트 시나리오 Run 1개 (팀 문서 4.3). 비교하지 않으므로 variant=before만 쓴다 (리뷰 3).
+
+        목표는 직접 입력(goal + verification)만 받는다. preset 목표는 MORO MARKET 화면 기준이기 때문이다.
+        시작·도착 화면은 그 사이트에 등록된 화면이어야 하고, 실행 전에 도착 화면 1곳을 실제로 열어 확인한다.
+        """
+        if req.variant != "before":
+            raise _invalid("시나리오 실행은 Run 1개라 variant=before만 씁니다.")
+        if req.goalId is not None:
+            raise _invalid("시나리오 실행은 목표를 직접 입력합니다 (goal + verification).")
+        goal = _resolve_goal(req, presets, scope=scope)
+        persona = _resolve_persona(req, presets)
+        if req.promptVersion is not None and req.promptVersion != PROMPT_VERSION:
+            raise _invalid(f"서버의 promptVersion은 {PROMPT_VERSION}입니다. 다른 버전은 실행할 수 없습니다.")
+        start_path = scope.start_path if "startPath" not in req.model_fields_set else req.startPath
+        sites_module.check_page(scope, start_path, "시작 화면")
+        if req.viewport is not None and req.viewport.model_dump() != P0_VIEWPORT:
+            raise _invalid("P0 viewport는 1440×900으로 고정입니다.")
+        try:
+            goal["referencePathConfig"] = run_factory.site_map_reference(
+                start_path, goal["verification"], P0_VIEWPORT, site_id=scope.site_id)
+        except ValueError as e:
+            raise _invalid(str(e)) from e
+        runner.ensure_ready()
+        if runner.active_run_id is not None:   # 브라우저를 띄우기 전에 바로 알려 준다 (create에서도 다시 확인)
+            raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
+        busy = optimizer.busy_reason()
+        if busy:
+            raise ApiError(409, "RUN_ALREADY_ACTIVE", busy, retryable=True)
+        integrations.goal_preflight()(goal["verification"], {"scenario": scope.base_url}, scope=scope)
+        run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
+        run_factory.apply_scenario(run, scope, start_path)
+        runner.create(run, goal)
+        return {k: run[k] for k in ("runId", "experimentKey", "variant", "status", "createdAt", "siteId", "mode")} | {
+            "maxSteps": run["limits"]["maxSteps"]}
+
+    # ---- 시나리오 테스트 사이트 목록 (#74)
+    @app.get("/api/sites")
+    def list_sites():
+        return {"items": [sites_module.public_site(sites_module.resolve_site(i)) for i in sites_module.scenario_site_ids()]}
+
     # ---- 계약 밖 추가 (미결정 OI-2): Run 목록
     @app.get("/api/runs")
     def list_runs(experimentKey: str | None = None, variant: Literal["before", "after"] | None = None):
@@ -126,6 +171,7 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             "validity": r.get("validity"), "replacementRunId": r.get("replacementRunId"),
             "resultOrigin": r.get("resultOrigin"),
             "goalReached": (r.get("summary") or {}).get("goalReached"),
+            "siteId": r.get("siteId"), "mode": r.get("mode"),   # 시나리오 Run만 값이 있음 (#74)
             "createdAt": r.get("createdAt"), "finishedAt": r.get("finishedAt"),
         } for r in runs]
         return {"count": len(items), "items": items}
@@ -256,7 +302,7 @@ def _sentence(text: str, field: str) -> str:
     return text
 
 
-def _resolve_goal(req: CreateRunRequest, presets: Presets) -> dict:
+def _resolve_goal(req: CreateRunRequest, presets: Presets, scope=None) -> dict:
     """{goalId, goal, startPath, verification, referencePathConfig}. preset ID 또는 직접 입력 중 하나."""
     if (req.goalId is None) == (req.goal is None):
         raise _invalid("goalId와 goal 중 하나만 보내야 합니다.")
@@ -275,7 +321,10 @@ def _resolve_goal(req: CreateRunRequest, presets: Presets) -> dict:
         goal = {"goalId": None, "goal": _sentence(req.goal, "goal"), "startPath": None,
                 "verification": normalize_verification(req.verification.model_dump()),
                 "referencePathConfig": None}
-        _check_verification(goal)   # preset 로드 때와 같은 검사 (#35)
+        if scope is None:
+            _check_verification(goal)   # preset 로드 때와 같은 검사 (#35)
+        else:   # 시나리오: 도착 화면이 /shop/이 아니라 그 사이트에 등록된 화면이어야 한다 (#74)
+            _check_verification(goal, path_check=lambda path: sites_module.check_page(scope, path, "도착 화면"))
     except ValueError as e:
         raise _invalid(str(e)) from e
     return goal

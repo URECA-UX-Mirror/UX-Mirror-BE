@@ -106,6 +106,20 @@ def site_map_reference(start_path: str, verification: dict, viewport: dict,
             "shortestSteps": dist[start], "distances": dist}
 
 
+def apply_scenario(run: dict, scope, start_path: str) -> dict:
+    """외부 사이트 시나리오 Run (#74): siteId·mode를 쓰고 사이트 버전 값은 그 사이트 설정 `meta`로 바꾼다.
+
+    MORO MARKET Run에는 이 필드를 쓰지 않는다 (없으면 버전 비교 Run).
+    """
+    meta = scope.config.meta
+    run["siteId"], run["mode"] = scope.site_id, "SCENARIO"
+    run["startPath"] = start_path   # 루트 화면("/")을 빈 문자열로 바꾸지 않는다
+    run["siteVersion"] = meta.get("siteVersion", run["siteVersion"])
+    for key in ("layoutVersion", "candidatePolicyVersion", "initialBrowserStateId"):
+        run["comparisonContext"][key] = meta.get(key, run["comparisonContext"][key])
+    return run
+
+
 def new_run_id(variant: str) -> str:
     return f"run_{variant}_{now_stamp()}_{secrets.token_hex(2)}"
 
@@ -163,7 +177,7 @@ def build_run(req, goal: dict, persona: dict, settings: dict) -> dict:
     }
 
 
-INPUT_FIELDS = ("goalId", "goal", "personaId", "persona", "verification")
+INPUT_FIELDS = ("goalId", "goal", "personaId", "persona", "verification", "siteId")
 
 
 def input_mismatch(run: dict, other: dict) -> list[str]:

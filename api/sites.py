@@ -1,0 +1,98 @@
+"""시나리오 테스트 사이트 (#74, 팀 문서 「외부 사이트 시나리오 테스트」 4.3).
+
+버전 비교(MORO MARKET v1/v2)와 별도로, 등록한 외부 사이트 1곳에서 Run 1개를 돌린다.
+사이트 설정은 `config/sites/<siteId>.json`이고 탐색 범위는 `uxm/site_scope.py`(#71)가 정한다.
+
+- 요청은 `siteId`만 받는다. 임의 주소는 받지 않는다 (등록된 설정만 실행).
+- MORO MARKET(`config/sites/moro-market.json`)은 버전 비교용이라 시나리오 사이트 목록에 넣지 않는다.
+  `siteId`가 없으면 지금까지처럼 MORO MARKET 버전 비교 Run이다.
+- 사이트 주소(`variants`)·내부 버전 값(`meta`)은 응답에 넣지 않는다.
+"""
+import logging
+import os
+
+from api.errors import ApiError
+from uxm import sitemap
+from uxm.site_scope import SiteScope, load_scope
+
+log = logging.getLogger("uxm.api.sites")
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCENARIO_MODE = "SCENARIO"
+
+
+def _invalid(message: str) -> ApiError:
+    return ApiError(422, "CONTRACT_VALIDATION_ERROR", message)
+
+
+def resolve_site(site_id: str | None) -> SiteScope | None:
+    """요청의 siteId → 탐색 범위. 없으면 None (MORO MARKET 버전 비교). 등록되지 않은 사이트면 422."""
+    if site_id is None:
+        return None
+    if site_id == sitemap.SHOP.name:
+        raise _invalid(f"{site_id}는 버전 비교용 사이트입니다. siteId 없이 실행해 주세요.")
+    try:
+        return load_scope(site_id)
+    except ValueError as e:
+        log.warning("siteId=%s: %s", site_id, e)
+        raise _invalid(f"등록되지 않은 사이트입니다: {site_id}") from e
+
+
+def scenario_site_ids() -> list[str]:
+    """`config/sites/`에서 시나리오에 쓸 수 있는 사이트 (MORO MARKET 제외, 설정이 올바른 것만)."""
+    ids = []
+    for name in sorted(os.listdir(sitemap.SITES_DIR)):
+        site_id, ext = os.path.splitext(name)
+        if ext != ".json" or site_id == sitemap.SHOP.name:
+            continue
+        try:
+            load_scope(site_id)
+        except ValueError as e:
+            log.warning("시나리오 사이트 설정을 건너뜁니다: %s", e)
+            continue
+        ids.append(site_id)
+    return ids
+
+
+def site_map_of(scope: SiteScope) -> dict | None:
+    """그 사이트의 지도 (없거나 검증 실패면 None)."""
+    if not scope.config.out:
+        return None
+    try:
+        return sitemap.load_site_map(os.path.join(ROOT, scope.config.out))
+    except sitemap.SiteMapError:
+        return None
+
+
+def public_site(scope: SiteScope) -> dict:
+    """`GET /api/sites` 항목. `reachable`은 지도 기준 시작 화면에서 갈 수 있는지 (지도가 없으면 null).
+
+    지도가 있는데 갈 수 없는 화면을 도착 화면으로 고르면 실행 전에 422가 난다 (`run_factory.site_map_reference`).
+    """
+    config = scope.config
+    site_map = site_map_of(scope)
+    pages = []
+    for key, path in config.pages.items():
+        reachable = None
+        if site_map is not None and key in site_map["pages"]:
+            reachable = key == config.start_page or sitemap.distances(site_map["pages"], key)[config.start_page] is not None
+        pages.append({"pageKey": key, "path": path, "label": config.page_labels.get(key, key),
+                      "goalText": config.page_texts.get(key), "reachable": reachable})
+    return {"siteId": config.name, "name": config.display_name, "mode": SCENARIO_MODE,
+            "startPage": config.start_page, "pages": pages,
+            "siteMap": {"available": site_map is not None,
+                        "siteMapVersion": site_map["siteMapVersion"] if site_map else None}}
+
+
+def check_page(scope: SiteScope, path: str, what: str) -> str:
+    """경로가 그 사이트에 등록된 화면이면 pageKey, 아니면 422."""
+    key = scope.registered_key(path) if isinstance(path, str) and path.startswith("/") else None
+    if key is None:
+        labels = ", ".join(f"{k}({p})" for k, p in scope.config.pages.items())
+        raise _invalid(f"{what}({path})은 이 사이트에 등록된 화면이 아닙니다. 등록된 화면: {labels}")
+    return key
+
+
+def page_url(scope: SiteScope, key: str) -> str:
+    """그 화면을 열 주소 (게시판처럼 쿼리가 있어야 열리는 화면은 설정의 `open`)."""
+    return scope.base_url.rstrip("/") + scope.config.open_path(key)
