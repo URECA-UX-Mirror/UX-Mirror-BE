@@ -29,6 +29,7 @@ shop/
   stitch_moro_market/    # Stitch 시안 원본 (쇼핑몰 수정은 여기 또는 build_shop.py에서)
   moro-before/, moro-after/  # 생성 결과 (직접 수정 금지). 서버: cd shop\moro-before 후 py -3.11 server.py
                              # 테스트 모드: 첫 주소에 ?testMode=nochange(마이페이지 쿠폰함 눌러도 안 바뀜) | deadend(고객센터 배송 현황 확인 숨김)
+  moro-c1/, moro-c3/, moro-c4/  # Optimizer 라벨 후보 변형 (build_shop.py --label, 직접 수정 금지). 서버: cd shop\moro-c1 후 py -3.11 server.py --port 8003 (C3 8004, C4 8005)
 api/             # 실행 API (FastAPI). 다른 모듈과의 연결은 api/integrations.py 한 곳
 config/presets.json  # 목표·페르소나 preset (성공 조건·허용 경로는 Backend 전용)
 tests/           # 모델 없이 도는 테스트
@@ -101,7 +102,7 @@ copy .env.example .env
 
 - 상태: `CREATED → EVALUATING → EVALUATED → VERIFYING → COMPLETED`, 실패 시 `FAILED`(`error.failedPhase`·`lastStatus` 보존). 프론트는 1초 폴링, 종료 상태에서 멈춘다.
 - 후보 풀·대상 메뉴·정책 버전: `config/optimization.json` (C0 `이용정보` 기준, C1~C4). 동률일 때 쓰는 의미 명확성 순위 `semanticClarityRank`(C2 1, C3 2, C4 3, C1 4, 작을수록 우선)도 여기 고정하고 평가마다 넘긴다. 생성 시 모델·프롬프트·목표·사이트 조건과 함께 `frozenConditions`·`modelMetadata`에 동결한다. 요청으로 바꿀 수 없다.
-- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 지금은 C0(8001)·C2(8002)만 있고, 라벨 변형 사이트(#37)를 띄우면 한 줄씩 추가한다. 사이트가 없는 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
+- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 후보 5개가 모두 등록돼 있다: C0 8001(`moro-before`), C1 8003(`moro-c1`), C2 8002(`moro-after`), C3 8004(`moro-c3`), C4 8005(`moro-c4`). Optimizer를 돌리기 전에 서버 5개를 띄운다. 꺼진 후보는 그 후보만 `FAILED`(`BROWSER_ERROR`)로 남는다. 등록되지 않은 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
 - 평가: 후보 화면을 실제로 열어 스냅샷(`raw/snapshot_<C>.json`) → 유효성 검사 → Zoro-1 Direct 1회. 실패 시 재시도하지 않는다.
   - 기준(C0) 자체: 대상 semanticKey가 있고 라벨이 `originalLabel`, 목적지가 설정과 같은지 먼저 본다. 다르면 모델을 부르지 않고 `FAILED`(`BASELINE_INVALID`).
   - 후보: C0 대비 후보 수·순서·화면 제목·목적지·영역(region)·다른 라벨·bbox ±2px·누출. 모든 스냅샷은 semanticKey 누락(`SEMANTIC_KEY_MISSING`)·중복(`SEMANTIC_KEY_DUPLICATE`)도 확인한다 (확률을 키로 묶을 때 덮어쓰기 방지).
