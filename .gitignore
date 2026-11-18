@@ -19,3 +19,6 @@ results/comparisons/
 
 # 쇼핑몰 서버 로그 (server.py > server.log 로 켤 때 생김)
 shop/**/server.log
+
+# UX Optimizer 실행 결과 (#57)
+results/optimizations/

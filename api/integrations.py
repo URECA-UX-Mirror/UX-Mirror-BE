@@ -6,6 +6,7 @@
 | `uxm/browser.py` | 1번 (#2) | `open_browser(start_url) -> session`, `close_browser(session)` |
 | `uxm/analysis.py` | 4번 | `detect_issues(run, steps, events) -> list[Issue]`, `compare(before, after) -> ComparisonResult` |
 | `uxm/backends.py` | 기존 | `make_backend(cfg)` |
+| `uxm/optimizer_policy.py` | 4번 | `compute_evaluation_metrics(evaluation)`, `select_candidate(evaluations)`, `judge_verification(baseline_run, candidate_run)` |
 
 모듈이 아직 없으면 `None`을 돌려주고, API는 계약에 맞는 응답(503, PENDING, 500)으로 처리한다.
 함수 모양이 실제와 다르면 이 파일만 고친다.
@@ -54,6 +55,11 @@ class Integrations:
     def compare(self):
         found = _load("uxm.analysis", "compare")
         return found[0] if found else None
+
+    def optimizer_policy(self):
+        """UX Optimizer 정책 함수 `(compute_evaluation_metrics, select_candidate, judge_verification)` 또는 None.
+        모델 호출·저장이 없는 순수 함수 (고도화 v1.3 13.5, 4번)."""
+        return _load("uxm.optimizer_policy", "compute_evaluation_metrics", "select_candidate", "judge_verification")
 
     def backend(self, cfg: dict):
         """모델 백엔드. local은 모델 로딩이 무거워 같은 설정이면 재사용한다."""
