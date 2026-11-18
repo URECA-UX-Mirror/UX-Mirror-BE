@@ -24,7 +24,7 @@ def test_matches_hand_calculation():
     assert est["lostProbability"] == 0.24
     assert est["unfinishedProbability"] == 0.1          # 3번 안에 못 닿고 B에 남은 확률
     assert est["expectedStepsGivenReach"] == round((0.3 * 1 + 0.3 * 2 + 0.06 * 3) / 0.66, 6)
-    assert est["status"] == "COMPLETE" and est["missingPages"] == []
+    assert est["status"] == "COMPLETE" and est["missingPages"] == [] and est["nullReasons"] == {}
     assert est["mostLikelyPath"] == {"path": ["A", "G"], "probability": 0.3}   # A→B→G도 0.3이면 짧은 쪽
     assert (est["shortestSteps"], est["reachWithinShortestProbability"]) == (1, 0.3)   # 지도상 최단 A→G 1번
     assert (est["engineVersion"], est["basis"], est["siteMapHash"]) == ("reach-v1", "SITE_MAP", "h")
@@ -143,6 +143,33 @@ def test_map_mismatch_detects_changed_added_removed_edges():
     assert reach.map_mismatch(SHOP, home, extra) == {
         "added": [{"semanticKey": "본문>/shop/support#9", "to": "support"}], "removed": []}
     assert reach.map_mismatch(SHOP, home, cands[1:]) == {"added": [], "removed": [first]}
+
+
+def test_reach_within_shortest_needs_max_steps_at_least_shortest():
+    """maxSteps가 최단 거리보다 작으면 '최단 거리 안 도달 확률'을 낼 수 없어 null + 사유 (리뷰 #62 2차)."""
+    chain = {"siteMapVersion": "t", "siteMapHash": "h4", "pages": {   # A → B → G, 최단 2
+        "A": {"path": "/a", "edges": [{"semanticKey": "b", "to": "B"}]},
+        "B": {"path": "/b", "edges": [{"semanticKey": "g", "to": "G"}]},
+        "G": {"path": "/g", "edges": []}}}
+    probs = {"A": {"b": 1.0}, "B": {"g": 1.0}}
+    short = reach.estimate(chain, probs, "A", "G", 1)
+    assert short["shortestSteps"] == 2 and short["reachWithinShortestProbability"] is None
+    assert short["nullReasons"] == {"reachWithinShortestProbability": "MAX_STEPS_BELOW_SHORTEST"}
+    assert short["reachProbability"] == 0.0   # 1번 안에는 못 닿는다 (값 자체는 maxSteps 기준 그대로)
+    equal = reach.estimate(chain, probs, "A", "G", 2)   # maxSteps == 최단
+    assert equal["reachWithinShortestProbability"] == 1.0 and equal["nullReasons"] == {}
+    longer = reach.estimate(chain, probs, "A", "G", 5)
+    assert longer["reachWithinShortestProbability"] == 1.0 and longer["nullReasons"] == {}
+    cmp = reach.compare(short, short)
+    assert cmp["comparable"] and cmp["deltaReachWithinShortestProbability"] is None
+
+
+def test_unreachable_goal_has_null_reason():
+    site_map = {"siteMapVersion": "t", "siteMapHash": "h5", "pages": {
+        "A": {"path": "/a", "edges": []}, "G": {"path": "/g", "edges": []}}}
+    est = reach.estimate(site_map, {"A": {"x": 1.0}}, "A", "G", 3)
+    assert est["shortestSteps"] is None and est["reachWithinShortestProbability"] is None
+    assert est["nullReasons"] == {"reachWithinShortestProbability": "GOAL_UNREACHABLE_ON_MAP"}
 
 
 def test_compare_requires_same_conditions():

@@ -89,7 +89,16 @@ def estimate(site_map: dict, page_probs: dict[str, dict[str, float]], start: str
     unfinished = sum(dist.values()) + stuck
     # 이동 수가 넉넉하면 두 사이트 모두 도달 확률이 1에 가까워진다. 지도상 최단 이동 수 안에 닿을 확률로 차이를 본다.
     shortest = distances(pages, goal).get(start)
-    within = None if shortest is None else (1.0 if shortest == 0 else sum(reach_by_step[:shortest]))
+    # reachByStep은 maxSteps까지만 계산하므로, maxSteps가 최단 거리보다 작으면 최단 거리 안 확률을 낼 수 없다
+    null_reasons = {}
+    if shortest is None:
+        within = None
+        null_reasons["reachWithinShortestProbability"] = "GOAL_UNREACHABLE_ON_MAP"
+    elif max_steps < shortest:
+        within = None
+        null_reasons["reachWithinShortestProbability"] = "MAX_STEPS_BELOW_SHORTEST"
+    else:
+        within = 1.0 if shortest == 0 else sum(reach_by_step[:shortest])
     expected = (sum((i + 1) * p for i, p in enumerate(reach_by_step)) / reach) if reach > 0 and start != goal else (
         0.0 if start == goal else None)
     return {
@@ -110,6 +119,7 @@ def estimate(site_map: dict, page_probs: dict[str, dict[str, float]], start: str
         "lostProbability": _r(lost),
         "unfinishedProbability": _r(unfinished),
         "expectedStepsGivenReach": _r(expected),
+        "nullReasons": null_reasons,
         "mostLikelyPath": most_likely_path(trans, start, goal, max_steps),
     }
 
