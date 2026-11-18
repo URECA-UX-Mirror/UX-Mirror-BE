@@ -51,6 +51,28 @@ def _dumps(obj, indent=None) -> str:
     return json.dumps(scrub(obj), ensure_ascii=False, indent=indent, allow_nan=False)
 
 
+FILE_LOCK_RETRY_DELAY_S = 0.05
+
+
+def retry_on_file_lock(fn, attempts: int, delay_s: float = FILE_LOCK_RETRY_DELAY_S):
+    """Windows 파일 공유 위반(PermissionError)이면 잠깐 기다렸다 다시 한다. 다른 오류는 바로 올린다.
+
+    다른 스레드가 연 파일을 교체·열기하면 Windows는 PermissionError를 낸다 (루프가 run.json을 쓰는 순간
+    실행 API가 같은 파일을 읽는 경우 등). 다른 플랫폼에서는 이 오류가 거의 없어 동작이 같다.
+    루프 저장(`_write_atomic`)과 실행 API 저장(`api/store.py`)이 같이 쓴다 (#79).
+    attempts는 1 이상 (0이면 fn을 한 번도 부르지 않고 끝나므로 ValueError).
+    """
+    if attempts < 1:
+        raise ValueError(f"attempts는 1 이상이어야 합니다: {attempts}")
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay_s)
+
+
 def _write_atomic(path: str, text: str) -> None:
     tmp = f"{path}.tmp"
     try:
@@ -59,14 +81,7 @@ def _write_atomic(path: str, text: str) -> None:
             f.flush()
             os.fsync(f.fileno())
         # Windows는 다른 쪽(API)이 파일을 읽는 순간 교체가 실패할 수 있어 잠깐 다시 시도한다
-        for attempt in range(5):
-            try:
-                os.replace(tmp, path)
-                return
-            except PermissionError:
-                if attempt == 4:
-                    raise
-                time.sleep(0.05)
+        retry_on_file_lock(lambda: os.replace(tmp, path), attempts=5)
     except BaseException:
         try:   # 실패하면 임시 파일을 남기지 않는다 (PR #6 리뷰)
             os.remove(tmp)

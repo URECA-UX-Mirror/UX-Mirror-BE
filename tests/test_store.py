@@ -68,3 +68,30 @@ def test_other_errors_are_not_retried(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError):
         store.read_json(str(missing))
     assert calls["n"] == 1
+
+
+def test_loop_storage_uses_same_retry_with_its_own_attempts(tmp_path, monkeypatch):
+    """루프 저장(uxm/storage.py)도 같은 함수로 다시 시도한다. 횟수는 기존 그대로 5번 (#79)."""
+    from uxm import storage
+    monkeypatch.setattr(storage.time, "sleep", lambda s: None)
+    path = tmp_path / "run.json"
+    replace, calls = flaky(os.replace, 4)
+    monkeypatch.setattr(storage.os, "replace", replace)
+    storage._write_atomic(str(path), '{"ok": true}\n')
+    assert calls["n"] == 5 and path.read_text(encoding="utf-8") == '{"ok": true}\n'
+    replace, calls = flaky(os.replace, 10_000)
+    monkeypatch.setattr(storage.os, "replace", replace)
+    with pytest.raises(PermissionError):
+        storage._write_atomic(str(path), "x")
+    assert calls["n"] == 5 and not (tmp_path / "run.json.tmp").exists()
+    assert store.retry_on_file_lock is storage.retry_on_file_lock   # 실행 API와 같은 함수
+
+
+@pytest.mark.parametrize("attempts", [0, -1])
+def test_retry_needs_at_least_one_attempt(attempts):
+    from uxm.storage import retry_on_file_lock
+    calls = []
+    with pytest.raises(ValueError):
+        retry_on_file_lock(lambda: calls.append(1), attempts=attempts)
+    assert calls == []
+    assert retry_on_file_lock(lambda: "ok", attempts=1) == "ok"
