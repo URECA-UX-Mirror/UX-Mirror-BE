@@ -1,6 +1,7 @@
 """Stitch 시안(moro market) → Before/After 쇼핑몰 프로젝트 2개 생성.
 
     python scripts/build_shop.py [STITCH_DIR]
+    python scripts/build_shop.py --label 주문·배송 --out <폴더>   # 고도화 라벨 후보 변형 (P0 사이트는 그대로)
 
 - 원본(Stitch export)은 수정하지 않는다. 두 프로젝트를 같은 패치로 생성해 차이가 메뉴 라벨 하나뿐이도록 보장한다.
 - 생성 후 Before/After 페이지를 토큰 단위로 비교해 '이용정보' ↔ '주문·환불' 외 차이가 있으면 실패한다 (B3).
@@ -17,6 +18,7 @@
        nochange: mypage 사이드 메뉴 '쿠폰함' → href=/shop/coupons, 눌러도 이동 안 함 (C6, NO_CHANGE)
        deadend:  support '배송 현황 확인' 숨김 (막다른 화면)
 """
+import argparse
 import difflib
 import os
 import re
@@ -150,34 +152,81 @@ def build_page(src_dir: str, prefix: str, key: str) -> str:
     return html
 
 
+NAV_RE = re.compile(r"<nav\b[^>]*data-active-classes[^>]*>.*?</nav>", re.S)   # 상단 메뉴 (fix_nav_width와 같은 대상)
+
+
+def relabel_nav(html: str, label: str) -> str:
+    """상단 메뉴의 order-history 링크 글자만 바꾼다. 홈 카드·사이드 메뉴의 '이용정보'는 그대로 둔다."""
+    navs = NAV_RE.findall(html)
+    assert len(navs) == 1, "header nav not found"
+    pat = re.compile(r'(<a\b[^>]*data-path="order-history"[^>]*>)' + re.escape(LABEL["before"]) + "(</a>)")
+    new_nav, n = pat.subn(lambda m: m.group(1) + label + m.group(2), navs[0])
+    assert n == 1, "order-history nav label not found"
+    return html.replace(navs[0], new_nav, 1)
+
+
 def token_diff(a: str, b: str):
     ta, tb = re.findall(r"<[^>]+>|[^<]+", a), re.findall(r"<[^>]+>|[^<]+", b)
     sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
     return [("".join(ta[i1:i2]), "".join(tb[j1:j2])) for op, i1, i2, j1, j2 in sm.get_opcodes() if op != "equal"]
 
 
-def main():
-    src = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SRC
-    built = {}
-    for variant, (proj, prefix) in VARIANTS.items():
-        out = os.path.join(SHOP, proj, "pages")
-        os.makedirs(out, exist_ok=True)
-        for key in PAGES:
-            html = build_page(src, prefix, key)
-            built[(variant, key)] = html
-            with open(os.path.join(out, f"{key}.html"), "w", encoding="utf-8", newline="\n") as f:
-                f.write(html)
-        shutil.copyfile(os.path.join(SHOP, "server.py"), os.path.join(SHOP, proj, "server.py"))
-        print(f"[build] {proj}: {len(PAGES)} pages")
+def write_project(proj_dir: str, pages: dict) -> None:
+    out = os.path.join(proj_dir, "pages")
+    os.makedirs(out, exist_ok=True)
+    for key, html in pages.items():
+        with open(os.path.join(out, f"{key}.html"), "w", encoding="utf-8", newline="\n") as f:
+            f.write(html)
+    shutil.copyfile(os.path.join(SHOP, "server.py"), os.path.join(proj_dir, "server.py"))
+    print(f"[build] {proj_dir}: {len(pages)} pages")
 
+
+def parity_ok(base: dict, other: dict, label: str) -> bool:
+    """모든 페이지에서 base 대비 차이가 상단 메뉴 라벨 하나뿐인지 (라벨이 같으면 차이 없음)."""
+    expected = [] if label == LABEL["before"] else [(LABEL["before"], label)]
     ok = True
     for key in PAGES:
-        d = token_diff(built[("before", key)], built[("after", key)])
-        expected = [(LABEL["before"], LABEL["after"])]
+        d = token_diff(base[key], other[key])
         status = "OK" if [(x.strip(), y.strip()) for x, y in d] == expected else "MISMATCH"
         ok &= status == "OK"
         print(f"[parity] {key:8} {status}  {d[:3]}")
-    if not ok:
+    return ok
+
+
+def build_variant(src: str, label: str, out: str, force: bool = False) -> None:
+    """기획안 v1.3 4.4: before 소스로 빌드한 뒤 상단 메뉴 라벨 하나만 바꾼 사이트를 out에 만든다.
+
+    이미 만든 변형은 siteInstanceId와 연결돼 평가에 쓰이므로, 비어 있지 않은 out은 force 없이는 덮어쓰지 않는다.
+    """
+    out = os.path.realpath(out)   # 심볼릭 링크로 P0 폴더를 가리키는 우회 방지
+    if out in {os.path.realpath(os.path.join(SHOP, proj)) for proj, _ in VARIANTS.values()}:
+        sys.exit(f"{out}: P0 Before/After 사이트는 덮어쓰지 않는다")
+    if os.path.isdir(out) and os.listdir(out) and not force:
+        sys.exit(f"{out}: 이미 내용이 있다. 다시 만들려면 --force")
+    base = {key: build_page(src, "", key) for key in PAGES}
+    pages = {key: relabel_nav(html, label) for key, html in base.items()}
+    if not parity_ok(base, pages, label):
+        sys.exit(f"'{label}' 변형의 차이가 메뉴 라벨 하나가 아님 → 사용 금지")
+    write_project(out, pages)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("src", nargs="?", default=DEFAULT_SRC, help="Stitch 시안 폴더")
+    ap.add_argument("--label", help="상단 주문 메뉴 라벨. 주면 --out에 변형 사이트 하나만 만든다")
+    ap.add_argument("--out", help="--label 변형 사이트를 만들 폴더")
+    ap.add_argument("--force", action="store_true", help="--out에 내용이 있어도 다시 만든다")
+    args = ap.parse_args()
+    if bool(args.label) != bool(args.out):
+        ap.error("--label과 --out은 같이 써야 한다")
+    if args.label:
+        build_variant(args.src, args.label, args.out, args.force)
+        return
+
+    built = {v: {key: build_page(args.src, prefix, key) for key in PAGES} for v, (_, prefix) in VARIANTS.items()}
+    for v, (proj, _) in VARIANTS.items():
+        write_project(os.path.join(SHOP, proj), built[v])
+    if not parity_ok(built["before"], built["after"], LABEL["after"]):
         sys.exit("Before/After 차이가 메뉴 라벨 하나가 아님 → 실행 금지 (B3)")
 
 
