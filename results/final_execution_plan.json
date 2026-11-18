@@ -2,12 +2,13 @@
   "finalExecutionPlanId": "final-plan-1119",
   "status": "DRAFT",
   "frozenAt": null,
-  "note": "E-1 직전에 gitCommit·modelEndpointId 확인 후 status=FROZEN, frozenAt 기록. 그 뒤 수정 금지 (테스트 시나리오 '최종 실행 계획'). 팀 결정 최종본(11/18 저녁) 기준.",
+  "note": "E-1 직전에 modelEndpointId 확인 후 status=FROZEN, frozenAt 기록. 그 뒤 수정 금지 (테스트 시나리오 '최종 실행 계획'). 팀 결정 최종본(11/18 저녁) 기준.",
   "decisionDoc": "팀 결정 최종본 (11/18 저녁)",
   "executionMode": "DIRECT_INPUT_SITE_MAP",
   "repeat": false,
   "totalPairCount": 1,
-  "pairsPerGoal": 1,
+  "totalPairCountScope": "목표별 쌍 수 (테스트 시나리오의 totalPairCount 1 또는 4 의미를 목표마다 적용). 반복(4쌍) 없음",
+  "planPairCount": {"required": 1, "max": 3, "detail": "환불 1쌍 필수 + 주문 1쌍(우선) + 고객센터 1쌍(가능하면) = 최대 3쌍. 실행하지 못한 목표는 사유 기록"},
   "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
   "maxSteps": 8,
   "goals": [
@@ -42,7 +43,8 @@
   ],
   "executionOrder": ["e-refund-1119", "e-orders-1119", "e-support-1119"],
   "gitCommit": "6520d5e",
-  "gitCommitNote": "develop HEAD = Merge PR #60 (실행 전 검사). 직접 입력 회귀 regress-60 통과 (11/18, 로컬 4bit, 통합 확인 Run과 Step별 확률 동일)",
+  "gitCommitScope": "실행 코드 기준 커밋 (develop = Merge PR #60 실행 전 검사). 직접 입력 회귀 regress-60 통과 (11/18, 로컬 4bit, 통합 확인 Run과 Step별 확률 동일)",
+  "executionCommitRule": "실제 실행 환경의 체크아웃 커밋(이 manifest 머지 후 develop HEAD)은 manifest가 아니라 run_log.md에 기록한다. E-1 전에 `git diff --name-only 6520d5e <실행 커밋>` 결과가 results/final_execution_plan.json(과 run_log.md)뿐인지 확인한다. 그 외 파일이 바뀌었으면 E-1을 시작하지 않고 팀과 확인한다.",
   "modelVersion": "trillionlabs/Zoro-1",
   "modelEndpointId": "TODO: E-1 직전 /api/health model.endpointId (ZORO_BACKEND=http)",
   "temperature": 1.52,
@@ -70,7 +72,7 @@
   "rules": [
     "목표마다 Before → After, 같은 experimentKey (화면 '실험 키'에 입력 후 조회하고 실행)",
     "실행한 목표의 유효한 결과는 기대와 달라도 모두 공개. 재실행은 테스트 시나리오 '재실행 규칙'의 인프라 장애만",
-    "Run마다 run_log.md에 finalExecutionPlanId, pairIndex, experimentKey, variant, actualOrder, startedAt, runId를 한 줄씩 추가만"
+    "Run마다 run_log.md에 finalExecutionPlanId, pairIndex, experimentKey, variant, actualOrder, startedAt, runId, executionCommit을 한 줄씩 추가만"
   ],
   "replay": [
     {"experimentKey": "e-refund-1119", "label": "환불"},
