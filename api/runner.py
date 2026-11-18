@@ -37,12 +37,17 @@ class Runner:
         self._thread: threading.Thread | None = None
         # UX Optimizer 연결 (고도화 v1.3 5.5). Optimizer가 없으면 기존 P0 동작 그대로.
         self.site_base_url = None    # siteInstanceId → 서버에 등록된 사이트 주소 (없으면 None)
-        self.external_busy = None    # Run을 만들면 안 되는 이유 (후보 평가 중 등) 또는 None
+        self.external_busy = None    # external_busy(run) → Run을 만들면 안 되는 이유 (후보 평가·검증 중 등) 또는 None
 
     # ---- 상태
     @property
     def active_run_id(self) -> str | None:
         return self._active
+
+    @property
+    def creation_lock(self) -> threading.Lock:
+        """Run 생성 확인과 시작을 묶는 잠금. Optimizer가 평가·검증을 시작할 때도 같이 잡는다 (경쟁 방지)."""
+        return self._lock
 
     def ensure_ready(self) -> None:
         """실행에 필요한 모듈이 없으면 Run을 만들지 않고 503 (17.2)."""
@@ -60,7 +65,7 @@ class Runner:
         with self._lock:
             if self._active is not None:
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
-            busy = self.external_busy() if self.external_busy else None
+            busy = self.external_busy(run) if self.external_busy else None
             if busy:
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", busy, retryable=True)
             runs = [r for r in self.store.list_runs() if r.get("experimentKey") == run["experimentKey"]]

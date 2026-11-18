@@ -29,8 +29,9 @@ from urllib.parse import urlsplit
 from api import run_factory
 from api.errors import ApiError, error_detail
 from api.schemas import P0_VIEWPORT
+from api.presets import normalize_verification
 from api.site_instances import (SiteRegistry, canonical_hash, capture_snapshot, public_site_instance,
-                                validate_against_baseline)
+                                validate_against_baseline, validate_baseline, validate_snapshot_keys)
 from api.store import read_json, write_json_atomic
 from api.timeutil import now_iso, now_stamp
 from uxm.leak import assert_no_leak
@@ -44,6 +45,7 @@ OPTIMIZATION_CONFIG_PATH = os.path.join(ROOT, "config", "optimization.json")
 SCHEMA_VERSION = "1.0"
 MAX_STEPS = 8
 VERIFY_RUN_WAIT_S = 600
+MODEL_STUCK_WAIT_S = 300   # 제한 시간을 넘긴 모델 호출이 끝나기를 기다리는 최대 시간 (그동안 다른 실행을 막는다)
 ACTIVE_STATUSES = ("CREATED", "EVALUATING", "VERIFYING")
 REPORT_LIMITATIONS = ("기준과 검증 후보를 각각 1회만 실행한 단일 관찰값이다. 실행 간 변동성은 검증하지 않았다. "
                       "IMPROVEMENT_OBSERVED는 사전 정의한 개선 조건이 관찰됐다는 뜻이며 UX 개선을 입증하지 않는다.")
@@ -93,15 +95,30 @@ class Optimizer:
         self._lock = threading.Lock()
         self._job: tuple[str, str] | None = None     # (optimizationId, "EVALUATING"|"VERIFYING")
         self._thread: threading.Thread | None = None
+        self._stuck_model_call: cf.Future | None = None
         # 후보 화면 스냅샷. 1번 모듈이 제공하면 api/integrations.py에서 교체한다.
         self.snapshot = self._capture_snapshot
 
     # ------------------------------------------------------------------ 상태
 
-    def busy_reason(self) -> str | None:
-        """기존 Runner가 Run을 만들기 전에 묻는다. 후보 평가 중에는 모델을 같이 쓰지 않게 막는다."""
+    def busy_reason(self, run: dict | None = None) -> str | None:
+        """기존 Runner가 Run을 만들기 전에 묻는다. 평가·검증 중에는 다른 Run이 모델·Runner를 쓰지 않게 막는다.
+
+        검증 중에는 기준 Run과 후보 Run 사이의 빈 구간에도 막아야 한다. 이 Optimization의 검증 Run만 통과시킨다.
+        """
         job = self._job
-        return f"Optimization {job[0]} 후보 평가가 진행 중입니다." if job and job[1] == "EVALUATING" else None
+        if job is None:
+            return None
+        opt_id, kind = job
+        if kind == "VERIFYING" and ((run or {}).get("optimizationContext") or {}).get("optimizationId") == opt_id:
+            return None
+        what = "후보 평가가" if kind == "EVALUATING" else "후보 검증 실행이"
+        return f"Optimization {opt_id} {what} 진행 중입니다."
+
+    def active_job(self) -> dict | None:
+        """`/api/health`용: 진행 중인 Optimization (없으면 None)."""
+        job = self._job
+        return {"optimizationId": job[0], "status": job[1]} if job else None
 
     def wait(self, timeout: float | None = None) -> None:
         """테스트용: 진행 중인 평가·검증이 끝날 때까지 기다린다."""
@@ -145,6 +162,7 @@ class Optimizer:
             "targetPageKey": target["pageKey"],
             "targetSemanticKey": target["semanticKey"],
             "originalLabel": target["originalLabel"],
+            "target": dict(target),
             "candidateLabels": [dict(c, candidateOrder=i) for i, c in enumerate(cfg["candidates"])],
             "siteInstances": [],
             "evaluations": [],
@@ -176,7 +194,8 @@ class Optimizer:
             "createdAt": now_iso(),
             "updatedAt": None,
         }
-        with self._lock:
+        # Runner의 생성 잠금도 같이 잡아, 확인과 시작 사이에 일반 Run이 끼어들지 못하게 한다
+        with self._lock, self.runner.creation_lock:
             if self.runner.active_run_id is not None or self._job is not None:
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이나 후보 평가가 진행 중입니다.", retryable=True)
             self.store.save(opt)
@@ -193,6 +212,14 @@ class Optimizer:
         try:
             target(opt_id)
         finally:
+            stuck, self._stuck_model_call = self._stuck_model_call, None
+            if stuck is not None:   # 끝나지 않은 모델 호출과 다음 실행이 겹치지 않게 끝날 때까지 막아 둔다
+                try:
+                    stuck.result(timeout=MODEL_STUCK_WAIT_S)
+                except Exception:
+                    pass
+                if not stuck.done():
+                    log.error("optimization %s: 모델 호출이 %ss 뒤에도 끝나지 않음", opt_id, MODEL_STUCK_WAIT_S)
             with self._lock:
                 self._job = None
 
@@ -208,13 +235,19 @@ class Optimizer:
             frozen = opt["frozenConditions"]
             settings = run_factory.model_settings()
             backend = self.integrations.backend(settings["config"])
+            # 목표 경로 확률은 고정 환불 preset의 허용 경로 기준 (ALLOWED_PATHS). 기준은 평가마다 기록한다
             allowed_next = {p[1] for p in (frozen["referencePathConfig"] or {}).get("allowedPaths", []) if len(p) > 1}
 
             baseline_snap = None
             for cand in opt["candidateLabels"]:
                 ev, snap = self._evaluate_one(opt, cand, baseline_snap, backend, settings, allowed_next)
                 if cand["role"] == "BASELINE":
+                    if ev["candidateValidity"] == "INVALID_CANDIDATE":
+                        opt["evaluations"].append(ev)   # 근거는 남기고 이후 후보는 평가하지 않는다
+                        raise _JobFailure("BASELINE_INVALID", "기준(C0) 화면이 Optimization 설정과 다릅니다: "
+                                          + ", ".join(ev["invalidReasons"]))
                     if snap is None or ev["evaluationStatus"] != "COMPLETED":
+                        opt["evaluations"].append(ev)
                         raise _JobFailure("BASELINE_NOT_EVALUATED", "기준(C0) 후보를 평가하지 못했습니다.")
                     baseline_snap = snap
                 if ev["evaluationStatus"] == "COMPLETED":
@@ -241,10 +274,12 @@ class Optimizer:
     def _evaluate_one(self, opt, cand, baseline_snap, backend, settings, allowed_next) -> tuple[dict, dict | None]:
         frozen = opt["frozenConditions"]
         ev = {"candidateId": cand["candidateId"], "candidateOrder": cand["candidateOrder"], "label": cand["label"],
-              "role": cand["role"], "semanticKey": opt["targetSemanticKey"], "siteInstanceId": None,
+              "role": cand["role"], "semanticClarityRank": cand.get("semanticClarityRank"),
+              "semanticKey": opt["targetSemanticKey"], "siteInstanceId": None,
               "snapshotHash": None, "requestHash": None, "candidateValidity": None, "invalidReasons": [],
               "evaluationStatus": None, "probabilities": None, "targetOptionProbability": None,
-              "goalPathProbability": None, "modelVersion": settings["modelVersion"],
+              "goalPathProbability": None, "goalPathBasis": None, "metricNullReasons": {},
+              "modelVersion": settings["modelVersion"],
               "modelEndpointId": settings["modelEndpointId"], "promptVersion": run_factory.PROMPT_VERSION,
               "temperature": settings["temperature"], "modelLatencyMs": None, "rawRequestRef": None,
               "rawResponseRef": None, "error": None, "evaluatedAt": None}
@@ -257,14 +292,19 @@ class Optimizer:
         ev["siteInstanceId"] = inst["siteInstanceId"]
         try:
             snap = self.snapshot(inst, frozen)
-        except Exception as e:
+        except Exception:
+            # 예외 문구에는 내부 사이트 주소가 들어 있을 수 있어 서버 로그에만 남긴다
             log.exception("snapshot failed for %s", cand["candidateId"])
-            ev.update(evaluationStatus="FAILED", error=error_detail("BROWSER_ERROR", f"후보 화면을 열지 못했습니다: {e}"))
+            ev.update(evaluationStatus="FAILED", error=error_detail("BROWSER_ERROR", "후보 화면을 열지 못했습니다."))
             return ev, None
         ev["snapshotHash"] = snap["snapshotHash"]
         self.store.save_raw(opt["optimizationId"], f"snapshot_{cand['candidateId']}", snap)
-        problems = [] if baseline_snap is None else validate_against_baseline(
-            snap, baseline_snap, opt["targetSemanticKey"], cand["label"])
+        if cand["role"] == "BASELINE":
+            problems = validate_baseline(snap, opt["target"])
+        elif baseline_snap is None:
+            problems = validate_snapshot_keys(snap, opt["targetSemanticKey"])
+        else:
+            problems = validate_against_baseline(snap, baseline_snap, opt["targetSemanticKey"], cand["label"])
         if problems:
             ev.update(candidateValidity="INVALID_CANDIDATE", invalidReasons=problems, evaluationStatus="SKIPPED")
             return ev, snap
@@ -294,22 +334,40 @@ class Optimizer:
         except (KeyError, TypeError, ValueError, AttributeError) as e:
             ev.update(evaluationStatus="FAILED", error=error_detail("MODEL_RESPONSE_INVALID", repr(e)))
             return ev, snap
+        # 스냅샷에서 semanticKey 누락·중복을 이미 걸렀으므로 option → semanticKey 변환에서 값이 덮어써지지 않는다
         by_key = {meta["optionMap"][oid]: p for oid, p in probs.items()}
         ev.update(evaluationStatus="COMPLETED", probabilities=by_key,
-                  targetOptionProbability=by_key.get(opt["targetSemanticKey"]),
-                  goalPathProbability=sum(p for oid, p in probs.items()
-                                          if page_of(meta["destination"][oid]) in allowed_next) if allowed_next else None)
+                  targetOptionProbability=by_key[opt["targetSemanticKey"]])
+        if allowed_next:
+            ev.update(goalPathBasis=(frozen["referencePathConfig"] or {}).get("basis", "ALLOWED_PATHS"),
+                      goalPathProbability=sum(p for oid, p in probs.items()
+                                              if page_of(meta["destination"][oid]) in allowed_next))
+        else:   # 계산할 수 없으면 0으로 바꾸지 않고 null과 사유를 남긴다
+            ev["metricNullReasons"]["goalPathProbability"] = "NO_REFERENCE_PATH"
         return ev, snap
 
     def _call_model(self, backend, request, settings, timeout_ms) -> tuple[dict | None, int, dict | None]:
+        """모델 1회 호출. 제한 시간을 넘기면 그 후보는 MODEL_TIMEOUT.
+
+        스레드는 강제로 멈출 수 없으므로, 늦은 호출이 실제로 끝날 때까지(같은 시간만큼 더) 기다린 뒤 다음 후보로 간다.
+        그래도 안 끝나면 호출이 겹치지 않도록 평가를 중단한다 (끝날 때까지 다른 실행도 막는다, `_run_job`).
+        """
         started = time.perf_counter()
         pool = cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="uxm-opt-model")
+        future = pool.submit(backend.decide, request, settings["temperature"])
         try:
-            response = pool.submit(backend.decide, request, settings["temperature"]).result(timeout=timeout_ms / 1000)
+            response = future.result(timeout=timeout_ms / 1000)
             return response, round((time.perf_counter() - started) * 1000), None
         except cf.TimeoutError:
-            return None, round((time.perf_counter() - started) * 1000), error_detail(
-                "MODEL_TIMEOUT", "모델이 제한 시간 안에 응답하지 않았습니다.")
+            latency = round((time.perf_counter() - started) * 1000)
+            try:
+                future.result(timeout=timeout_ms / 1000)
+            except cf.TimeoutError:
+                self._stuck_model_call = future
+                raise _JobFailure("MODEL_TIMEOUT", "모델 호출이 제한 시간 뒤에도 끝나지 않아 후보 평가를 중단했습니다.")
+            except Exception:
+                pass
+            return None, latency, error_detail("MODEL_TIMEOUT", "모델이 제한 시간 안에 응답하지 않았습니다.")
         except Exception as e:
             return None, round((time.perf_counter() - started) * 1000), error_detail(
                 "MODEL_UNAVAILABLE", f"모델 호출에 실패했습니다: {type(e).__name__}")
@@ -328,7 +386,7 @@ class Optimizer:
 
     def start_verification(self, opt_id: str) -> dict:
         _, _, judge = self.policy()
-        with self._lock:
+        with self._lock, self.runner.creation_lock:
             opt = self.load_or_404(opt_id)
             if opt["status"] in ("VERIFYING", "COMPLETED"):
                 raise ApiError(409, "OPTIMIZATION_ALREADY_PROCESSED", "이미 검증 중이거나 완료된 Optimization입니다.")
@@ -356,11 +414,24 @@ class Optimizer:
         return self.sites.for_candidate(cid, label)
 
     def _check_conditions(self, opt: dict) -> None:
-        """생성 때 동결한 모델 설정과 지금 설정이 같아야 검증한다 (7.3, 11.2)."""
-        s, m = run_factory.model_settings(), opt["modelMetadata"]
+        """생성 때 동결한 모델 설정·목표·사용자 유형과 지금 설정이 같아야 검증한다 (7.3, 11.2).
+
+        검증 Run은 동결 값으로 만들지만, preset이 바뀌었다면 평가 때와 다른 실험이 되므로 시작하지 않는다.
+        """
+        s, m, f = run_factory.model_settings(), opt["modelMetadata"], opt["frozenConditions"]
         diff = [k for k, now in (("modelVersion", s["modelVersion"]), ("modelEndpointId", s["modelEndpointId"]),
-                                 ("temperature", s["temperature"]), ("promptVersion", run_factory.PROMPT_VERSION))
+                                 ("temperature", s["temperature"]), ("promptVersion", run_factory.PROMPT_VERSION),
+                                 ("goalJudgmentMode", s["goalJudgmentMode"]))
                 if m[k] != now]
+        goal, persona = self.presets.goal(f["goalId"]), self.presets.persona(f["personaId"])
+        if goal is None:
+            diff.append("goalId")
+        else:
+            diff += [k for k in ("goal", "referencePathConfig") if goal[k] != f[k]]
+            if normalize_verification(goal["verification"]) != normalize_verification(f["verification"]):
+                diff.append("verification")
+        if persona is None or persona["persona"] != f["persona"]:
+            diff.append("persona")
         if diff:
             raise ApiError(422, "EXPERIMENT_CONDITION_MISMATCH",
                            f"Optimization 생성 때와 실행 조건이 다릅니다: {', '.join(diff)}")
@@ -376,9 +447,9 @@ class Optimizer:
             for phase, cid, variant, field in plan:
                 opt["verificationPhase"] = phase
                 self.store.save(opt)
-                run = self._build_run(opt, cid, variant, phase)
+                run, goal = self._build_run(opt, cid, variant, phase)
                 try:
-                    self.runner.create(run, self.presets.goal(opt["frozenConditions"]["goalId"]))
+                    self.runner.create(run, goal)
                 except ApiError as e:
                     raise _JobFailure(e.code, e.message) from e
                 opt[field] = run["runId"]
@@ -401,18 +472,21 @@ class Optimizer:
             opt["executionMetadata"]["verificationTimeMs"] = round((time.monotonic() - started) * 1000)
             self.store.save(opt)
 
-    def _build_run(self, opt: dict, cid: str, variant: str, phase: str) -> dict:
-        frozen = opt["frozenConditions"]
+    def _build_run(self, opt: dict, cid: str, variant: str, phase: str) -> tuple[dict, dict]:
+        """검증 Run과 그 목표. 목표·사용자 유형·성공 조건·경로 기준·제한은 생성 때 동결한 값을 쓴다 (현재 preset 아님)."""
+        frozen = copy.deepcopy(opt["frozenConditions"])
         req = SimpleNamespace(viewport=None, maxSteps=frozen["limits"]["maxSteps"], variant=variant,
                               experimentKey=opt["optimizationId"], startPath=frozen["startPath"])
-        goal, persona = self.presets.goal(frozen["goalId"]), self.presets.persona(frozen["personaId"])
+        goal = {k: frozen[k] for k in ("goalId", "goal", "verification", "referencePathConfig")}
+        persona = {k: frozen[k] for k in ("personaId", "persona")}
         run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
+        run.update(viewport=dict(frozen["viewport"]), limits=dict(frozen["limits"]))
         site = self._site_for(opt, cid)
         label = next(c["label"] for c in opt["candidateLabels"] if c["candidateId"] == cid)
         # variant는 기존 비교 API를 그대로 쓰기 위한 자리(기준=before, 후보=after)이고, 역할은 executionRole로 구분한다 (5.5)
         run["optimizationContext"] = {"optimizationId": opt["optimizationId"], "candidateId": cid, "label": label,
                                       "siteInstanceId": site["siteInstanceId"], "executionRole": phase}
-        return run
+        return run, goal
 
     # ------------------------------------------------------------------ 실패·복구
 

@@ -104,6 +104,9 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
         if goal["goalId"] is None:   # 직접 입력한 성공 조건은 실제 화면에서 먼저 확인한다 (preset은 로드 때 검사)
             if runner.active_run_id is not None:   # 브라우저를 띄우기 전에 바로 알려 준다 (create에서도 다시 확인)
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
+            busy = optimizer.busy_reason()
+            if busy:
+                raise ApiError(409, "RUN_ALREADY_ACTIVE", busy, retryable=True)
             integrations.goal_preflight()(goal["verification"], runner_module.SHOP_URLS)
         run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
         runner.create(run, goal)
@@ -216,6 +219,8 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             "browser": {"ready": browser_ready},
             "agent": {"ready": agent_ready},
             "activeRun": runner.active_run_id,
+            # UX Optimizer 평가·검증 중이면 일반 실행은 409다. activeRun만 보면 비어 있어 같이 알려 준다 (정자비 11-18)
+            "activeOptimization": optimizer.active_job(),
             "checkedAt": now_iso(),
         }
 

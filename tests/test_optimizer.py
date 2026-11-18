@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import threading
+import time
 
 import pytest
 
@@ -19,7 +20,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 import api.main as api_main  # noqa: E402
 from api.integrations import Integrations  # noqa: E402
 from api.main import create_app  # noqa: E402
-from api.site_instances import SiteRegistry, snapshot_from_extracted, validate_against_baseline  # noqa: E402
+from api import run_factory  # noqa: E402
+from api.errors import ApiError  # noqa: E402
+from api.site_instances import (SiteRegistry, snapshot_from_extracted, validate_against_baseline,  # noqa: E402
+                                validate_baseline)
 
 TARGET = "상단 메뉴>/shop/orders#1"
 LABELS = {"C0": "이용정보", "C1": "주문·배송", "C2": "주문·환불", "C3": "주문·반품", "C4": "주문 관리"}
@@ -191,6 +195,7 @@ def test_evaluates_frozen_candidate_pool_and_selects(make):
         to_next = [c["semanticKey"] for c in home_candidates() if c["href"] in ("/shop/orders", "/shop/mypage")]
         assert e["goalPathProbability"] == pytest.approx(sum(e["probabilities"][k] for k in to_next))
         assert e["requestHash"].startswith("sha256:") and e["snapshotHash"].startswith("sha256:")
+        assert e["goalPathBasis"] == "ALLOWED_PATHS" and e["metricNullReasons"] == {}   # 평가에 쓴 기준을 기록
         assert e["top2Margin"] is not None   # 4번 compute_evaluation_metrics 결과가 합쳐짐
         for ref in (e["rawRequestRef"], e["rawResponseRef"]):
             assert os.path.isfile(app.state.optimizer.store.path(opt["optimizationId"], *ref.split("/")))
@@ -198,6 +203,10 @@ def test_evaluates_frozen_candidate_pool_and_selects(make):
     assert (opt["recommendationStatus"], opt["recommendedCandidateId"], opt["verificationCandidateId"]) == \
         ("RECOMMENDED", "C2", "C2")
     assert opt["selection"]["rankedCandidates"] == ["C2", "C3", "C1", "C4"]
+    # 동률용 의미 명확성 순위: 설정에 고정한 값을 동결하고 평가마다 넘긴다 (정윤희 11-18)
+    assert {e["candidateId"]: e["semanticClarityRank"] for e in opt["evaluations"]} == \
+        {"C0": None, "C1": 4, "C2": 1, "C3": 2, "C4": 3}
+    assert [c["semanticClarityRank"] for c in opt["candidateLabels"]] == [None, 4, 1, 2, 3]
     assert opt["frozenConditions"]["goalId"] == "refund" and opt["modelMetadata"]["decisionMode"] == "DIRECT"
     assert all("baseUrl" not in s for s in opt["siteInstances"])   # 내부 주소는 응답에 없음
     raw = json.load(open(app.state.optimizer.store.path(opt["optimizationId"], "raw", "model_request_C2.json"),
@@ -245,6 +254,130 @@ def test_validate_against_baseline_rules():
     assert validate_against_baseline(moved, base, TARGET, "주문·환불") == []   # 2px까지 허용
     dest = label_snapshot("주문·환불", lambda cs: cs[2].update(href="/shop/support"))
     assert "DESTINATION_MISMATCH" in validate_against_baseline(dest, base, TARGET, "주문·환불")
+
+
+def test_candidate_request_inputs_beyond_label_must_match():
+    """라벨 말고 모델 요청에 들어가는 값(영역·화면 제목)이 바뀐 변형도 무효다 (리뷰 #58-2)."""
+    base = label_snapshot("이용정보")
+    region = label_snapshot("주문·환불", lambda cs: cs[1].update(region="본문"))
+    assert validate_against_baseline(region, base, TARGET, "주문·환불") == ["REGION_MISMATCH"]
+    titled = label_snapshot("주문·환불")
+    titled["pageTitle"] = "MORO MARKET 이벤트"
+    assert validate_against_baseline(titled, base, TARGET, "주문·환불") == ["PAGE_MISMATCH"]
+
+
+def test_semantic_key_missing_or_duplicate_is_invalid():
+    """semanticKey가 빠지거나 겹치면 확률을 키로 묶을 때 값이 덮어써지므로 평가하지 않는다 (정윤희 11-18)."""
+    base = label_snapshot("이용정보")
+    dup = label_snapshot("주문·환불", lambda cs: cs[1].update(semanticKey=cs[0]["semanticKey"]))
+    assert "SEMANTIC_KEY_DUPLICATE" in validate_against_baseline(dup, base, TARGET, "주문·환불")
+    missing = label_snapshot("주문·환불", lambda cs: cs[1].update(semanticKey=None))
+    assert "SEMANTIC_KEY_MISSING" in validate_against_baseline(missing, base, TARGET, "주문·환불")
+    no_target = label_snapshot("주문·환불", lambda cs: cs.remove(next(c for c in cs if c["semanticKey"] == TARGET)))
+    assert "TARGET_NOT_FOUND" in validate_against_baseline(no_target, base, TARGET, "주문·환불")
+
+
+def test_duplicate_key_candidate_is_skipped_before_model(make):
+    def snapshot(inst, frozen):
+        if inst["candidateId"] == "C1":
+            return label_snapshot(inst["label"], lambda cs: cs[1].update(semanticKey=cs[0]["semanticKey"]))
+        return label_snapshot(inst["label"])
+    client, app, integ = make(snapshot=snapshot)
+    evs = {e["candidateId"]: e for e in create_and_evaluate(client, app)["evaluations"]}
+    assert evs["C1"]["candidateValidity"] == "INVALID_CANDIDATE" and "SEMANTIC_KEY_DUPLICATE" in evs["C1"]["invalidReasons"]
+    assert evs["C1"]["probabilities"] is None and integ._fake_backend.calls == 4
+
+
+def test_validate_baseline_rules():
+    target = {"pageKey": "home", "semanticKey": TARGET, "href": "/shop/orders", "originalLabel": "이용정보"}
+    assert validate_baseline(label_snapshot("이용정보"), target) == []
+    assert validate_baseline(label_snapshot("주문·환불"), target) == ["TARGET_LABEL_MISMATCH"]
+    moved = label_snapshot("이용정보", lambda cs: next(c for c in cs if c["semanticKey"] == TARGET).update(href="/shop/mypage"))
+    assert validate_baseline(moved, target) == ["DESTINATION_MISMATCH"]
+
+
+@pytest.mark.parametrize("mutate, reason", [
+    (None, "TARGET_LABEL_MISMATCH"),   # C0 사이트에 대상 메뉴가 "이용정보"가 아닌 경우
+    (lambda cs: cs.remove(next(c for c in cs if c["semanticKey"] == TARGET)), "TARGET_NOT_FOUND"),
+])
+def test_invalid_baseline_stops_before_model(make, mutate, reason):
+    """기준(C0) 화면이 설정과 다르면 잘못된 기준과 비교하지 않도록 평가를 멈춘다 (리뷰 #58-2)."""
+    def snapshot(inst, frozen):
+        if inst["candidateId"] == "C0":
+            return label_snapshot("주문·환불" if mutate is None else "이용정보", mutate)
+        return label_snapshot(inst["label"])
+    client, app, integ = make(snapshot=snapshot)
+    opt = create_and_evaluate(client, app)
+    assert opt["status"] == "FAILED" and opt["error"]["code"] == "BASELINE_INVALID", opt["error"]
+    assert reason in opt["error"]["message"]
+    assert [e["candidateId"] for e in opt["evaluations"]] == ["C0"]
+    assert opt["evaluations"][0]["invalidReasons"] == [reason]
+    assert integ._fake_backend.calls == 0 and opt["selection"] is None
+
+
+def test_snapshot_error_does_not_expose_internal_address(make):
+    """브라우저 예외에 섞인 내부 주소는 API 응답에 나오지 않고 서버 로그에만 남는다 (리뷰 #58-3)."""
+    def snapshot(inst, frozen):
+        if inst["candidateId"] == "C1":
+            raise RuntimeError(f"브라우저를 시작하지 못함: {inst['baseUrl']}/shop/home (net::ERR_CONNECTION_REFUSED)")
+        return label_snapshot(inst["label"])
+    client, app, _ = make(snapshot=snapshot)
+    opt = create_and_evaluate(client, app)
+    c1 = next(e for e in opt["evaluations"] if e["candidateId"] == "C1")
+    assert (c1["error"]["code"], c1["error"]["message"]) == ("BROWSER_ERROR", "후보 화면을 열지 못했습니다.")
+    body = client.get(f"/api/optimizations/{opt['optimizationId']}").text
+    assert "127.0.0.1" not in body and "8102" not in body and "ERR_CONNECTION" not in body
+
+
+class SlowBackend(LabelBackend):
+    """지정한 라벨에서 늦게 답하는 가짜 모델. 동시에 몇 개가 돌았는지 센다."""
+
+    def __init__(self, slow: dict):
+        super().__init__()
+        self.slow, self.running, self.max_running = slow, 0, 0
+        self.lock = threading.Lock()
+
+    def decide(self, request, temperature=None):
+        crit = request["questions"]["next_click"]["criteria"].values()
+        label = next(t.split("] ", 1)[1] for t in crit if t.startswith("[상단 메뉴]") and t.split("] ", 1)[1] in TARGET_PROB)
+        with self.lock:
+            self.running += 1
+            self.max_running = max(self.max_running, self.running)
+        try:
+            time.sleep(self.slow.get(label, 0))
+            return super().decide(request, temperature)
+        finally:
+            with self.lock:
+                self.running -= 1
+
+
+def test_model_timeout_waits_for_late_call_before_next(make, monkeypatch):
+    """제한 시간을 넘긴 호출이 끝날 때까지 기다린 뒤 다음 후보를 부른다. 호출은 겹치지 않는다 (리뷰 #58 권장)."""
+    monkeypatch.setitem(run_factory.DEFAULT_LIMITS, "modelTimeoutMs", 200)
+    backend = SlowBackend({"주문·배송": 0.3})
+    client, app, _ = make(FakeIntegrations(backend=backend))
+    opt = create_and_evaluate(client, app)
+    evs = {e["candidateId"]: e for e in opt["evaluations"]}
+    assert evs["C1"]["evaluationStatus"] == "FAILED" and evs["C1"]["error"]["code"] == "MODEL_TIMEOUT"
+    assert opt["status"] == "EVALUATED" and evs["C2"]["evaluationStatus"] == "COMPLETED"
+    assert backend.max_running == 1
+
+
+def test_stuck_model_call_stops_evaluation_and_keeps_runs_blocked(make, monkeypatch):
+    """두 배를 기다려도 안 끝나면 평가를 멈추고, 그 호출이 끝날 때까지 다른 실행을 막는다."""
+    monkeypatch.setitem(run_factory.DEFAULT_LIMITS, "modelTimeoutMs", 200)
+    backend = SlowBackend({"주문·배송": 1.0})
+    client, app, _ = make(FakeIntegrations(backend=backend))
+    opt_id = client.post("/api/optimizations").json()["optimizationId"]
+    deadline = time.monotonic() + 5
+    while app.state.optimizer.store.load(opt_id)["status"] != "FAILED" and time.monotonic() < deadline:
+        time.sleep(0.02)
+    opt = app.state.optimizer.store.load(opt_id)
+    assert opt["status"] == "FAILED" and opt["error"]["code"] == "MODEL_TIMEOUT"
+    assert backend.running == 1   # 늦은 호출이 아직 돈다 (1.0초 중 약 0.4초 시점)
+    assert app.state.optimizer.busy_reason() is not None   # 그동안 일반 실행도 막힌다
+    app.state.optimizer.wait(5)
+    assert app.state.optimizer.busy_reason() is None and backend.max_running == 1
 
 
 def test_model_failure_is_recorded_without_retry(make):
@@ -297,11 +430,14 @@ def test_evaluation_blocks_other_runs_and_shows_progress(make):
     r = client.post("/api/runs", json={"experimentKey": "exp", "variant": "before", "goalId": "refund",
                                        "personaId": "novice-shopper"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "RUN_ALREADY_ACTIVE"   # 평가 중 모델 동시 사용 방지
+    assert "후보 평가가 진행 중" in r.json()["error"]["message"]   # FE에 이유가 보이게 (정자비 11-18)
+    assert client.get("/api/health").json()["activeOptimization"] == {"optimizationId": opt_id, "status": "EVALUATING"}
     assert client.post("/api/optimizations").json()["error"]["code"] == "RUN_ALREADY_ACTIVE"
     assert client.post(f"/api/optimizations/{opt_id}/verify").json()["error"]["code"] == "OPTIMIZATION_NOT_READY"
     gate.set()
     app.state.optimizer.wait(10)
     assert client.get(f"/api/optimizations/{opt_id}").json()["status"] == "EVALUATED"
+    assert client.get("/api/health").json()["activeOptimization"] is None
 
 
 # ---------------------------------------------------------------- 실제 검증·판단·보고서
@@ -339,6 +475,71 @@ def test_verify_runs_baseline_then_candidate_and_reports(make):
     assert r.status_code == 201
     app.state.runner.wait(5)
     assert integ.start_urls[-1].endswith(":8002/shop/home")
+
+
+def test_verifying_blocks_outside_runs_between_baseline_and_candidate(make):
+    """기준 Run이 끝나고 후보 Run이 시작되기 전 빈 구간에 일반 Run이 끼어들지 못한다 (리뷰 #58-1)."""
+    client, app, integ = make()
+    opt = create_and_evaluate(client, app)
+    runner, seen = app.state.runner, []
+    original_wait = runner.wait
+
+    def wait_then_intrude(timeout=None):
+        original_wait(timeout)   # 기준 Run 종료 직후 (runner는 비어 있음)
+        if len(seen) == 0:
+            assert runner.active_run_id is None
+            outside = run_factory.build_run(
+                type("R", (), {"viewport": None, "maxSteps": 8, "variant": "before", "experimentKey": "intruder",
+                               "startPath": "/shop/home"})(),
+                app.state.presets.goal("refund"), app.state.presets.persona("novice-shopper"),
+                run_factory.model_settings())
+            try:
+                runner.create(outside, app.state.presets.goal("refund"))
+                seen.append("created")
+            except ApiError as e:
+                seen.append((e.status, e.code, e.message))
+            seen.append(client.get("/api/health").json()["activeOptimization"])
+    runner.wait = wait_then_intrude
+    assert client.post(f"/api/optimizations/{opt['optimizationId']}/verify").status_code == 202
+    app.state.optimizer.wait(20)
+    runner.wait = original_wait
+    status, code, message = seen[0]
+    assert (status, code) == (409, "RUN_ALREADY_ACTIVE") and "후보 검증 실행이 진행 중" in message
+    assert seen[1] == {"optimizationId": opt["optimizationId"], "status": "VERIFYING"}
+    done = client.get(f"/api/optimizations/{opt['optimizationId']}").json()
+    assert done["status"] == "COMPLETED", done["error"]   # 자기 검증 Run은 막히지 않는다
+    assert not any(r.get("experimentKey") == "intruder" for r in app.state.store.list_runs())
+
+
+def test_verify_uses_frozen_conditions_and_refuses_changed_preset(make):
+    """검증 Run은 평가 때 동결한 목표·성공 조건으로 만들고, preset이 바뀌었으면 시작하지 않는다 (리뷰 #58-4)."""
+    client, app, _ = make()
+    opt = create_and_evaluate(client, app)
+    presets, frozen = app.state.presets, opt["frozenConditions"]
+    original = presets.goals["refund"]
+    changed = json.loads(json.dumps(original))
+    changed["verification"]["text"] = "환불 신청"
+    presets.goals["refund"] = changed
+    try:
+        r = client.post(f"/api/optimizations/{opt['optimizationId']}/verify")
+        assert r.status_code == 422 and r.json()["error"]["code"] == "EXPERIMENT_CONDITION_MISMATCH"
+        assert "verification" in r.json()["error"]["message"]
+        # 직접 만들어도 현재 preset이 아니라 동결 값을 쓴다
+        run, goal = app.state.optimizer._build_run(app.state.optimizer.store.load(opt["optimizationId"]),
+                                                   "C2", "after", "CANDIDATE")
+        assert run["verification"]["text"] == frozen["verification"]["text"] == goal["verification"]["text"]
+        assert run["goal"] == frozen["goal"] and run["referencePathConfig"] == frozen["referencePathConfig"]
+        assert run["limits"] == frozen["limits"] and run["viewport"] == frozen["viewport"]
+        changed_persona = dict(presets.personas["novice-shopper"], persona="다른 사용자")
+        presets.goals["refund"], saved_persona = original, presets.personas["novice-shopper"]
+        presets.personas["novice-shopper"] = changed_persona
+        r = client.post(f"/api/optimizations/{opt['optimizationId']}/verify")
+        assert r.status_code == 422 and "persona" in r.json()["error"]["message"]
+        presets.personas["novice-shopper"] = saved_persona
+    finally:
+        presets.goals["refund"] = original
+    assert client.post(f"/api/optimizations/{opt['optimizationId']}/verify").status_code == 202
+    app.state.optimizer.wait(20)
 
 
 def test_verify_requires_registered_site_for_selected_candidate(make, tmp_path):

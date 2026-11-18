@@ -2,6 +2,7 @@
   "schemaVersion": "1.0",
   "selectionPolicyVersion": "selection-v1",
   "verificationPolicyVersion": "verification-v1",
+  "semanticClarityRankNote": "동률일 때 쓰는 의미 명확성 순위 (작을수록 우선). 결과를 보기 전에 정한 고정값이며 Optimization 생성 시 동결한다 (정윤희 11-18).",
   "goalId": "refund",
   "personaId": "novice-shopper",
   "target": {
@@ -12,10 +13,10 @@
     "originalLabel": "이용정보"
   },
   "candidates": [
-    {"candidateId": "C0", "label": "이용정보", "role": "BASELINE"},
-    {"candidateId": "C1", "label": "주문·배송", "role": "CANDIDATE"},
-    {"candidateId": "C2", "label": "주문·환불", "role": "CANDIDATE"},
-    {"candidateId": "C3", "label": "주문·반품", "role": "CANDIDATE"},
-    {"candidateId": "C4", "label": "주문 관리", "role": "CANDIDATE"}
+    {"candidateId": "C0", "label": "이용정보", "role": "BASELINE", "semanticClarityRank": null},
+    {"candidateId": "C1", "label": "주문·배송", "role": "CANDIDATE", "semanticClarityRank": 4},
+    {"candidateId": "C2", "label": "주문·환불", "role": "CANDIDATE", "semanticClarityRank": 1},
+    {"candidateId": "C3", "label": "주문·반품", "role": "CANDIDATE", "semanticClarityRank": 2},
+    {"candidateId": "C4", "label": "주문 관리", "role": "CANDIDATE", "semanticClarityRank": 3}
   ]
 }
