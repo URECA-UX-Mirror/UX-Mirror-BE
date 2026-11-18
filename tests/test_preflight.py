@@ -6,6 +6,8 @@ Before 상단 메뉴는 "이용정보", After는 "주문·환불"이라는 두 �
 import os
 import socket
 import sys
+import threading
+import time
 
 import pytest
 
@@ -13,8 +15,9 @@ pytest.importorskip("playwright")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from api import preflight  # noqa: E402
 from api.errors import ApiError  # noqa: E402
-from api.preflight import check_goal_screens  # noqa: E402
+from api.preflight import PAGE_TIMEOUT_MS, check_goal_screens  # noqa: E402
 from uxm.browser import close_browser, open_browser  # noqa: E402
 
 BROWSER = (open_browser, close_browser)
@@ -29,8 +32,12 @@ def check(verification, urls):
 
 
 def error_of(verification, urls) -> ApiError:
+    return error_of_with(verification, urls, BROWSER)
+
+
+def error_of_with(verification, urls, browser) -> ApiError:
     with pytest.raises(ApiError) as e:
-        check(verification, urls)
+        check_goal_screens(verification, urls, browser)
     return e.value
 
 
@@ -63,7 +70,7 @@ def test_unknown_page_rejected_without_browser():
     calls = []
     with pytest.raises(ApiError) as e:
         check_goal_screens(v("/shop/cart", "장바구니"), {"before": "x", "after": "y"},
-                           (lambda url: calls.append(url), lambda s: None))
+                           (lambda url, **kw: calls.append(url), lambda s: None))
     assert e.value.status == 422 and "쇼핑몰에 없는 화면" in e.value.message
     assert calls == []
 
@@ -83,6 +90,57 @@ def test_redirected_page_rejected():
     closed = []
     with pytest.raises(ApiError) as e:
         check_goal_screens(v("/shop/refund", "환불 / 반품 신청"), {"before": "http://x", "after": "http://y"},
-                           (lambda url: {"page": Page()}, closed.append))
+                           (lambda url, **kw: {"page": Page()}, closed.append))
     assert e.value.status == 422 and "Before" in e.value.message and "다른 화면" in e.value.message
     assert len(closed) == 1   # 실패해도 브라우저는 닫는다
+
+
+def test_timeout_is_retryable_503(monkeypatch):
+    """open_browser가 Playwright TimeoutError를 던지면(쇼핑몰이 응답하지 않음) 503 + 재시도 가능."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+    seen = []
+
+    def slow_open(url, timeout_ms=None):
+        seen.append(timeout_ms)
+        raise PlaywrightTimeout("Timeout 10000ms exceeded")
+    e = error_of_with(v("/shop/refund", "환불 / 반품 신청"), {"before": "http://x", "after": "http://y"},
+                      (slow_open, lambda s: None))
+    assert (e.status, e.code, e.retryable) == (503, "BROWSER_ERROR", True)
+    assert e.message == "Before 도착 화면을 읽지 못했습니다"
+    assert seen == [PAGE_TIMEOUT_MS]   # 실행 전 검사용 짧은 제한을 넘긴다
+
+
+@pytest.fixture
+def silent_server():
+    """연결은 받지만 응답을 보내지 않는 서버."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    conns, stop = [], threading.Event()
+
+    def accept():
+        srv.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                conns.append(srv.accept()[0])
+            except OSError:
+                pass
+    t = threading.Thread(target=accept, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{srv.getsockname()[1]}"
+    stop.set()
+    t.join()
+    for c in conns:
+        c.close()
+    srv.close()
+
+
+def test_unresponsive_shop_times_out_as_503(silent_server, monkeypatch):
+    """실제 브라우저로 응답 없는 쇼핑몰을 열면 제한 시간 안에 503 + 재시도 가능으로 끝난다."""
+    monkeypatch.setattr(preflight, "PAGE_TIMEOUT_MS", 2000)
+    started = time.monotonic()
+    e = error_of(v("/shop/refund", "환불 / 반품 신청"), {"before": silent_server, "after": silent_server})
+    elapsed = time.monotonic() - started
+    assert (e.status, e.code, e.retryable) == (503, "BROWSER_ERROR", True)
+    assert e.message == "Before 도착 화면을 읽지 못했습니다"   # Before에서 멈추고 After는 열지 않는다
+    assert elapsed < 15   # Playwright 기본 30초를 기다리지 않는다
