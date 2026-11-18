@@ -34,7 +34,7 @@ def test_registered_query_is_not_dropped(policy):
     assert policy.arrival_rejection("https://example.test/product/list.html?cate_no=24") == "OUT_OF_SCOPE"
 
 
-@pytest.mark.parametrize("tag", ["button", "input", "div", "form"])
+@pytest.mark.parametrize("tag", ["button", "input", "div", "form", None, 123])
 def test_only_anchor_is_allowed(policy, tag):
     assert SCENARIO_LINK_SELECTOR == "a[href]"
     assert policy.candidate_rejection("https://example.test/", candidate(tag=tag)) == "NOT_LINK"
@@ -74,6 +74,19 @@ def test_arrival_rechecks_redirect(policy):
     assert policy.arrival_rejection("https://example.test/guide.html") is None
     assert policy.arrival_rejection("https://other.test/guide.html") == "OUT_OF_SCOPE"
     assert policy.arrival_rejection("https://example.test/other") == "OUT_OF_SCOPE"
+
+
+def test_registered_path_parameters_are_not_silently_ignored(policy):
+    assert policy.url_rejection("https://example.test/", "/guide.html;jsessionid=123") == "OUT_OF_SCOPE"
+    assert policy.arrival_rejection("https://example.test/guide.html;jsessionid=123") == "OUT_OF_SCOPE"
+
+
+def test_registered_pages_are_frozen_at_construction():
+    pages = ["/", "/guide.html"]
+    policy = ScenarioSafety("https://example.test", pages)
+    pages.append("/other")
+    assert policy.url_rejection("https://example.test/", "/other") == "OUT_OF_SCOPE"
+    assert policy.url_rejection("https://example.test/", "/guide.html") is None
 
 
 @pytest.mark.parametrize("base,pages", [("javascript:alert(1)", ("/",)), ("https://example.test", ()),
