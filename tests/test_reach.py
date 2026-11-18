@@ -33,7 +33,8 @@ def test_matches_hand_calculation():
 def test_probability_mass_is_conserved():
     for k in range(1, 12):
         est = reach.estimate(MAP, PROBS, "A", "G", k)
-        assert est["reachProbability"] + est["lostProbability"] + est["unfinishedProbability"] == pytest.approx(1.0)
+        total = est["reachProbability"] + est["lostProbability"] + est["unfinishedProbability"]
+        assert total == pytest.approx(1.0, abs=2e-6)   # 각 값을 소수 6자리로 반올림한 합 (최대 1.5e-6)
 
 
 def test_long_horizon_converges_to_absorption_probability():

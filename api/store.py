@@ -7,6 +7,7 @@ import json
 import os
 import re
 import tempfile
+import time
 
 from uxm.storage import read_jsonl   # 줄바꿈까지 끝난 줄만 읽는 규칙(18.2)은 저장 모듈과 같은 함수를 쓴다
 
@@ -29,7 +30,7 @@ def write_json_atomic(path: str, data) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2, allow_nan=False)
             f.write("\n")
-        os.replace(tmp, path)
+        _retry_locked(lambda: os.replace(tmp, path))
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -37,8 +38,27 @@ def write_json_atomic(path: str, data) -> None:
 
 
 def read_json(path: str):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    def read():
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    return _retry_locked(read)
+
+
+LOCK_RETRIES = 20          # 최대 약 1초 (Windows 파일 공유 위반은 보통 수 ms 안에 풀린다)
+LOCK_RETRY_DELAY_S = 0.05
+
+
+def _retry_locked(fn):
+    """Windows는 다른 스레드가 연 파일을 교체·열기할 때 PermissionError를 낸다 (공유 위반).
+    실행기가 run.json을 쓰는 순간 조회 API가 같은 파일을 읽으면 생기므로, 잠깐 기다렸다 다시 한다.
+    다른 오류와 다른 플랫폼에는 영향이 없다 (PermissionError가 아니면 바로 올린다)."""
+    for attempt in range(LOCK_RETRIES):
+        try:
+            return fn()
+        except PermissionError:
+            if attempt == LOCK_RETRIES - 1:
+                raise
+            time.sleep(LOCK_RETRY_DELAY_S)
 
 
 class RunStore:
