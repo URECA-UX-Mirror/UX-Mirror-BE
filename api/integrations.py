@@ -41,12 +41,13 @@ class Integrations:
         return _load("uxm.browser", "open_browser", "close_browser")
 
     def goal_preflight(self):
-        """직접 입력 성공 조건의 실행 전 검사 `check(verification, base_urls)` (api/preflight.py). 브라우저가 없으면 None."""
+        """직접 입력 성공 조건의 실행 전 검사 `check(verification, base_urls, scope=None)` (api/preflight.py).
+        scope가 있으면 외부 사이트 시나리오 1곳만 확인한다 (#74). 브라우저가 없으면 None."""
         browser = self.browser()
         if browser is None:
             return None
         from api.preflight import check_goal_screens
-        return lambda verification, base_urls: check_goal_screens(verification, base_urls, browser)
+        return lambda verification, base_urls, scope=None: check_goal_screens(verification, base_urls, browser, scope=scope)
 
     def detect_issues(self):
         found = _load("uxm.analysis", "detect_issues")
