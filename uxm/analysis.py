@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 
+from uxm.reference import reference
 
 ISSUE_ORDER = (
     "GOAL_NOT_REACHED", "REFERENCE_PATH_DEVIATION", "REPEATED_VISIT",
@@ -138,7 +139,12 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
 
     by_step = {step["stepId"]: step for step in steps}
     route, visits, causes = [], {}, {}
-    allowed = run["referencePathConfig"]["allowedPaths"]
+    ref = run.get("referencePathConfig")
+    basis = ref.get("basis", "ALLOWED_PATHS") if isinstance(ref, dict) else None
+    if basis == "SITE_MAP":
+        if not reference(run)[0]:
+            basis = None
+    allowed = ref.get("allowedPaths") if basis == "ALLOWED_PATHS" else None
     for visit in summary["path"]:
         key, signature, cause = visit["pageKey"], visit["pageSignature"], visit["visitCause"]
         if cause == "RUN_START":
@@ -166,7 +172,7 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
                 "visitCauses": list(causes[signature]),
             }, step["timestamp"], step=step, destination_page=visit))
         action = step["action"]
-        if (cause == "MODEL_NAVIGATION" and action["actionType"] == "CLICK"
+        if (allowed is not None and cause == "MODEL_NAVIGATION" and action["actionType"] == "CLICK"
                 and action["result"] == "NAVIGATED"
                 and not any(path[:len(route)] == route for path in allowed)):
             selected = next((c for c in step["candidateSet"]["candidates"]
@@ -179,10 +185,13 @@ def detect_issues(run: dict, steps: list[dict], events: list[dict]) -> list[dict
             }, step["timestamp"], step=step))
 
     reached = summary["goalReached"]
-    if reached and summary["extraSteps"] is not None and summary["extraSteps"] > 0:
+    shortest_field = {"ALLOWED_PATHS": "shortestAllowedSteps", "SITE_MAP": "shortestSteps"}.get(basis)
+    if (shortest_field and shortest_field in ref and reached and summary["extraSteps"] is not None
+            and summary["extraSteps"] > 0):
         found.append(create_issue(run, "EXTRA_STEPS", {
             "successfulNavigationClickCount": summary["successfulNavigationClickCount"],
-            "shortestAllowedSteps": run["referencePathConfig"]["shortestAllowedSteps"],
+            "basis": basis,
+            shortest_field: ref[shortest_field],
             "extraSteps": summary["extraSteps"],
         }, run["finishedAt"]))
     if not reached and run["status"] in ("MAX_STEPS", "BLOCKED"):

@@ -35,11 +35,19 @@ class Runner:
         self._lock = threading.Lock()
         self._active: str | None = None
         self._thread: threading.Thread | None = None
+        # UX Optimizer 연결 (고도화 v1.3 5.5). Optimizer가 없으면 기존 P0 동작 그대로.
+        self.site_base_url = None    # siteInstanceId → 서버에 등록된 사이트 주소 (없으면 None)
+        self.external_busy = None    # external_busy(run) → Run을 만들면 안 되는 이유 (후보 평가·검증 중 등) 또는 None
 
     # ---- 상태
     @property
     def active_run_id(self) -> str | None:
         return self._active
+
+    @property
+    def creation_lock(self) -> threading.Lock:
+        """Run 생성 확인과 시작을 묶는 잠금. Optimizer가 평가·검증을 시작할 때도 같이 잡는다 (경쟁 방지)."""
+        return self._lock
 
     def ensure_ready(self) -> None:
         """실행에 필요한 모듈이 없으면 Run을 만들지 않고 503 (17.2)."""
@@ -57,8 +65,17 @@ class Runner:
         with self._lock:
             if self._active is not None:
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
-            same = [r for r in self.store.list_runs()
-                    if r.get("experimentKey") == run["experimentKey"] and r.get("variant") == run["variant"]]
+            busy = self.external_busy(run) if self.external_busy else None
+            if busy:
+                raise ApiError(409, "RUN_ALREADY_ACTIVE", busy, retryable=True)
+            runs = [r for r in self.store.list_runs() if r.get("experimentKey") == run["experimentKey"]]
+            # Before/After는 같은 문구·성공 조건이어야 비교된다. 첫 Run과 다르면 만들지 않는다.
+            first = min(runs, key=lambda r: r.get("createdAt") or "", default=None)
+            diff = run_factory.input_mismatch(run, first) if first else []
+            if diff:
+                raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
+                               f"같은 experimentKey의 첫 실행과 입력이 다릅니다: {', '.join(diff)}")
+            same = [r for r in runs if r.get("variant") == run["variant"]]
             if any(r.get("status") in ("READY", "RUNNING") or r.get("validity") == "VALID" for r in same):
                 raise ApiError(409, "EXPERIMENT_RUN_EXISTS",
                                "같은 experimentKey와 variant에 유효하거나 진행 중인 실행이 이미 있습니다.")
@@ -145,7 +162,7 @@ class Runner:
             log.exception("backend init failed")
             raise _RunFailure("MODEL_ERROR", "MODEL_UNAVAILABLE", "모델 서버에 연결하지 못했습니다.") from e
 
-        base_url = SHOP_URLS[run["variant"]]
+        base_url = self._base_url(run)
         start_url = base_url + run["startPath"]
         try:
             session = open_browser(start_url)
@@ -160,6 +177,16 @@ class Runner:
                 close_browser(session)
             except Exception:
                 log.exception("close_browser failed")
+
+    def _base_url(self, run: dict) -> str:
+        """P0 Run은 variant별 고정 쇼핑몰. Optimization 검증 Run은 등록된 Site Instance 주소 (클라이언트 지정 불가)."""
+        ctx = run.get("optimizationContext")
+        if not ctx:
+            return SHOP_URLS[run["variant"]]
+        base = self.site_base_url(ctx["siteInstanceId"]) if self.site_base_url else None
+        if not base:
+            raise _RunFailure("BROWSER_ERROR", "BROWSER_ERROR", "등록되지 않은 사이트 인스턴스입니다.")
+        return base
 
     # ---- 분석
     def analyze(self, run: dict, *, update_run: bool = True) -> None:

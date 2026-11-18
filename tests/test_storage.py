@@ -14,7 +14,7 @@ SAMPLE = "sample_before"
 
 RUN_FIELDS = {
     "schemaVersion", "runId", "experimentKey", "variant", "resultOrigin", "siteVersion", "modelVersion",
-    "modelEndpointId", "promptVersion", "temperature", "decisionMode", "goalJudgmentMode", "goalId", "goal",
+    "modelEndpointId", "promptVersion", "temperature", "decisionMode", "goalJudgmentMode", "goalId", "goal", "verification",
     "personaId", "persona", "startPath", "viewport", "limits", "thresholdConfig", "analysisVersion",
     "referencePathConfig", "comparisonContext", "status", "createdAt", "startedAt", "finishedAt",
     "terminationReason", "progress", "summary", "error", "validity", "invalidReason", "replacementRunId",
@@ -158,6 +158,8 @@ def test_sample_run_fields(sample):
     run, steps, _, _ = sample
     assert set(run) == RUN_FIELDS
     assert run["schemaVersion"] == SCHEMA_VERSION and run["resultOrigin"] == "MOCK"
+    assert run["verification"] == {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund",
+                                   "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
     assert (run["status"], run["terminationReason"], run["validity"]) == ("SUCCESS", "GOAL_VERIFIED", "VALID")
     assert run["comparisonContext"]["leakCheckPassed"] is True
     assert run["summary"]["detectedIssueTypes"] == []          # 분석 전 (issues.json 없음)

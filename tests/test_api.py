@@ -12,10 +12,13 @@ sys.path.insert(0, ROOT)
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api.comparison import final_run  # noqa: E402
+from api.errors import ApiError  # noqa: E402
 from api.integrations import Integrations  # noqa: E402
 from api.main import create_app  # noqa: E402
 from api.presets import Presets, success_condition  # noqa: E402
+from api import run_factory  # noqa: E402
 from api.run_factory import decide_validity  # noqa: E402
+from uxm import sitemap  # noqa: E402
 from uxm.goal import GOALS  # noqa: E402
 from uxm.prompts import GOAL, PERSONA  # noqa: E402
 
@@ -54,6 +57,8 @@ class FakeIntegrations(Integrations):
         self.issues_fail = False
         self.write_valid_then_raise = False
         self.saved_validity = None   # 루프가 실행 중 run.json에 써 두는 validity (예: "VALID")
+        self.preflight_calls = []
+        self.preflight_error = None
 
     def agent(self):
         if not self.has_agent:
@@ -104,6 +109,14 @@ class FakeIntegrations(Integrations):
         def close_browser(session):
             self.closed += 1
         return open_browser, close_browser
+
+    def goal_preflight(self):
+        """실제 화면 검사는 tests/test_preflight.py에서. 여기서는 호출만 기록하고 preflight_error가 있으면 던진다."""
+        def check(verification, base_urls):
+            self.preflight_calls.append(verification)
+            if self.preflight_error is not None:
+                raise self.preflight_error
+        return check
 
     def backend(self, cfg):
         return object()
@@ -184,7 +197,7 @@ def test_c3_test_preset_runs_from_mypage(make_client):
     client, integ, app = make_client()
     run = run_and_wait(client, app, goalId="refund-from-mypage-test", startPath="/shop/mypage")
     assert run["goalId"] == "refund-from-mypage-test" and run["goal"] == GOAL
-    assert run["referencePathConfig"] == {"version": "refpath-mypage-test-v1",
+    assert run["referencePathConfig"] == {"basis": "ALLOWED_PATHS", "version": "refpath-mypage-test-v1",
                                           "allowedPaths": [["mypage", "refund"], ["mypage", "orders", "refund"]],
                                           "shortestAllowedSteps": 1}
     assert integ.received_settings["successCondition"] == GOALS["refund"]
@@ -255,6 +268,195 @@ def test_create_rejects_invalid_request(make_client, over):
     r = client.post("/api/runs", json=body(**over))
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"
+
+
+# ---- 직접 입력한 목표·사용자 유형
+
+DIRECT_V = {"path": "/shop/orders", "text": "주문/배송 조회"}
+
+
+def direct(**over) -> dict:
+    b = {"experimentKey": "exp_direct", "variant": "before", "goal": "  주문 내역 화면 찾기 ",
+         "persona": "쇼핑몰을 처음 쓰는 사용자", "verification": DIRECT_V, **over}
+    return {k: v for k, v in b.items() if v is not None}
+
+
+def test_direct_input_is_normalized_and_saved(make_client):
+    client, integ, app = make_client()
+    r = client.post("/api/runs", json=direct(verification={"path": " /shop/orders ", "text": " 주문/배송 조회 "}))
+    assert r.status_code == 201, r.text
+    app.state.runner.wait(5)
+    run = client.get(f"/api/runs/{r.json()['runId']}").json()
+    assert (run["goalId"], run["goal"], run["personaId"], run["persona"]) == (
+        None, "주문 내역 화면 찾기", None, "쇼핑몰을 처음 쓰는 사용자")
+    assert run["verification"] == {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/orders",
+                                   "text": "주문/배송 조회", "exact": False, "scope": "page"}
+    assert run["referencePathConfig"]["basis"] == "SITE_MAP" and run["startPath"] == "/shop/home"
+    assert integ.received_settings["successCondition"] == {
+        "path": "/shop/orders", "text": "주문/배송 조회", "exact": False, "scope": "page"}
+    assert integ.preflight_calls == [run["verification"]]   # 정리된 성공 조건으로 실행 전 검사
+
+
+# ---- 실행 전 검사 (「남은 일과 분업」 7번, FE OI-9). 실제 화면 판정은 tests/test_preflight.py
+
+def test_preset_run_skips_preflight(make_client):
+    client, integ, app = make_client()
+    run_and_wait(client, app)
+    assert integ.preflight_calls == []   # preset 성공 조건은 로드 때 검사 (#35)
+
+
+@pytest.mark.parametrize("error,status,retryable", [
+    (ApiError(422, "CONTRACT_VALIDATION_ERROR", "After 도착 화면(/shop/orders)에 '없는 글자' 글자가 없습니다."), 422, False),
+    (ApiError(503, "BROWSER_ERROR", "Before 도착 화면을 읽지 못했습니다", retryable=True), 503, True),
+])
+def test_preflight_failure_creates_no_run(make_client, error, status, retryable):
+    client, integ, app = make_client()
+    integ.preflight_error = error
+    r = client.post("/api/runs", json=direct())
+    assert r.status_code == status
+    assert (r.json()["error"]["code"], r.json()["error"]["retryable"]) == (error.code, retryable)
+    assert r.json()["error"]["message"] == error.message
+    assert client.get("/api/runs").json()["count"] == 0 and app.state.runner.active_run_id is None
+
+
+def test_preflight_not_run_while_another_run_active(make_client):
+    client, integ, app = make_client()
+    integ.gate = threading.Event()
+    assert client.post("/api/runs", json=body()).status_code == 201
+    try:
+        r = client.post("/api/runs", json=direct())
+        assert r.status_code == 409 and r.json()["error"]["code"] == "RUN_ALREADY_ACTIVE"
+        assert integ.preflight_calls == []   # 브라우저를 띄우지 않고 바로 409
+    finally:
+        integ.gate.set()
+        app.state.runner.wait(5)
+
+
+# ---- 경로 기준: preset은 ALLOWED_PATHS, 직접 입력은 SITE_MAP (설계 v2.1 4.1, #50)
+
+VP = {"width": 1440, "height": 900}
+
+
+def _site_map(**over) -> dict:
+    with open(run_factory.SITE_MAP_PATH, encoding="utf-8") as f:
+        data = {**json.load(f), **over}
+    data["siteMapHash"] = sitemap.site_map_hash(data["pages"])
+    return data
+
+
+def _write_map(tmp_path, data) -> str:
+    path = tmp_path / "map.json"
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return str(path)
+
+
+def test_direct_input_saves_site_map_reference(make_client):
+    client, _, app = make_client()
+    r = client.post("/api/runs", json=direct())
+    assert r.status_code == 201, r.text
+    app.state.runner.wait(5)
+    ref = client.get(f"/api/runs/{r.json()['runId']}").json()["referencePathConfig"]
+    assert {k: ref[k] for k in ("basis", "startPageKey", "goalPageKey", "shortestSteps")} == {
+        "basis": "SITE_MAP", "startPageKey": "home", "goalPageKey": "orders", "shortestSteps": 1}
+    site_map = sitemap.load_site_map(run_factory.SITE_MAP_PATH)
+    assert (ref["siteMapVersion"], ref["siteMapHash"]) == (site_map["siteMapVersion"], site_map["siteMapHash"])
+    assert ref["distances"] == sitemap.distances(site_map["pages"], "orders")
+
+
+def test_preset_reference_keeps_allowed_paths():
+    ref = Presets().goal("refund")["referencePathConfig"]
+    assert ref["basis"] == "ALLOWED_PATHS" and ref["shortestAllowedSteps"] == 2
+
+
+def test_site_map_shortest_steps_matches_preset():
+    """같은 환불 목표면 지도 최단 거리가 preset 허용 경로 최단(2)과 같다 (설계 2.2 검증 4)."""
+    ref = run_factory.site_map_reference("/shop/home", {"path": "/shop/refund"}, VP)
+    assert ref["shortestSteps"] == Presets().goal("refund")["referencePathConfig"]["shortestAllowedSteps"]
+
+
+@pytest.mark.parametrize("data,start,goal_path", [
+    (None, "/shop/home", "/shop/orders"),                          # 지도 파일 없음
+    ({"siteMapHash": "sha256:bad"}, "/shop/home", "/shop/orders"),  # 해시 불일치 (아래에서 덮어씀)
+    ({"siteVersion": "shop-v2"}, "/shop/home", "/shop/orders"),    # 사이트 다름
+    ({"candidatePolicyVersion": "candidate-v1"}, "/shop/home", "/shop/orders"),
+    ({"viewport": {"width": 375, "height": 812}}, "/shop/home", "/shop/orders"),
+    ({}, "/shop/mypage", "/shop/orders"),                          # 지도 시작 화면이 아님
+    ({}, "/shop/home", "/shop/cart"),                              # 도착 화면이 지도에 없음
+])
+def test_site_map_error_runs_without_reference(tmp_path, data, start, goal_path):
+    if data is None:
+        path = str(tmp_path / "missing.json")
+    else:
+        built = _site_map(**data)
+        if "siteMapHash" in data:
+            built["siteMapHash"] = data["siteMapHash"]
+        path = _write_map(tmp_path, built)
+    assert run_factory.site_map_reference(start, {"path": goal_path}, VP, path) is None
+
+
+def test_unreachable_goal_rejected_before_run(make_client, tmp_path, monkeypatch):
+    pages = _site_map()["pages"]
+    for page in pages.values():   # support로 들어가는 간선을 모두 없앤 지도
+        page["edges"] = [e for e in page["edges"] if e["to"] != "support"]
+    monkeypatch.setattr(run_factory, "SITE_MAP_PATH", _write_map(tmp_path, _site_map(pages=pages)))
+    client, _, app = make_client()
+    r = client.post("/api/runs", json=direct(verification={"path": "/shop/support", "text": "고객센터"}))
+    assert r.status_code == 422, r.text
+    assert "경로가 없습니다" in r.json()["error"]["message"]
+    assert app.state.store.list_runs() == []
+
+
+def test_preset_run_copies_verification(make_client):
+    client, _, app = make_client()
+    run = run_and_wait(client, app)
+    assert run["verification"] == Presets().goal("refund")["verification"]
+
+
+def test_mixed_preset_goal_and_direct_persona(make_client):
+    client, _, app = make_client()
+    run = run_and_wait(client, app, personaId=None, persona="급한 사용자")
+    assert (run["goalId"], run["personaId"], run["persona"]) == ("refund", None, "급한 사용자")
+
+
+@pytest.mark.parametrize("over", [
+    {"goalId": "refund"},                                  # goalId·goal 둘 다
+    {"goal": None, "verification": None},                  # 둘 다 없음
+    {"verification": None},                                # 직접 입력인데 성공 조건 없음
+    {"goal": None, "goalId": "refund"},                    # preset인데 성공 조건 보냄
+    {"personaId": "novice-shopper"}, {"persona": None},
+    {"goal": "   "}, {"persona": ""},
+    {"goal": "가" * 201}, {"persona": "가" * 201},
+    {"goal": "after 화면에서 환불 찾기"}, {"goal": "variant 확인"}, {"persona": "before 사용자"},
+    {"verification": {"path": "/orders", "text": "주문"}},
+    {"verification": {"path": "/shop/orders", "text": "  "}},
+    {"verification": {"path": "/shop/orders", "text": "주문", "scope": "body"}},
+    {"verification": {"path": "/shop/orders", "text": "주문", "type": "URL_ONLY"}},
+    {"verification": {"path": "/shop/orders", "text": "가" * 101}},
+    {"startPath": "/shop/cart"},
+])
+def test_direct_input_rejected(make_client, over):
+    client, _, app = make_client()
+    r = client.post("/api/runs", json=direct(**over))
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"
+    assert app.state.store.list_runs() == []
+
+
+@pytest.mark.parametrize("over,ok", [
+    ({}, True),
+    ({"goal": "주문 내역 화면 찾기"}, True),                # 공백만 다르면 정리 후 같다
+    ({"goal": "배송 조회 화면 찾기"}, False),
+    ({"persona": "다른 사용자"}, False),
+    ({"verification": {**DIRECT_V, "exact": True}}, False),
+    ({"goal": None, "verification": None, "goalId": "refund"}, False),
+])
+def test_after_must_match_before_inputs(make_client, over, ok):
+    client, _, app = make_client()
+    assert client.post("/api/runs", json=direct()).status_code == 201
+    app.state.runner.wait(5)
+    r = client.post("/api/runs", json=direct(variant="after", **over))
+    assert r.status_code == (201 if ok else 422), r.text
+    app.state.runner.wait(5)
 
 
 @pytest.mark.parametrize("start", ["/shop/mypage", "/shop/orders", "/shop/support", "/shop/refund"])
@@ -328,6 +530,34 @@ def test_presets_allow_missing_exact_and_scope(tmp_path):
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     goal = Presets(str(path)).goal("refund")
     assert success_condition(goal) == {"path": "/shop/refund", "text": "환불 / 반품 신청", "exact": False, "scope": "page"}
+
+
+def test_goal_screenshot_returns_arrival_image(make_client, tmp_path):
+    """OI-3: 도착 화면은 Step이 없어 GOAL_REACHED Event의 사진을 준다 (#55)."""
+    client, _, app = make_client()
+    run = run_and_wait(client, app)
+    run_dir = app.state.store.run_dir(run["runId"])
+    with open(os.path.join(run_dir, "screenshots", "goal.png"), "wb") as f:
+        f.write(PNG)
+    with open(os.path.join(run_dir, "events.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"eventId": "event_99", "eventType": "GOAL_REACHED",
+                            "details": {"screenshotRef": "screenshots/goal.png"}}) + "\n")
+    r = client.get(f"/api/runs/{run['runId']}/screenshots/goal")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content == PNG
+    assert client.get(f"/api/runs/{run['runId']}/screenshots/1").status_code == 200   # stepId 경로는 그대로
+
+
+@pytest.mark.parametrize("ref", [None, "screenshots/missing.png", "../../outside.png"])
+def test_goal_screenshot_404_without_arrival_image(make_client, ref):
+    client, _, app = make_client()
+    run = run_and_wait(client, app)
+    if ref is not None:
+        with open(os.path.join(app.state.store.run_dir(run["runId"]), "events.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"eventId": "event_99", "eventType": "GOAL_REACHED",
+                                "details": {"screenshotRef": ref}}) + "\n")
+    r = client.get(f"/api/runs/{run['runId']}/screenshots/goal")
+    assert r.status_code == 404 and r.json()["error"]["code"] == "RUN_NOT_FOUND"
+    assert client.get("/api/runs/no_such_run/screenshots/goal").status_code == 404
 
 
 def test_create_returns_503_when_agent_missing(make_client):

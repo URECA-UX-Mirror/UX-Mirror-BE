@@ -20,6 +20,7 @@ steps.jsonl은 한 줄씩 추가만 하므로 Step 한 줄은 행동 결과까�
 """
 import concurrent.futures as cf
 import importlib
+import math
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -84,17 +85,23 @@ def run_agent(settings: dict, backend, page, env: Env | None = None) -> dict:
     return _Loop(settings, backend, page, env or default_env()).run()
 
 
-def agent_settings(run: dict, goal: dict, run_dir: str, start_url: str, shop_base_url: str) -> dict:
+def agent_settings(run: dict, goal: dict | None, run_dir: str, start_url: str, shop_base_url: str) -> dict:
     """run_agent에 넘기는 설정. 실행 API(api/runner.py)와 scripts/run_c.py가 같이 쓴다.
 
-    run: READY Run(run.json), goal: config/presets.json의 목표 preset.
+    run: READY Run(run.json), goal: config/presets.json의 목표 preset (직접 입력한 목표면 None).
+    모델 요청의 목표·사용자 유형은 Run의 `goal`·`persona`를 쓴다 (#39).
+    성공 조건은 Run에 `verification`이 있으면 그것을, 없으면 목표 preset의 것을 쓴다.
+    허용 경로(`referencePathConfig`)는 없을 수 있다 (직접 입력한 목표) → 경로 지표는 null.
     성공 조건·허용 경로는 채점용이라 모델 요청에 넣지 않는다 (계약 9.3).
     """
+    source = run if run.get("verification") else goal
+    if not source:
+        raise ValueError(f"runId={run['runId']}: 성공 조건(verification)이 없습니다.")
     return {
         "run": run, "runId": run["runId"], "runDir": run_dir, "shopBaseUrl": shop_base_url,
-        "startUrl": start_url, "startPath": run["startPath"], "goalId": run["goalId"], "goal": run["goal"],
-        "persona": run["persona"], "successCondition": goal_mod.success_condition(goal),
-        "referencePathConfig": run["referencePathConfig"], "limits": run["limits"], "viewport": run["viewport"],
+        "startUrl": start_url, "startPath": run["startPath"], "goalId": run.get("goalId"), "goal": run["goal"],
+        "persona": run["persona"], "successCondition": goal_mod.success_condition(source),
+        "referencePathConfig": run.get("referencePathConfig"), "limits": run["limits"], "viewport": run["viewport"],
         "goalJudgmentMode": run["goalJudgmentMode"], "temperature": run["temperature"],
         "promptVersion": run["promptVersion"], "resultOrigin": run["resultOrigin"],
     }
@@ -117,6 +124,81 @@ class _Stop(Exception):
         self.reason, self.error = reason, error
 
 
+def _distance(value) -> float:
+    """사이트 지도 거리. `null`(도착 화면으로 갈 수 없는 화면)은 무한대로 본다 (거리를 줄이지 않는 화면)."""
+    return math.inf if value is None else value
+
+
+@dataclass(frozen=True)
+class PathBasis:
+    """Run의 경로 기준 (#49). 루프는 지도 파일을 읽지 않고 Run에 복사된 값만 쓴다.
+
+    kind: "ALLOWED_PATHS"(허용 경로, basis 없는 과거 Run 포함) / "SITE_MAP"(사이트 지도 거리) / None(계산 안 함)
+    """
+    kind: str | None = None
+    allowed_paths: list | None = None     # ALLOWED_PATHS
+    shortest: int | None = None           # 최단 이동 수 (shortestAllowedSteps / shortestSteps)
+    distances: dict | None = None         # SITE_MAP: {pageKey: 도착 화면까지 거리 또는 None}
+
+
+NO_PATH_BASIS = PathBasis()
+
+
+def _path_basis(ref, start_page: str | None = None, goal_page: str | None = None) -> PathBasis:
+    """Run의 `referencePathConfig` → PathBasis. 형식·정합성이 맞지 않으면 기준 없음 (경로 지표 null, 실행은 계속).
+
+    `basis`가 없는 과거 Run은 ALLOWED_PATHS로 읽는다 (설계 4.1).
+    start_page·goal_page: 이 Run의 실제 시작 화면과 성공 조건 도착 화면. 설정이 다른 화면을 기준으로 하면 쓰지 않는다.
+    #47 분석·비교(`uxm/reference.py`)와 같은 기준으로 검사해 Run 요약과 분석 결과가 어긋나지 않게 한다 (#50 리뷰).
+    """
+    if not isinstance(ref, dict):
+        return NO_PATH_BASIS
+    kind = ref.get("basis", "ALLOWED_PATHS")
+    if kind == "ALLOWED_PATHS" and _allowed_paths_consistent(ref, start_page):
+        return PathBasis(kind, allowed_paths=ref["allowedPaths"], shortest=ref["shortestAllowedSteps"])
+    if kind == "SITE_MAP" and _site_map_consistent(ref, start_page, goal_page):
+        return PathBasis(kind, shortest=ref["shortestSteps"], distances=ref["distances"])
+    return NO_PATH_BASIS
+
+
+def _nonempty_str(value) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _allowed_paths_consistent(ref: dict, start_page: str | None) -> bool:
+    """ALLOWED_PATHS: `version` 문자열, `allowedPaths`는 빈 값 없는 pageKey 목록들, `shortestAllowedSteps` 0 이상 정수.
+    실제 시작 화면을 알면 허용 경로가 모두 그 화면에서 시작해야 한다 (preset 로드의 `_check_start_path`와 같은 규칙).
+    """
+    allowed, shortest = ref.get("allowedPaths"), ref.get("shortestAllowedSteps")
+    if not (_nonempty_str(ref.get("version")) and type(shortest) is int and shortest >= 0):
+        return False
+    if not (isinstance(allowed, list) and allowed
+            and all(isinstance(path, list) and path and all(_nonempty_str(k) for k in path) for path in allowed)):
+        return False
+    return start_page is None or all(path[0] == start_page for path in allowed)
+
+
+def _site_map_consistent(ref: dict, start_page: str | None, goal_page: str | None) -> bool:
+    """SITE_MAP: 형식과 정합성.
+
+    - `siteMapVersion`·`siteMapHash`·`startPageKey`·`goalPageKey`: 빈 값 아닌 문자열
+    - `distances`: {빈 값 아닌 pageKey: 0 이상 정수 또는 None}, `shortestSteps`: 0 이상 정수
+    - `distances[goalPageKey] == 0`, `distances[startPageKey] == shortestSteps`
+    - 실제 시작 화면·성공 조건 도착 화면을 알면 `startPageKey`·`goalPageKey`와 같아야 한다
+    """
+    dist, shortest = ref.get("distances"), ref.get("shortestSteps")
+    start, goal = ref.get("startPageKey"), ref.get("goalPageKey")
+    if not all(_nonempty_str(ref.get(k)) for k in ("siteMapVersion", "siteMapHash", "startPageKey", "goalPageKey")):
+        return False
+    if not (isinstance(dist, dict) and dist and type(shortest) is int and shortest >= 0):
+        return False
+    if not all(_nonempty_str(k) and (v is None or (type(v) is int and v >= 0)) for k, v in dist.items()):
+        return False
+    if dist.get(goal) != 0 or dist.get(start) != shortest:
+        return False
+    return (start_page is None or start == start_page) and (goal_page is None or goal == goal_page)
+
+
 class _Loop:
     def __init__(self, settings, backend, page, env: Env):
         self.s, self.backend, self.page, self.env = settings, backend, page, env
@@ -124,15 +206,17 @@ class _Loop:
         self.store = RunStore.open_dir(settings["runDir"])
         self.origin = settings["resultOrigin"]
         self.success = settings["successCondition"]
-        self.allowed = settings["referencePathConfig"]["allowedPaths"]
-        self.shortest = settings["referencePathConfig"]["shortestAllowedSteps"]
+        # 경로 기준 (#49). 설정이 이 Run의 실제 시작 화면·성공 조건 도착 화면과 다른 화면 기준이면 쓰지 않는다
+        self.path = _path_basis(settings.get("referencePathConfig"), env.page_key(settings["startPath"]),
+                                env.page_key(self.success["path"]))
+        self.off_map = False        # SITE_MAP: 지도에 없는 화면으로 이동하면 우회 이동·추가 단계를 계산하지 않음
         self.t0 = time.monotonic()
         self.pool = cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="uxm-model")
 
         self.step_id = 0            # 저장한 Step 수 = 마지막 stepId
         self.step_count = 0         # 계약 6.4 stepCount
         self.n = {"model_calls": 0, "clicks": 0, "nav_clicks": 0, "model_back": 0, "system_back": 0,
-                  "deviation": 0}
+                  "deviation": 0, "detour": 0}
         self.events = 0
         self.visits: list[dict] = []
         self.visit_count: dict[str, int] = {}
@@ -184,7 +268,8 @@ class _Loop:
         back_ok = (len(self.stack) > 1 and not self.back_failed
                    and self.n["model_back"] < self.limits["maxModelBackActions"])
         screen = {**extracted, "candidates": cands}
-        request, meta = build_screen_request(screen, history=self.history, failed=self.failed, go_back=back_ok)
+        request, meta = build_screen_request(screen, history=self.history, failed=self.failed, go_back=back_ok,
+                                             goal=self.s["goal"], persona=self.s["persona"])
         try:
             assert_no_leak(request)
         except RuntimeError as e:
@@ -355,9 +440,7 @@ class _Loop:
 
     def _push_new_screen(self, here: dict, label: str) -> dict:
         entered = self._enter("MODEL_NAVIGATION", "CLICK", self.step_id + 1)
-        route = [v["pageKey"] for v in self.stack]
-        if not any(p[:len(route)] == route for p in self.allowed):
-            self.n["deviation"] += 1   # 계약 14.2 REFERENCE_PATH_DEVIATION과 같은 기준
+        self._count_path_move([v["pageKey"] for v in self.stack])
         self.history.append({"steps": [f"{here['title']} 화면", f"{label} 선택"]})
         return entered
 
@@ -410,17 +493,57 @@ class _Loop:
 
     def _decision(self, choice, is_back, probs, back_id, cands, latency) -> dict:
         m = decision_metrics(probs, back_id)
-        route = [v["pageKey"] for v in self.stack]
-        nxt = {p[len(route)] for p in self.allowed if len(p) > len(route) and p[:len(route)] == route}
-        hits = [probs[c["optionId"]] for c in cands if self.env.page_key(c["href"]) in nxt]
         return {
             "selectedOptionId": choice, "selectedActionType": "GO_BACK" if is_back else "CLICK",
             "mode": "DIRECT", "resultOrigin": self.origin, "goalJudgmentMode": self.s["goalJudgmentMode"],
             "modelGoalReached": None, "modelGoalYesProb": None, "verifiedGoalReached": False,
             "goalJudgmentMismatch": False, **m,
-            "goalPathProbability": sum(hits) if hits else None,
+            "goalPathProbability": self._goal_path_probability(probs, cands),
             "modelLatencyMs": latency,
         }
+
+    # ------------------------------------------------------------ 경로 지표 (기준별, #49)
+
+    def _count_path_move(self, route: list[str]) -> None:
+        """모델 CLICK으로 새 화면에 들어간 이동 하나를 경로 기준으로 센다. route는 이동 후 현재 경로."""
+        path = self.path
+        if path.kind == "ALLOWED_PATHS":
+            if not any(p[:len(route)] == route for p in path.allowed_paths):
+                self.n["deviation"] += 1   # 계약 14.2 REFERENCE_PATH_DEVIATION과 같은 기준
+        elif path.kind == "SITE_MAP" and len(route) >= 2:
+            before, after = route[-2], route[-1]
+            if before not in path.distances or after not in path.distances:
+                self.off_map = True        # 지도 밖 화면: 이 Run의 우회 이동·추가 단계는 null
+            elif _distance(path.distances[after]) >= _distance(path.distances[before]):
+                self.n["detour"] += 1      # 우회 이동: 목표까지 거리가 줄지 않은 모델 CLICK 이동 (설계 3.1)
+
+    def _goal_path_probability(self, probs, cands) -> float | None:
+        """목표 경로 확률 (계약 12.3, #49). GO_BACK은 CLICK 후보가 아니라 빠진다.
+
+        ALLOWED_PATHS: 허용 경로상 다음 화면으로 가는 후보 확률 합. 그런 후보가 없으면 null (기존 그대로).
+        SITE_MAP: 도착 화면까지 거리를 줄이는 후보(d(목적지) < d(현재)) 확률 합. 모든 후보의 거리를 알고
+        줄이는 후보가 없으면 0. 현재 화면이나 후보 하나라도 지도에 없으면 null (부분합 금지, 설계 3.2).
+        """
+        path = self.path
+        if path.kind == "ALLOWED_PATHS":
+            route = [v["pageKey"] for v in self.stack]
+            nxt = {p[len(route)] for p in path.allowed_paths if len(p) > len(route) and p[:len(route)] == route}
+            hits = [probs[c["optionId"]] for c in cands if self.env.page_key(c["href"]) in nxt]
+            return sum(hits) if hits else None
+        if path.kind == "SITE_MAP":
+            dist = path.distances
+            here = self.stack[-1]["pageKey"]
+            if here not in dist:
+                return None
+            total = 0.0
+            for c in cands:
+                dest = self.env.page_key(c["href"])
+                if dest not in dist:
+                    return None
+                if _distance(dist[dest]) < _distance(dist[here]):
+                    total += probs[c["optionId"]]
+            return total
+        return None
 
     def _step(self, step_id, here, extracted, cands, back_id, probs, choice, shot, decision, res, is_back,
               outcome, retry_n) -> dict:
@@ -500,16 +623,22 @@ class _Loop:
         reached = reason == "GOAL_VERIFIED"
         n, back = self.n, self.n["model_back"] + self.n["system_back"]
         nav_cost = n["nav_clicks"] + back
+        kind, shortest = self.path.kind, self.path.shortest
+        site_map_ok = kind == "SITE_MAP" and not self.off_map
+        # 기준이 없거나(직접 입력·지도 오류) SITE_MAP에서 지도 밖으로 나갔으면 추가 단계를 계산하지 않는다
+        extra = reached and (kind == "ALLOWED_PATHS" or site_map_ok)
         return {
             "goalReached": reached, "stepCount": self.step_count, "stepRecordCount": self.step_id,
             "modelCallCount": n["model_calls"], "clickCount": n["clicks"],
             "successfulNavigationClickCount": n["nav_clicks"], "modelBackCount": n["model_back"],
             "systemBackCount": n["system_back"], "backCount": back,
             "revisitCount": sum(c - 1 for c in self.visit_count.values()),
-            "referencePathDeviationCount": n["deviation"], "navigationCost": nav_cost,
-            "extraSteps": max(0, n["nav_clicks"] - self.shortest) if reached else None,
-            "extraNavigationCost": max(0, nav_cost - self.shortest) if reached else None,
-            "attemptedExtraSteps": max(0, self.step_count - self.shortest) if reached else None,
+            "referencePathDeviationCount": n["deviation"] if kind == "ALLOWED_PATHS" else None,
+            "detourMoveCount": n["detour"] if site_map_ok else None,   # SITE_MAP 전용 우회 이동 (#49)
+            "navigationCost": nav_cost,
+            "extraSteps": max(0, n["nav_clicks"] - shortest) if extra else None,
+            "extraNavigationCost": max(0, nav_cost - shortest) if extra else None,
+            "attemptedExtraSteps": max(0, self.step_count - shortest) if extra else None,
             "executionTimeMs": round((time.monotonic() - self.t0) * 1000), "path": self.visits,
             "detectedIssueTypes": [],   # Issue 분석은 실행 API가 Run 종료 후 채운다 (계약 14.2)
         }

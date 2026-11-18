@@ -1,0 +1,145 @@
+{
+  "siteMapVersion": "sitemap-v1",
+  "siteMapHash": "sha256:da53a6c6e38b53a7a1e02ff82e7ca6a9806ce24a22554beb547b3daad47731e3",
+  "siteVersion": "shop-v1",
+  "layoutVersion": "shop-layout-v1",
+  "candidatePolicyVersion": "candidate-v2",
+  "initialBrowserStateId": "clean-context-v1",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "startPageKey": "home",
+  "generatedAt": "2026-11-18T02:29:40+09:00",
+  "pages": {
+    "home": {
+      "path": "/shop/home",
+      "edges": [
+        {
+          "semanticKey": "본문>/shop/orders#1",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "본문>/shop/support#1",
+          "to": "support"
+        },
+        {
+          "semanticKey": "상단 메뉴>/shop/mypage#1",
+          "to": "mypage"
+        },
+        {
+          "semanticKey": "상단 메뉴>/shop/orders#1",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "상단 메뉴>/shop/support#1",
+          "to": "support"
+        }
+      ]
+    },
+    "mypage": {
+      "path": "/shop/mypage",
+      "edges": [
+        {
+          "semanticKey": "경로 표시>/shop/home#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "본문>/shop/orders#1",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "본문>/shop/orders#2",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "본문>/shop/orders#3",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "본문>/shop/orders#4",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "본문>/shop/orders#5",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "본문>/shop/orders#6",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "본문>/shop/refund#1",
+          "to": "refund"
+        },
+        {
+          "semanticKey": "본문>/shop/refund#2",
+          "to": "refund"
+        },
+        {
+          "semanticKey": "본문>/shop/refund#3",
+          "to": "refund"
+        },
+        {
+          "semanticKey": "본문>/shop/refund#4",
+          "to": "refund"
+        },
+        {
+          "semanticKey": "본문>/shop/support#1",
+          "to": "support"
+        },
+        {
+          "semanticKey": "사이드 메뉴>/shop/orders#1",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "사이드 메뉴>/shop/refund#1",
+          "to": "refund"
+        },
+        {
+          "semanticKey": "사이드 메뉴>/shop/support#1",
+          "to": "support"
+        }
+      ]
+    },
+    "orders": {
+      "path": "/shop/orders",
+      "edges": [
+        {
+          "semanticKey": "경로 표시>/shop/home#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "본문>/shop/refund#1",
+          "to": "refund"
+        }
+      ]
+    },
+    "refund": {
+      "path": "/shop/refund",
+      "edges": [
+        {
+          "semanticKey": "경로 표시>/shop/home#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "경로 표시>/shop/orders#1",
+          "to": "orders"
+        },
+        {
+          "semanticKey": "본문>/shop/orders#1",
+          "to": "orders"
+        }
+      ]
+    },
+    "support": {
+      "path": "/shop/support",
+      "edges": [
+        {
+          "semanticKey": "본문>/shop/orders#1",
+          "to": "orders"
+        }
+      ]
+    }
+  }
+}

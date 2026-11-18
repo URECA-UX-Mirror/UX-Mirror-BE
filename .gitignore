@@ -15,6 +15,13 @@ results/screenshots/
 # 실행 결과: 가짜 실행 샘플만 Git에 포함 (#3)
 results/runs/*
 !results/runs/sample_before/
+results/comparisons/
 
 # 쇼핑몰 서버 로그 (server.py > server.log 로 켤 때 생김)
 shop/**/server.log
+
+# UX Optimizer 실행 결과 (#57)
+results/optimizations/
+
+# 목표 도달 확률 추정 결과 (#61)
+results/reach/

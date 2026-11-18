@@ -168,3 +168,81 @@ def test_existing_mock_run_and_api_analysis_are_consistent(record, tmp_path):
     assert issues_doc["analysisStatus"] == "COMPLETED"
     assert issues_doc["items"] == result
     assert store.load_run(run["runId"])["summary"]["detectedIssueTypes"] == types(result)
+
+
+def test_no_reference_path_skips_path_rules(record):
+    """직접 입력한 목표는 허용 경로가 없다(referencePathConfig=None) → 경로 이탈·추가 단계는 판정하지 않는다."""
+    run, step = simple(record)
+    step["decision"]["selectedOptionId"] = "option_02"  # support: 허용 경로가 있으면 이탈
+    run["summary"]["path"].append(visit(1, "support", "MODEL_NAVIGATION", 1))
+    run["summary"]["extraSteps"] = None
+    run["referencePathConfig"] = None
+    assert types(detect_issues(run, [step], [])) == []
+
+
+def test_no_reference_path_keeps_other_rules(record):
+    """허용 경로가 없어도 경로와 무관한 규칙(선택 모호·재방문·목표 미도달)은 그대로 생성된다."""
+    run, step = simple(record)
+    run["referencePathConfig"] = None
+    run["status"], run["terminationReason"] = "MAX_STEPS", "MAX_STEPS_REACHED"
+    run["summary"].update(goalReached=False, extraSteps=None)
+    step["decision"].update(selectedOptionId="option_02", clickOnlyNormalizedEntropy=1.0, clickOnlyTop2Margin=0.0)
+    back = copy.deepcopy(step)
+    back["stepId"] = 2
+    back["page"].update(pageKey="support", pageSignature="support_default", path="/shop/support")
+    back["action"].update(actionType="GO_BACK", result="NAVIGATED")
+    run["summary"]["path"] += [visit(1, "support", "MODEL_NAVIGATION", 1), visit(2, "home", "MODEL_BACK", 2)]
+    found = set(types(detect_issues(run, [step, back], [])))
+    assert found == {"CHOICE_AMBIGUITY", "REPEATED_VISIT", "GOAL_NOT_REACHED"}
+
+
+@pytest.mark.parametrize("extra,expected", [(2, True), (0, False), (None, False)])
+def test_site_map_extra_steps_without_allowed_path_issues(record, extra, expected):
+    run, step = simple(record)
+    run["verification"]["path"] = "/shop/orders"
+    run["referencePathConfig"] = {"basis": "SITE_MAP", "siteMapVersion": "fixture-v1",
+                                  "siteMapHash": "fixture-hash", "startPageKey": "home",
+                                  "goalPageKey": "orders", "shortestSteps": 1,
+                                  "distances": {"home": 1, "mypage": 1, "orders": 0}}
+    run["summary"].update(extraSteps=extra, detourMoveCount=1)
+    run["summary"]["path"].append(visit(1, "support", "MODEL_NAVIGATION", 1))
+    snapshot = copy.deepcopy(run)
+    result = detect_issues(run, [step], [])
+    assert ("EXTRA_STEPS" in types(result)) == expected
+    assert "REFERENCE_PATH_DEVIATION" not in types(result)
+    if expected:
+        evidence = next(i for i in result if i["issueType"] == "EXTRA_STEPS")["evidence"]
+        assert evidence["basis"] == "SITE_MAP" and evidence["shortestSteps"] == 1
+    assert run == snapshot
+
+
+def test_legacy_allowed_path_issue_evidence_includes_basis(record):
+    run, step = simple(record)
+    run["summary"]["extraSteps"] = 1
+    issue = next(i for i in detect_issues(run, [step], []) if i["issueType"] == "EXTRA_STEPS")
+    assert issue["evidence"]["basis"] == "ALLOWED_PATHS"
+
+
+def test_invalid_site_map_does_not_generate_extra_steps(record, tmp_path, monkeypatch):
+    import uxm.reference as reference
+    monkeypatch.setattr(reference, "SITE_MAP_DIRECTORY", tmp_path)
+    run, step = simple(record)
+    run["referencePathConfig"] = {"basis": "SITE_MAP", "siteMapVersion": "fixture-v1",
+                                  "siteMapHash": "fixture-hash", "startPageKey": "home",
+                                  "goalPageKey": "orders", "shortestSteps": 1,
+                                  "distances": {"home": 2, "mypage": 1, "orders": 0}}
+    run["summary"]["extraSteps"] = 2
+    assert "EXTRA_STEPS" not in types(detect_issues(run, [step], []))
+
+
+def test_site_map_goal_mismatch_does_not_generate_extra_steps(record, tmp_path, monkeypatch):
+    import uxm.reference as reference
+    monkeypatch.setattr(reference, "SITE_MAP_DIRECTORY", tmp_path)
+    run, step = simple(record)
+    run["referencePathConfig"] = {"basis": "SITE_MAP", "siteMapVersion": "fixture-v1",
+                                  "siteMapHash": "fixture-hash", "startPageKey": "home",
+                                  "goalPageKey": "orders", "shortestSteps": 1,
+                                  "distances": {"home": 1, "orders": 0}}
+    run["verification"]["path"] = "/shop/refund"
+    run["summary"]["extraSteps"] = 2
+    assert "EXTRA_STEPS" not in types(detect_issues(run, [step], []))
