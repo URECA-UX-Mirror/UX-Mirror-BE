@@ -22,3 +22,6 @@ shop/**/server.log
 
 # UX Optimizer 실행 결과 (#57)
 results/optimizations/
+
+# 목표 도달 확률 추정 결과 (#61)
+results/reach/
