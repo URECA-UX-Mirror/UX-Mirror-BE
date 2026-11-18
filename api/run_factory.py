@@ -9,6 +9,7 @@ import os
 import secrets
 
 from api.presets import normalize_verification
+from api.mock_model import MOCK_ENDPOINT_ID, MOCK_MODEL_VERSION
 from api.timeutil import now_iso, now_stamp
 from uxm import config as uxm_config
 from uxm import sitemap
@@ -47,11 +48,15 @@ def model_settings() -> dict:
     """`.env` 기반 모델 설정. endpoint는 비밀 URL 대신 식별자만 남긴다 (계약 18.2, 19장)."""
     cfg = uxm_config.load()
     backend = cfg["backend"]
+    if backend == "mock":   # 가짜 모델 모드: 모델 없이 끝까지 돌려 보기용. 실측과 섞이지 않게 MOCK으로 기록
+        return {"config": cfg, "modelVersion": MOCK_MODEL_VERSION, "modelEndpointId": MOCK_ENDPOINT_ID,
+                "resultOrigin": "MOCK", "temperature": cfg["temperature"],
+                "goalJudgmentMode": cfg["goal_judgment_mode"]}
     return {
         "config": cfg,
         "modelVersion": os.getenv("ZORO_MODEL_VERSION", "trillionlabs/Zoro-1"),
         "modelEndpointId": os.getenv("ZORO_ENDPOINT_ID", backend),
-        # API는 항상 설정된 실제 모델로 실행한다. MOCK은 테스트용 실행기(scripts)에서만 만든다.
+        # 실제 모델(local·http)로 실행한 결과는 LIVE. 가짜 모델은 위 mock 분기에서만 MOCK.
         "resultOrigin": "LIVE",
         "temperature": cfg["temperature"],
         "goalJudgmentMode": cfg["goal_judgment_mode"],

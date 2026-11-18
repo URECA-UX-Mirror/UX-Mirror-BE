@@ -6,6 +6,7 @@
 | `uxm/browser.py` | 1번 (#2) | `open_browser(start_url) -> session`, `close_browser(session)` |
 | `uxm/analysis.py` | 4번 | `detect_issues(run, steps, events) -> list[Issue]`, `compare(before, after) -> ComparisonResult` |
 | `uxm/backends.py` | 기존 | `make_backend(cfg)` |
+| `api/mock_model.py` | 3번 | `ZORO_BACKEND=mock`일 때 가짜 모델 (`resultOrigin=MOCK`) |
 
 모듈이 아직 없으면 `None`을 돌려주고, API는 계약에 맞는 응답(503, PENDING, 500)으로 처리한다.
 함수 모양이 실제와 다르면 이 파일만 고친다.
@@ -52,7 +53,11 @@ class Integrations:
         key = (cfg["backend"], cfg["base_url"], cfg["checkpoint"], cfg["device"], cfg["temperature"], cfg["timeout_s"])
         with self._backend_lock:
             if self._backend is None or self._backend_key != key:
-                from uxm.backends import make_backend
-                self._backend = make_backend(cfg)
+                if cfg["backend"] == "mock":
+                    from api.mock_model import HeuristicMockBackend
+                    self._backend = HeuristicMockBackend()
+                else:
+                    from uxm.backends import make_backend
+                    self._backend = make_backend(cfg)
                 self._backend_key = key
             return self._backend

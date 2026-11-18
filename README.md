@@ -113,6 +113,7 @@ $env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
 |---|---|---|
 | `ZORO_BACKEND=local`, `ZORO_DEVICE=cuda-4bit` | 이 PC(GTX 1660 6GB) 개발용 | nf4 양자화. 확률이 원본과 다를 수 있음 → 형식·프롬프트 확인용 |
 | `ZORO_BACKEND=local`, `ZORO_DEVICE=cpu` | 원본 bf16 확인 | RAM 여유 9GB+ 필요, 느림 |
+| `ZORO_BACKEND=mock` | 모델 없는 PC에서 실행 API 확인 (프론트 연동, 팀 통합) | 요청만 보고 결정적으로 답하는 가짜 모델. Run은 `resultOrigin=MOCK`·`modelVersion=mock-heuristic-v1`로 저장되고 `/api/health` 모델은 항상 준비됨. **발표·E 수치로 쓰지 않음** |
 | `ZORO_BACKEND=http`, `ZORO_BASE_URL=...` | 행사 GPU 서버 | 서버: `python serve_decide.py C:\AI\Zoro-1 --port 30001` (SGLang ≥0.5.22, Linux). **발표·E 수치는 이것만** |
 
 `ZORO_TEMPERATURE=1.52`(모델 카드 보정값)를 요청마다 명시해서 보낸다. Before/After 동일 필수.

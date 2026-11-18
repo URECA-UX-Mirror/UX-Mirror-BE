@@ -237,7 +237,10 @@ def _importable(module: str) -> bool:
 
 
 def _model_reachable(cfg: dict) -> bool:
-    """http: 서버 포트에 연결되는지만 본다(추론 성공은 보장하지 않음, 17.8). local: 체크포인트 폴더가 있는지."""
+    """http: 서버 포트에 연결되는지만 본다(추론 성공은 보장하지 않음, 17.8). local: 체크포인트 폴더가 있는지.
+    mock: 항상 준비됨 (가짜 모델)."""
+    if cfg["backend"] == "mock":
+        return True
     if cfg["backend"] == "http":
         u = urlsplit(cfg["base_url"])
         port = u.port or (443 if u.scheme == "https" else 80)
