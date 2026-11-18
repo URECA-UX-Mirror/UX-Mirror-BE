@@ -1,0 +1,79 @@
+{
+  "finalExecutionPlanId": "final-plan-1119",
+  "status": "DRAFT",
+  "frozenAt": null,
+  "note": "E-1 직전에 gitCommit·modelEndpointId 확인 후 status=FROZEN, frozenAt 기록. 그 뒤 수정 금지 (테스트 시나리오 '최종 실행 계획'). 팀 결정 최종본(11/18 저녁) 기준.",
+  "decisionDoc": "팀 결정 최종본 (11/18 저녁)",
+  "executionMode": "DIRECT_INPUT_SITE_MAP",
+  "repeat": false,
+  "totalPairCount": 1,
+  "pairsPerGoal": 1,
+  "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+  "maxSteps": 8,
+  "goals": [
+    {
+      "goalIndex": 1,
+      "name": "환불",
+      "priority": "REQUIRED",
+      "goal": "최근 구매한 상품의 환불 신청 화면 찾기",
+      "verification": {"path": "/shop/refund", "text": "환불 / 반품 신청", "exact": false, "scope": "page"},
+      "expectedShortestSteps": 2,
+      "pairs": [{"pairIndex": 1, "experimentKey": "e-refund-1119", "plannedOrder": "B→A"}]
+    },
+    {
+      "goalIndex": 2,
+      "name": "주문",
+      "priority": "PREFERRED",
+      "goal": "주문·배송 조회 화면 찾기",
+      "verification": {"path": "/shop/orders", "text": "주문 / 배송 조회", "exact": false, "scope": "page"},
+      "expectedShortestSteps": 1,
+      "pairs": [{"pairIndex": 1, "experimentKey": "e-orders-1119", "plannedOrder": "B→A"}]
+    },
+    {
+      "goalIndex": 3,
+      "name": "고객센터",
+      "priority": "OPTIONAL_REFERENCE",
+      "goal": "고객센터 문의 화면 찾기",
+      "verification": {"path": "/shop/support", "text": "자주 묻는 질문", "exact": false, "scope": "page"},
+      "expectedShortestSteps": 1,
+      "pairs": [{"pairIndex": 1, "experimentKey": "e-support-1119", "plannedOrder": "B→A"}],
+      "ifSkipped": "사유를 run_log.md와 발표 자료에 기록"
+    }
+  ],
+  "executionOrder": ["e-refund-1119", "e-orders-1119", "e-support-1119"],
+  "gitCommit": "TODO: E-1 직전 develop HEAD (#60 머지 후)",
+  "modelVersion": "trillionlabs/Zoro-1",
+  "modelEndpointId": "TODO: E-1 직전 /api/health model.endpointId (ZORO_BACKEND=http)",
+  "temperature": 1.52,
+  "goalJudgmentMode": "DOM_ONLY",
+  "promptVersion": "v2",
+  "siteVersion": "shop-v1",
+  "layoutVersion": "shop-layout-v1",
+  "initialBrowserStateId": "clean-context-v1",
+  "candidatePolicyVersion": "candidate-v2",
+  "thresholdConfig": {"version": "threshold-v1"},
+  "analysisVersion": "analysis-v1",
+  "referencePathConfig": {
+    "basis": "SITE_MAP",
+    "siteMapVersion": "sitemap-v1",
+    "siteMapHash": "sha256:da53a6c6e38b53a7a1e02ff82e7ca6a9806ce24a22554beb547b3daad47731e3"
+  },
+  "limits": {
+    "modelTimeoutMs": 30000,
+    "pageChangeTimeoutMs": 10000,
+    "runTimeoutMs": 180000,
+    "maxModelBackActions": 2,
+    "maxSystemBackActions": 1,
+    "maxSamePageVisits": 3
+  },
+  "rules": [
+    "목표마다 Before → After, 같은 experimentKey (화면 '실험 키'에 입력 후 조회하고 실행)",
+    "실행한 목표의 유효한 결과는 기대와 달라도 모두 공개. 재실행은 테스트 시나리오 '재실행 규칙'의 인프라 장애만",
+    "Run마다 run_log.md에 finalExecutionPlanId, pairIndex, experimentKey, variant, actualOrder, startedAt, runId를 한 줄씩 추가만"
+  ],
+  "replay": [
+    {"experimentKey": "e-refund-1119", "label": "환불"},
+    {"experimentKey": "e-orders-1119", "label": "주문"},
+    {"experimentKey": "e-support-1119", "label": "고객센터"}
+  ]
+}
