@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "selectionPolicyVersion": "selection-v1",
+  "verificationPolicyVersion": "verification-v1",
+  "goalId": "refund",
+  "personaId": "novice-shopper",
+  "target": {
+    "pageKey": "home",
+    "startPath": "/shop/home",
+    "semanticKey": "상단 메뉴>/shop/orders#1",
+    "href": "/shop/orders",
+    "originalLabel": "이용정보"
+  },
+  "candidates": [
+    {"candidateId": "C0", "label": "이용정보", "role": "BASELINE"},
+    {"candidateId": "C1", "label": "주문·배송", "role": "CANDIDATE"},
+    {"candidateId": "C2", "label": "주문·환불", "role": "CANDIDATE"},
+    {"candidateId": "C3", "label": "주문·반품", "role": "CANDIDATE"},
+    {"candidateId": "C4", "label": "주문 관리", "role": "CANDIDATE"}
+  ]
+}

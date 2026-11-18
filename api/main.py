@@ -21,9 +21,11 @@ from api.comparison import build_comparison
 from api.errors import (AnalysisError, ApiError, analysis_error_handler, api_error_handler,
                         http_error_handler, unexpected_error_handler, validation_error_handler)
 from api.integrations import Integrations
+from api.optimizer import Optimizer, public_view
 from api.presets import Presets, _check_verification, normalize_verification
 from api.runner import Runner, with_detected_types
-from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateRunRequest
+from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateOptimizationRequest, CreateRunRequest
+from api.site_instances import SiteRegistry
 from api.store import DEFAULT_RESULTS_DIR, RunStore, is_safe_id
 from api.timeutil import now_iso
 from uxm.leak import FORBIDDEN
@@ -32,19 +34,25 @@ from uxm.prompts import PROMPT_VERSION
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
 
-def create_app(results_dir: str | None = None, integrations: Integrations | None = None) -> FastAPI:
-    store = RunStore(results_dir or os.getenv("UXM_RESULTS_DIR") or DEFAULT_RESULTS_DIR)
+def create_app(results_dir: str | None = None, integrations: Integrations | None = None,
+               site_registry: SiteRegistry | None = None) -> FastAPI:
+    results_dir = results_dir or os.getenv("UXM_RESULTS_DIR") or DEFAULT_RESULTS_DIR
+    store = RunStore(results_dir)
     integrations = integrations or Integrations()
     presets = Presets()
     runner = Runner(store, integrations)
+    optimizer = Optimizer(results_dir, store, runner, integrations, presets, site_registry=site_registry)
+    runner.site_base_url, runner.external_busy = optimizer.sites.base_url, optimizer.busy_reason
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         runner.recover_interrupted()
+        optimizer.recover_interrupted()
         yield
 
     app = FastAPI(title="UX MIRROR API", version=run_factory.SCHEMA_VERSION, lifespan=lifespan)
     app.state.store, app.state.runner, app.state.presets = store, runner, presets
+    app.state.optimizer = optimizer
 
     origins = [o.strip() for o in os.getenv("UXM_CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",") if o.strip()]
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["*"])
@@ -155,6 +163,38 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
         if not is_safe_id(experiment_key):
             raise ApiError(404, "RUN_NOT_FOUND", "해당 experimentKey의 실행이 없습니다.")
         return build_comparison(store, integrations, experiment_key)
+
+    # ---- UX Optimizer (고도화 v1.3 10장)
+    def require_model() -> None:
+        if not _model_reachable(run_factory.model_settings()["config"]):
+            raise ApiError(503, "MODEL_UNAVAILABLE", "모델 서비스가 준비되지 않았습니다.", retryable=True)
+
+    def load_optimization_or_404(opt_id: str) -> dict:
+        if not is_safe_id(opt_id):
+            raise ApiError(404, "OPTIMIZATION_NOT_FOUND", "Optimization을 찾을 수 없습니다.")
+        return optimizer.load_or_404(opt_id)
+
+    @app.post("/api/optimizations", status_code=202)
+    def create_optimization(req: CreateOptimizationRequest | None = None):
+        require_model()
+        opt = optimizer.create((req or CreateOptimizationRequest()).sourceRunId)
+        return {k: opt[k] for k in ("optimizationId", "status", "createdAt")}
+
+    @app.get("/api/optimizations/{optimization_id}")
+    def get_optimization(optimization_id: str):
+        return public_view(load_optimization_or_404(optimization_id))
+
+    @app.post("/api/optimizations/{optimization_id}/verify", status_code=202)
+    def verify_optimization(optimization_id: str):
+        load_optimization_or_404(optimization_id)
+        require_model()
+        opt = optimizer.start_verification(optimization_id)
+        return {k: opt[k] for k in ("optimizationId", "status", "verificationPhase", "baselineRunId", "validationRunId")}
+
+    @app.get("/api/optimizations/{optimization_id}/report")
+    def get_optimization_report(optimization_id: str):
+        load_optimization_or_404(optimization_id)
+        return optimizer.report(optimization_id)
 
     # ---- 17.8
     @app.get("/api/health")

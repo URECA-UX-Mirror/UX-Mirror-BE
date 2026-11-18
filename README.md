@@ -84,6 +84,27 @@ copy .env.example .env
 - `validity`·`invalidReason`은 루프가 넘긴 값을 쓰지 않고, 종료 시 `terminationReason`·`error.code`로 항상 다시 정한다 (계약 6.1 유효성 표).
 - `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
 
+## UX Optimizer API (고도화 v1.3, #57)
+
+라벨 후보 풀을 Zoro-1로 평가 → 후보 선정 → 실제 브라우저 재검증 → 최종 판단. 기존 `POST /api/runs`(P0)와 별도 흐름이다.
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | `/api/optimizations` | `{sourceRunId?}` → `202` `{optimizationId, status: CREATED, createdAt}`. 후보 평가를 비동기로 시작 |
+| GET | `/api/optimizations/{id}` | 상태·진행(`progress`)·후보별 평가(`evaluations`)·선정·검증 Run ID·최종 판단·오류 |
+| POST | `/api/optimizations/{id}/verify` | `202` `{optimizationId, status: VERIFYING, verificationPhase: BASELINE, baselineRunId, validationRunId}`. 기준(C0)과 검증 후보 사이트를 차례로 실행 |
+| GET | `/api/optimizations/{id}/report` | 완료된 Optimization의 보고서 (미완료 `409 OPTIMIZATION_NOT_READY`) |
+
+- 상태: `CREATED → EVALUATING → EVALUATED → VERIFYING → COMPLETED`, 실패 시 `FAILED`(`error.failedPhase`·`lastStatus` 보존). 프론트는 1초 폴링, 종료 상태에서 멈춘다.
+- 후보 풀·대상 메뉴·정책 버전: `config/optimization.json` (C0 `이용정보` 기준, C1~C4). 생성 시 모델·프롬프트·목표·사이트 조건과 함께 `frozenConditions`·`modelMetadata`에 동결한다. 요청으로 바꿀 수 없다.
+- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 지금은 C0(8001)·C2(8002)만 있고, 라벨 변형 사이트(#37)를 띄우면 한 줄씩 추가한다. 사이트가 없는 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
+- 평가: 후보 화면을 실제로 열어 스냅샷(`raw/snapshot_<C>.json`) → 기준 대비 유효성 검사(후보 수·순서·목적지·다른 라벨·bbox ±2px·누출) → Zoro-1 Direct 1회. `targetOptionProbability`(대상 메뉴), `goalPathProbability`(허용 경로 다음 화면으로 가는 후보 확률 합), `probabilities`(semanticKey 기준), `requestHash`·`snapshotHash`, 원본 요청·응답 `raw/model_request_<C>.json`·`model_response_<C>.json`. 실패 시 재시도하지 않는다.
+- 지표 검증·후보 선정·최종 판단은 4번 `uxm/optimizer_policy.py`(`compute_evaluation_metrics`, `select_candidate`, `judge_verification`)를 부른다. 모듈이 없으면 `503 OPTIMIZER_POLICY_UNAVAILABLE`.
+- 검증 Run은 기존 Runner로 만들어 `results/runs/`에 그대로 저장한다. `experimentKey = optimizationId`, 기준은 `variant=before`, 후보는 `after`(기존 비교 API 재사용), 역할은 `optimizationContext.executionRole`(`BASELINE`/`CANDIDATE`).
+- 후보 평가 중에는 `POST /api/runs`도 `409 RUN_ALREADY_ACTIVE` (모델 동시 사용 방지).
+- 오류: `404 OPTIMIZATION_NOT_FOUND`, `409 OPTIMIZATION_NOT_READY`·`OPTIMIZATION_ALREADY_PROCESSED`·`RUN_ALREADY_ACTIVE`, `422 INVALID_SITE_INSTANCE`·`EXPERIMENT_CONDITION_MISMATCH`, `503 MODEL_UNAVAILABLE`·`OPTIMIZER_POLICY_UNAVAILABLE`.
+- 저장: `results/optimizations/<optimizationId>/optimization.json` + `raw/`.
+
 ## 프론트엔드 실제 API 연동 테스트
 
 프론트 저장소에서 `npm ci`, 백엔드 가상환경에서 의존성 설치와
