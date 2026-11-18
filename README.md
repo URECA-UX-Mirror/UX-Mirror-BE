@@ -168,6 +168,20 @@ $env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
 - Run에 넣을 설정은 `uxm.sitemap.site_map_reference(지도, 도착 화면, 시작 화면)`(실행 API용, 시작 화면이 지도와 다르거나 길이 없으면 `SiteMapError`). API가 저장하기 전에는 `scripts\run_c.py --site-map`으로 확인한다.
 - **다른 사이트**: `config/sites/`에 설정 파일(화면 목록, `startPage`, `pathPrefix`, `allowedHosts`, `variants` 주소, `siteMapVersion`, `out`, `presetCheck`)을 만들고 `--site 파일 --url 이름=주소`로 실행한다. 주소는 하나여도 된다(A/B가 아니면). 단, 후보 추출 규칙(`uxm/candidates.py`)이 아직 쇼핑몰(`/shop/`, 시작 화면 `/shop/home`)에 묶여 있어 그 규칙을 사이트별로 바꾸기 전에는 후보가 나오지 않는다.
 
+## 목표 도달 확률 엔진 (19번, 고도화 P1)
+
+실행 없이 사이트 구조 기준으로 "이 목표에 닿을 확률"을 본다. 지도 간선 + 화면마다 모델이 준 후보별 확률(화면당 모델 1번) → 화면 사이 이동 확률 → `maxSteps` 안 도달 확률 (`uxm/reach.py`).
+
+```
+.venv\Scripts\python.exe scripts\estimate_reach.py                         # Before/After, 환불 목표
+.venv\Scripts\python.exe scripts\estimate_reach.py --goal-page orders --persona "70대, 인터넷 쇼핑이 서툰 사용자"
+.venv\Scripts\python.exe scripts\estimate_reach.py --url C1=http://127.0.0.1:8003 --url C2=http://127.0.0.1:8002
+```
+
+- 값: `reachProbability`(maxSteps 안), `reachWithinShortestProbability`(지도상 최단 이동 수 안), `reachByStep`, `expectedStepsGivenReach`, `lostProbability`(지도 밖으로 가는 확률), `unfinishedProbability`, `mostLikelyPath`. 결과는 `results/reach/`에 화면별 원본 요청·응답과 함께 저장.
+- 이동 수가 넉넉하면 두 사이트 모두 도달 확률이 1에 가까워져서, 차이는 `reachWithinShortestProbability`와 기대 단계로 본다.
+- **구조 기준 추정치**다. 이전 화면 기록·되돌아가기·재방문 제한을 넣지 않아 실제 Run과 다를 수 있고, 실제 Run 결과를 대신하지 않는다. 확률이 없는 화면을 지나야 하면 `status: INCOMPLETE`(값은 하한).
+
 ## 확인된 모델 API (trida-stack 코드 기준)
 
 - `POST /v1/decide` body: `{"request": {"state": ..., "questions": {...}}, "reasoning": false, "temperature": 1.52}`
