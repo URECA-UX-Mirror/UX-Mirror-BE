@@ -8,6 +8,7 @@
 
 - [ ] 팀이 발표에 사용할 목표, 사용자 유형, 성공 조건, 시작 화면과 최대 탐색 횟수를 확정한다.
 - [ ] 환불 preset(`ALLOWED_PATHS`) 또는 직접 입력 목표(`SITE_MAP`) 중 E 실행 방식을 확정한다. 지도 기준을 쓰기로 했으면 생성된 Run의 `referencePathConfig.basis`에 `SITE_MAP`이 실제로 저장됐는지 확인한다.
+- [ ] `SHOP_BEFORE_URL`과 `SHOP_AFTER_URL`의 홈 화면을 각각 열어 올바른 쇼핑몰이 서빙되는지 확인한다. 현재 데모의 상단 주문 메뉴는 Before(`moro-before`)가 `이용정보`, After(`moro-after`)가 `주문·환불`이다. 환경 변수 주소와 실제 화면이 일치하지 않으면 실행 전에 바로잡는다.
 - [ ] 행사 GPU 서버를 쓰도록 `ZORO_BACKEND=http`와 `ZORO_BASE_URL`이 실제 행사 서버를 가리키는지 확인한다. `ZORO_ENDPOINT_ID`는 기본 예시 `local`을 그대로 두지 말고 행사 서버를 식별할 값으로 설정한다. 식별자에는 비밀 주소나 인증 정보를 넣지 않는다.
 - [ ] 사용할 Before/After 쇼핑몰, 백엔드·프론트 커밋, 모델 버전·endpoint 식별자, temperature와 `GOAL_JUDGMENT_MODE`를 기록한다. 서버가 고정하는 promptVersion과 viewport는 Run에 저장된 값을 기록한다. Before/After에는 같은 실행 조건을 적용한다.
 - [ ] 행사 모델 서버와 쇼핑몰·프론트·백엔드를 실행하고 `GET /api/health`의 `status=READY`, `model.endpointId`가 설정한 행사 식별자와 같은지 확인한다. `READY`와 endpointId는 연결 설정 확인이며 실제 행사 모델 추론의 증거는 아니다. 실제 사용 서버와 Run의 모델 식별자도 대조한다.
@@ -25,8 +26,8 @@
 
 ### 재실행·서버 재시작
 
-- 같은 실험 키·버전의 Run이 모두 `INVALID`이면 동일 입력으로 재실행할 수 있고, 이전 Run에 `replacementRunId`가 연결된다.
-- 같은 키·버전에 `VALID` Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`다. `BLOCKED`·`MAX_STEPS`로 목표에 도달하지 못했어도 `VALID`일 수 있다. 다시 측정하려면 실패 기록을 보존하고 새 키로 Before와 After를 모두 실행한다.
+- 같은 실험 키·variant의 Run이 모두 `INVALID`이면 동일 입력으로 재실행할 수 있고, 이전 Run에 `replacementRunId`가 연결된다.
+- 같은 키·variant에 `VALID` Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`다. `BLOCKED`·`MAX_STEPS`로 목표에 도달하지 못했어도 `VALID`일 수 있다. 다시 측정하려면 실패 기록을 보존하고 새 키로 Before와 After를 모두 실행한다.
 - 같은 키의 첫 Run과 목표·사용자 유형의 ID/문장 또는 성공 조건이 다르면 `422`다. 첫 Run 입력을 바꾸려면 새 키로 두 버전을 실행한다. 단, 이전 Run에 성공 조건 필드가 없는 경우 서버의 과거 Run 호환 규칙을 따른다.
 - 설정은 Before 실행 전에 확정하고 가능하면 두 Run 사이에 서버를 재시작하지 않는다. `.env` 변경 등에 재시작이 필요하면 두 Run의 비교 조건을 다시 확인하고, 조건이 바뀌었다면 새 키로 두 버전을 실행한다. 실행 중 서버가 꺼지면 다음 서버 시작 시 남은 `READY`·`RUNNING` Run은 `BROWSER_ERROR`로 무효 처리된다.
 
