@@ -53,6 +53,10 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
     if not isinstance(label, str) or not label.strip():
         raise ValueError("최종안 이름(label)이 필요합니다.")
     goal_list = _resolve_goals(goals, presets)
+    for goal in goal_list:   # 경로 기준이 없으면 직접 입력 실행과 같이 사이트 지도 기준을 붙인다 (없으면 경로 지표가 비어 비교가 "계산 불가")
+        if goal.get("referencePathConfig") is None:
+            goal["referencePathConfig"] = run_factory.site_map_reference(base["startPath"], goal["verification"],
+                                                                         base["viewport"])
     for goal in goal_list:
         key = _experiment_key(base["improvementId"], goal["goalId"])
         if not is_safe_id(key):

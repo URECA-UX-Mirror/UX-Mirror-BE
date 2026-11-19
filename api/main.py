@@ -23,14 +23,16 @@ from api.errors import (AnalysisError, ApiError, analysis_error_handler, api_err
                         http_error_handler, unexpected_error_handler, validation_error_handler)
 from api.integrations import Integrations
 from api.optimizer import Optimizer, public_view
+from api.improvement_jobs import ImprovementJobs
 from api.presets import Presets, _check_verification, normalize_verification
 from api.runner import Runner, with_detected_types
-from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateOptimizationRequest, CreateRunRequest
+from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateOptimizationRequest, CreateRunRequest, ImprovementRequest
 from api import sites as sites_module
 from api.site_instances import SiteRegistry
 from api.store import DEFAULT_RESULTS_DIR, RunStore, is_safe_id
 from api.timeutil import now_iso
 from uxm.leak import FORBIDDEN
+from api.input_rules import sentence_problem
 from uxm.prompts import PROMPT_VERSION
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
@@ -44,7 +46,10 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
     presets = Presets()
     runner = Runner(store, integrations)
     optimizer = Optimizer(results_dir, store, runner, integrations, presets, site_registry=site_registry)
-    runner.site_base_url, runner.external_busy = optimizer.sites.base_url, optimizer.busy_reason
+    improvements = ImprovementJobs(results_dir, runner, optimizer)
+    runner.site_base_url = optimizer.sites.base_url
+    # 일반 Run을 막는 이유: Optimization 평가·검증 중, 자동 개선 시작 직후 (실행 프로세스가 Run 잠금을 잡기 전)
+    runner.external_busy = lambda run: optimizer.busy_reason(run) or improvements.busy_reason(run)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -55,6 +60,7 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
     app = FastAPI(title="UX MIRROR API", version=run_factory.SCHEMA_VERSION, lifespan=lifespan)
     app.state.store, app.state.runner, app.state.presets = store, runner, presets
     app.state.optimizer = optimizer
+    app.state.improvements = improvements
 
     origins = [o.strip() for o in os.getenv("UXM_CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",") if o.strip()]
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["*"])
@@ -247,6 +253,19 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             raise ApiError(404, "OPTIMIZATION_NOT_FOUND", "Optimization을 찾을 수 없습니다.")
         return optimizer.load_or_404(opt_id)
 
+    # ---- 자동 개선 (#130): 심사위원이 직접 시작하고, 진행·리포트를 본다
+    @app.post("/api/improvements", status_code=202)
+    def start_improvement(body: ImprovementRequest | None = None):
+        return improvements.start(body.model_dump(exclude_none=True) if body else None)
+
+    @app.get("/api/improvements")
+    def list_improvements():
+        return {"items": improvements.list()}
+
+    @app.get("/api/improvements/{improvement_id}")
+    def get_improvement(improvement_id: str):
+        return improvements.view(improvement_id)
+
     @app.post("/api/optimizations", status_code=202)
     def create_optimization(req: CreateOptimizationRequest | None = None):
         require_model()
@@ -301,7 +320,10 @@ def _run_owner(runner) -> dict | None:
     holder = runner.run_lock.holder()
     if not holder:
         return None
-    return {"kind": holder.get("kind"), "runId": holder.get("runId"), "external": not runner.run_lock.held_here}
+    owner = {"kind": holder.get("kind"), "runId": holder.get("runId"), "external": not runner.run_lock.held_here}
+    if holder.get("improvementId"):   # 자동 개선 중이면 FE가 /improvements/{id}로 진행 상황을 연다
+        owner["improvementId"] = holder["improvementId"]
+    return owner
 
 
 def _invalid(message: str) -> ApiError:
@@ -319,6 +341,9 @@ def _sentence(text: str, field: str) -> str:
     words = [w for w in FORBIDDEN if w in text]
     if words:
         raise _invalid(f"{field}에 쓸 수 없는 글자가 있습니다: {', '.join(words)}")
+    problem = sentence_problem(text, field)   # ".", "ㅋㅋㅋㅋ", "123"처럼 뜻이 없는 값 (#130)
+    if problem:
+        raise _invalid(problem)
     return text
 
 

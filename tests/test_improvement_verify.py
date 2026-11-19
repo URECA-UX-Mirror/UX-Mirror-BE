@@ -256,3 +256,16 @@ def test_direct_input_persona_uses_null_persona_id(env):
     assert run["personaId"] is None and run["persona"] == "70대, 인터넷 쇼핑이 서툰 사용자"
     with pytest.raises(ValueError):
         improvement.run_verification(frozen(personaId=""), FINAL_URL, "주문·조회", goals()[:1], runner=runner)
+
+
+def test_goal_without_reference_path_gets_site_map_basis(env):
+    """검증 Run에 경로 기준이 없으면 비교 화면의 목표 경로 확률이 비어 '계산 불가'가 된다 (#130). 직접 입력 실행과 같이 SITE_MAP."""
+    runner, _, _ = env
+    s4 = {k: v for k, v in goals()[1].items() if k != "referencePathConfig"}   # improve.py verify()가 넘기는 모양
+    out = improvement.run_verification(frozen(), FINAL_URL, "주문·조회", ["refund", s4], runner=runner)
+    by_goal = {r["goalId"]: runner.store.load_run(r["runId"]) for r in out}
+    assert by_goal["refund"]["referencePathConfig"]["basis"] == "ALLOWED_PATHS"     # preset 기준은 그대로
+    ref = by_goal["s4-support"]["referencePathConfig"]
+    assert ref and ref["basis"] == "SITE_MAP" and ref["goalPageKey"] == "support"
+    before, after = (runner.store.load_run(r["runId"]) for r in out if r["goalId"] == "s4-support")
+    assert before["referencePathConfig"] == after["referencePathConfig"]            # 같은 키의 두 Run은 같은 기준
