@@ -162,3 +162,18 @@ def test_save_writes_json_raw_and_report(tmp_path):
     assert os.listdir(os.path.join(folder, "raw"))
     text = report_md(saved)
     assert "'이용정보' → '주문내역'" in text and "허용 감소 범위" in text and "GUARD_LOSS_EXCEEDED:S4" in text
+
+
+def test_loop_with_real_policy_module():
+    """#105 `uxm.improve_policy`(진짜 정책)로도 끝까지 돈다. 번호 붙은 응답·S4 탈락 사유(guardGoals)까지."""
+    from uxm import improve_policy
+    it = iter(["1. 주문내역\n2. 너무너무긴이름이다", "1. 구매내역"])
+    deps = Deps(fake_collect([]), lambda prompt: next(it, ""), improve_policy, clock=lambda: "t")
+    imp = run_loop(copy.deepcopy(PLAN), SITE_MAP, deps)["improvement"]
+    r1 = imp["rounds"][0]
+    by_label = {c["label"]: c for c in r1["candidates"]}
+    assert by_label["주문·환불"]["reason"] == "GUARD_LOSS_EXCEEDED:S4"
+    assert by_label["주문내역"]["decision"] == "ADOPTED"                       # 번호를 떼고 통과
+    filtered = {f["label"]: f["rejectedReason"] for f in r1["proposal"]["filtered"]}
+    assert filtered["주문내역"] is None and filtered["너무너무긴이름이다"] == "LABEL_TOO_LONG"
+    assert imp["summary"]["afterLabel"] == "주문내역"

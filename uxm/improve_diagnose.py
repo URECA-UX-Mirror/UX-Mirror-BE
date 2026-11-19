@@ -13,9 +13,10 @@
   (원래 고른 버튼은 `freeTargetButton`으로 남김). 바꿀 수 있는 정답 버튼이 없으면 `NOT_EDITABLE_IN_STAGE1`로 멈춘다.
 - 엔진 결과가 `COMPLETE`가 아니면(지도와 실제 화면이 다르거나 확률이 빠진 화면) 진단하지 않는다.
 """
+from uxm.label_edit import EDITABLE_KEY
 from uxm.sitemap import distances
 
-EDITABLE_KEYS = ("상단 메뉴>/shop/orders#1",)   # 1단계: 상단 메뉴 "이용정보" 자리 버튼 하나
+EDITABLE_KEYS = (EDITABLE_KEY,)   # 1단계: 상단 메뉴 "이용정보" 자리 버튼 하나 (#107 `uxm.label_edit`과 같은 값)
 
 NOT_COMPLETE = "ESTIMATE_NOT_COMPLETE"
 NO_BLOCKAGE = "NO_BLOCKAGE"
