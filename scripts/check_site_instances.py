@@ -1,7 +1,7 @@
 """Optimizer 후보 사이트(C0~C4)를 모델 없이 실제 렌더링으로 점검한다 (#85).
 
     python scripts/check_site_instances.py           # 이미 떠 있는 서버(등록 주소, baseUrlEnv 우선)를 검사
-    python scripts/check_site_instances.py --serve   # 서버 5개(8001~8005)를 직접 띄우고 끝나면 끈다
+    python scripts/check_site_instances.py --serve   # 후보 서버 5개(C0 8001, C1~C4 8003~8006)를 직접 띄우고 끝나면 끈다
 
 검사 (후보마다):
 1. `/shop/home` 접속
@@ -30,7 +30,7 @@ from api.site_instances import (SiteRegistry, capture_snapshot, validate_against
 from uxm.browser import close_browser, open_browser  # noqa: E402
 from uxm.candidates import extract  # noqa: E402
 
-SITE_FOLDERS = {"C0": "moro-before", "C1": "moro-c1", "C2": "moro-after", "C3": "moro-c3", "C4": "moro-c4"}
+SITE_FOLDERS = {"C0": "moro-before", "C1": "moro-c1", "C2": "moro-c2", "C3": "moro-c3", "C4": "moro-c4"}
 CANDIDATE_POLICY_VERSION = "candidate-v2"
 NO_ANIMATION_CSS = "*, *::before, *::after { animation: none !important; transition: none !important; }"
 
