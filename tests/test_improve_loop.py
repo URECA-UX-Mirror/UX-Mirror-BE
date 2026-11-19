@@ -301,3 +301,23 @@ def test_proposal_collects_accepted_names_across_attempts_until_min_accepted():
     assert {c["label"] for c in r1["candidates"] if c["source"] == "AI"} == {"주문내역", "구매내역"}
     # 진단 문장에 목적지 설명이 들어간다 (모델이 메뉴가 어디로 가는지 알게)
     assert policy.prompts[0][0].startswith("'이용정보' 메뉴를 누르면 주문 목록 화면(주문·배송 조회, 환불·반품 신청)으로 간다.")
+
+
+# ---- #113: 진짜 정책 프롬프트에 이미 시험한 이름 전달, 쉼표 응답 나누기
+
+def test_real_policy_prompt_receives_previously_tried_names_and_comma_response():
+    from uxm import improve_policy
+    prompts = []
+    responses = iter(['고객센터, 이용정보, 주문내역', '주문내역, 구매내역'])
+    def propose(prompt):
+        prompts.append(prompt)
+        return next(responses, '')
+    deps = Deps(fake_collect([]), propose, improve_policy, clock=lambda: 't')
+    result = run_loop(copy.deepcopy(PLAN), SITE_MAP, deps)['improvement']
+    assert len(prompts) >= 2
+    assert '쓰지 말 이름:' in prompts[0] and '고객센터' in prompts[0]
+    assert '이미 시험한 이름:' in prompts[1]
+    assert '주문내역' in prompts[1] and '주문·환불' in prompts[1]
+    filtered = result['rounds'][0]['proposal']['filtered']
+    assert [(x['label'], x['accepted']) for x in filtered] == [
+        ('고객센터', False), ('이용정보', False), ('주문내역', True)]

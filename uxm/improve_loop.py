@@ -194,7 +194,9 @@ def _propose(ctx: _Ctx, rnd: int, diag: dict, siblings: list, tried: set, histor
     max_attempts = ai.get("maxAttempts", 1 + ai.get("retryOnEmpty", 1))
     min_accepted = ai.get("minAccepted", 1)
     target = diag["targetButton"]
-    prompt = ctx.deps.policy.build_prompt(diag["text"], target, siblings, ctx.plan["persona"], history)
+    # 함수 계약은 유지하고, 이미 시험한 이름을 자연어 이력에 명시해 모델에도 전달한다.
+    proposal_history = [*history, f"이미 시험한 이름: {', '.join(sorted(tried))}"] if tried else list(history)
+    prompt = ctx.deps.policy.build_prompt(diag["text"], target, siblings, ctx.plan["persona"], proposal_history)
     context = {"currentLabel": target["label"], "siblingLabels": siblings, "triedLabels": sorted(tried),
                "maxLength": ctx.plan["edit"]["maxNewLabelLength"]}
     attempts, merged, accepted = [], [], []
