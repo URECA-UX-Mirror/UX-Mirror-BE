@@ -34,3 +34,35 @@ def apply_label(page, semantic_key: str, label: str) -> None:
     n = page.evaluate(_APPLY_JS, [_NAV_LINK, new])
     if n != 1:
         raise ValueError(f"상단 메뉴 이용정보 버튼이 {n}개 ({page.url})")
+
+
+_OVERFLOW_JS = """(sel) => {
+  const found = document.querySelectorAll(sel);
+  if (found.length !== 1) return null;
+  return {scrollWidth: found[0].scrollWidth, clientWidth: found[0].clientWidth};
+}"""
+
+
+def check_layout(baseline: dict, page, semantic_key: str, label: str, extract=None) -> dict:
+    """바꾼 화면(A) 또는 변형 사이트 화면(B)이 이름 외에는 v1 기준과 같은지 본다.
+
+    baseline: v1 home에서 `api.site_instances.snapshot_from_extracted()`로 만든 스냅샷.
+    사유는 `validate_against_baseline` 이름 그대로 + `LABEL_OVERFLOW`(84px 고정 칸이라 bbox로는 안 잡힘)
+    + `VIEWPORT_MISMATCH`(창 크기가 다르면 bbox 비교가 의미 없어서 그것만 돌려준다).
+    """
+    from api.site_instances import snapshot_from_extracted, validate_against_baseline
+    if semantic_key != EDITABLE_KEY:
+        raise ValueError(f"1단계에서 바꿀 수 없는 버튼: {semantic_key}")
+    if page.viewport_size != baseline["viewport"]:
+        return {"valid": False, "reasons": ["VIEWPORT_MISMATCH"]}
+    if extract is None:
+        from uxm.candidates import extract
+    snap = snapshot_from_extracted(extract(page), baseline["urlPath"], baseline["viewport"],
+                                   baseline["candidatePolicyVersion"])
+    reasons = set(validate_against_baseline(snap, baseline, semantic_key, normalize_label(label or "")))
+    size = page.evaluate(_OVERFLOW_JS, _NAV_LINK)
+    if size is None:
+        reasons.add("TARGET_NOT_FOUND")
+    elif size["scrollWidth"] > size["clientWidth"] + 1:   # scripts/check_site_instances.py LAYOUT_JS와 같은 1px 여유
+        reasons.add("LABEL_OVERFLOW")
+    return {"valid": not reasons, "reasons": sorted(reasons)}
