@@ -146,3 +146,18 @@ E 결과 요약 (#94 리뷰 반영, 결과 원본은 Run 폴더와 `results/comp
 
 - 주의: 사람 후보 '주문·환불'(가운뎃점)은 S4 −14%p로 탈락했는데, AI 후보 '주문 환불'(띄어쓰기)은 S4 −0.4%p로 통과했다. 모델 판단이 표기 차이에 민감하다는 뜻이므로, 이 차이는 사람 테스트로 확인해야 한다(실제 사람 클릭률 아님).
 - 공개 원칙대로 1차(NO_IMPROVEMENT)와 2차(IMPROVED)를 함께 보고한다. 다음: 최종안 B(`build_shop.py --label "주문 환불"`) → `finalize`(공식 점수·실제 Run)
+
+### 2차 채택안 공식 확인·실제 Run 검증 (imp-1119b finalize)
+
+- 최종안 B: `build_shop.py --label "주문 환불"`(5개 화면 parity OK, 화면 검사 통과), 실행 PC에서 생성·임시 서버로 확인 후 `finalize`
+- 공식 B 점수 **CONFIRMED** (채택 규칙 재판정 통과, 기준은 최초 v1)
+
+| 목표 | v1 | 주문 환불 (공식 B) | 변화 |
+|---|---|---|---|
+| S1 환불 (주) | 0.402 | 0.597 | +19.6%p |
+| S2 배송 | 0.654 | 0.671 | +1.7%p |
+| S3 쿠폰 | 0.762 | 0.927 | +16.4%p |
+| S4 문의 | 0.767 | 0.763 | −0.4%p |
+
+- 실제 Run 검증 COMPLETED (목표당 1쌍, `personaId: null`): S1 v1 실패(BLOCKED, home↔support 반복) → 최종안 성공(home → orders → refund, 2번 이동). S4 v1 성공(home → support) → 최종안도 성공(home → support, 1번 이동) — 부작용 없음
+- 비교 화면 키: `imp-1119b-S1`, `imp-1119b-S4`
