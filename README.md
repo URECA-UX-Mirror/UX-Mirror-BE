@@ -15,6 +15,7 @@ uxm/
   browser.py     # 브라우저 조작: open/close, click, go_back, reload, capture, page_key, page_signature (예외 대신 ActionResult)
   leak.py        # T-LEAK: 모델 입력에 variant/testMode/정답 마커 차단
   sitemap.py     # 사이트 지도(SITE_MAP): 간선·해시·최단 거리·지도 검증·실제 Run 대조 (#46)
+  label_edit.py  # 자동 개선 수정 A: apply_label(상단 메뉴 이용정보 글자만 변경, 1단계 이 버튼만), check_layout(v1 기준 대비 위치·후보·이름 + LABEL_OVERFLOW·VIEWPORT_MISMATCH, B 화면에도 사용) (#104)
   config.py      # .env 로딩
 scripts/run_a.py # A 실행기 → results/json/a/, results/run_log.md
 scripts/run_b5.py        # B3+B5 실제 화면 확률 → results/json/b5/, results/screenshots/b5/
@@ -141,6 +142,22 @@ copy .env.example .env
 - Optimization 실패 코드(`error.code`): `BASELINE_INVALID`, `BASELINE_NOT_EVALUATED`, `MODEL_TIMEOUT`, `SITE_INSTANCE_CHANGED`, `SITE_RECHECK_FAILED`, `RUN_TIMEOUT`, `OPTIMIZATION_INTERRUPTED`(서버 재시작), `OPTIMIZATION_FAILED`.
 - 오류: `404 OPTIMIZATION_NOT_FOUND`, `409 OPTIMIZATION_NOT_READY`·`OPTIMIZATION_ALREADY_PROCESSED`·`RUN_ALREADY_ACTIVE`, `422 INVALID_SITE_INSTANCE`·`EXPERIMENT_CONDITION_MISMATCH`, `503 MODEL_UNAVAILABLE`·`OPTIMIZER_POLICY_UNAVAILABLE`.
 - 저장: `results/optimizations/<optimizationId>/optimization.json` + `raw/`.
+
+## 자동 개선 최종안 검증 Run (#101)
+
+자동 개선 루프가 고른 최종안 사이트로 실제 Run을 돌린다 (설계 v2.1 §4.6 (a)). 스크립트에서 부르는 함수다.
+
+```python
+from api.improvement import run_verification
+runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["refund", s4_goal])
+```
+
+- 목표마다 v1(`config/site_instances.json`의 `site-c0`, variant=before) → 최종안(`site_url`, variant=after) 순서로 Run 1쌍. 한 번에 Run 하나.
+- `frozen`: `improvementId`, `personaId`(직접 입력이면 `null`), `persona`, `startPath`, `viewport`, `limits.maxSteps`(나머지 제한은 기본값), `modelMetadata`(있으면 지금 모델 설정과 같아야 실행). `goals`: preset goalId 또는 `{goalId, goal, verification, referencePathConfig}`.
+- 반환: 실행 순서대로 `[{runId, goalId, experimentKey, variant, executionRole, label, status, validity}]`. 같은 목표의 두 Run은 같은 `experimentKey`(`<improvementId>-<goalId>`)라 기존 조회·비교·재생 API를 그대로 쓴다.
+- Run에는 `improvementContext: {improvementId, goalId, label, siteInstanceId, executionRole}`만 남고 최종안 주소는 남지 않는다.
+- 입력이 잘못되면 Run을 만들지 않고 `ValueError` (만들 `experimentKey`가 영문·숫자·`_`·`-` 64자 이하가 아닐 때도). 다른 Run이 진행 중이면 `RUN_ALREADY_ACTIVE`(같은 프로세스 안에서만 확인), Run이 제한 시간(기본 600초) 안에 안 끝나면 `TimeoutError`. 중간에 멈추면 그때까지 끝난 Run 목록이 예외의 `runs`에 들어 있다.
+- API 서버와 같은 결과 폴더(`UXM_RESULTS_DIR` 또는 `results/`)를 쓴다. 실행 중에는 API로 Run을 만들지 않는다 (서버와 단일 활성 Run을 공유하지 않음).
 
 ## 제출용 실행 로그 (#83)
 
