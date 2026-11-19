@@ -123,6 +123,9 @@ main() {
   sudo systemctl restart uxm-shops uxm-api
 
   # ---- 5. 실제로 Run을 돌릴 수 있는지
+  # 점검할 쇼핑몰 포트는 방금 받은 커밋의 lib.sh 값으로 다시 읽는다 (이 스크립트가 처음 읽은 lib.sh는 이전 커밋 것이라
+  # 새로 추가된 쇼핑몰을 빼고 점검하게 된다). 함수는 다시 읽지 않는다.
+  SHOP_PORTS="$(bash -c 'source deploy/lib.sh && echo "$SHOP_PORTS"')"
   echo "확인 중..."
   if ! check_ready 60 "$(site_domain)"; then
     echo "배포는 됐지만 Run을 돌릴 수 없는 상태입니다. 위 항목을 확인해 주세요." >&2
