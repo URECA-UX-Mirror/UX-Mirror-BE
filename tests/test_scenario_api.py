@@ -179,7 +179,9 @@ def test_sites_lists_scenario_sites_without_internal_values(client):
     assert site["siteMap"] == {"available": True, "siteMapVersion": "sitemap-cafe24-ons-v1",
                                "unreachablePages": ["qna", "guide", "company"]}
     text = str(site)
-    assert "cafe24.com" not in text and "meta" not in site and "board_no" not in text   # 주소·내부 값 노출 안 함
+    # 사이트 주소는 FE가 입력 링크로 사이트를 찾도록 내려 준다(#95). 내부 버전 값·여는 주소의 쿼리는 여전히 없음
+    assert site["siteUrl"] == BASE and site["allowedHosts"] == ["ecudemo360127.cafe24.com"]
+    assert "meta" not in site and "board_no" not in text and "cafe24-ons-live" not in text
 
 
 # ---------------------------------------------------------------- 사전 검사 1곳 (가짜 브라우저)
@@ -284,3 +286,33 @@ def test_unreachable_pages_come_from_site_map_record(client, monkeypatch):
     assert site["siteMap"]["unreachablePages"] == ["event"]
     reasons = {p["pageKey"]: p["goalUnavailableReason"] for p in site["pages"]}
     assert reasons["event"] == "UNREACHABLE_ON_SITE_MAP" and reasons["qna"] is None
+
+
+
+@pytest.mark.parametrize("variant_url, hosts, expected", [
+    ("https://ecudemo360127.cafe24.com", ["ecudemo360127.cafe24.com"], "https://ecudemo360127.cafe24.com"),
+    ("https://ecudemo360127.cafe24.com/some/path?x=1", ["ecudemo360127.cafe24.com"], "https://ecudemo360127.cafe24.com"),
+    ("https://Shop.Example.com:8443", ["shop.example.com"], "https://shop.example.com:8443"),
+    ("https://shop.example.com", ["other.example.com"], None),        # allowedHosts에 없는 호스트
+    ("http://127.0.0.1:8001", ["127.0.0.1"], None),                    # 내 컴퓨터
+    ("http://localhost:8002", ["localhost"], None),
+    ("http://10.0.0.5:30001", ["10.0.0.5"], None),                     # 사설망 (내부 서버)
+    ("http://192.168.0.10", ["192.168.0.10"], None),
+    ("https://user:pw@shop.example.com", ["shop.example.com"], None),  # 인증 정보가 든 주소
+    ("ftp://shop.example.com", ["shop.example.com"], None),
+])
+def test_site_url_is_only_a_public_address(variant_url, hosts, expected):
+    """siteUrl은 공개 주소일 때만 내려 준다. 내부 서버·내 컴퓨터를 사이트로 등록해도 응답에 주소가 나가지 않는다 (#95)."""
+    import dataclasses
+    from api.sites import public_site_url
+    scope = resolve_site(SITE)
+    fake = type("Scope", (), {"base_url": variant_url,
+                              "config": dataclasses.replace(scope.config, allowed_hosts=tuple(hosts))})()
+    assert public_site_url(fake) == expected
+
+
+def test_site_url_fields_do_not_change_run_rules(client):
+    """주소 필드는 찾기용일 뿐, 실행은 여전히 등록된 siteId로만 한다 (POST /api/runs는 주소를 받지 않음)."""
+    c, _, _ = client
+    r = c.post("/api/runs", json=scenario(siteUrl=BASE))
+    assert r.status_code == 422 and r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"

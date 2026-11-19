@@ -6,10 +6,14 @@
 - 요청은 `siteId`만 받는다. 임의 주소는 받지 않는다 (등록된 설정만 실행).
 - MORO MARKET(`config/sites/moro-market.json`)은 버전 비교용이라 시나리오 사이트 목록에 넣지 않는다.
   `siteId`가 없으면 지금까지처럼 MORO MARKET 버전 비교 Run이다.
-- 사이트 주소(`variants`)·내부 버전 값(`meta`)은 응답에 넣지 않는다.
+- 내부 버전 값(`meta`)은 응답에 넣지 않는다. 사이트 주소는 FE가 사용자가 입력한 링크로 등록 사이트를 찾을 수
+  있게 `siteUrl`·`allowedHosts`로 내려 준다(#95). 공개 주소일 때만 내려 주고(`public_site_url`), 실행은 여전히
+  등록된 `siteId`로만 한다. Optimizer Site Instance의 내부 주소와 환경변수 값은 여기서 다루지 않는다.
 """
+import ipaddress
 import logging
 import os
+from urllib.parse import urlsplit
 
 from api.errors import ApiError
 from uxm import sitemap
@@ -78,6 +82,31 @@ def unreachable_pages(scope: SiteScope, site_map: dict | None) -> list[str] | No
     return [k for k in scope.config.pages if k in recorded or (k != scope.config.start_page and k not in site_map["pages"])]
 
 
+def public_site_url(scope: SiteScope) -> str | None:
+    """응답에 내려 줄 사이트 주소. 공개 주소만: http(s), 호스트가 `allowedHosts`에 있고, 내 컴퓨터·사설망이 아니어야 한다.
+
+    조건이 안 맞으면 None (예: 내부 서버를 사이트로 등록한 경우에도 그 주소가 응답에 나가지 않게).
+    경로·쿼리·인증 정보는 떼고 `scheme://host[:port]`만 돌려준다.
+    """
+    try:
+        u = urlsplit(scope.base_url)
+        host = (u.hostname or "").lower()
+        port = u.port
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or not host or u.username or u.password:
+        return None
+    if host not in {h.lower() for h in scope.config.allowed_hosts} or host == "localhost":
+        return None
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and not ip.is_global:
+        return None
+    return f"{u.scheme}://{host}" + (f":{port}" if port else "")
+
+
 def public_site(scope: SiteScope) -> dict:
     """`GET /api/sites` 항목.
 
@@ -87,6 +116,7 @@ def public_site(scope: SiteScope) -> dict:
     `goalUnavailableReason`: 고를 수 없는 이유 (`START_PAGE` / `NO_GOAL_TEXT` / `UNREACHABLE_ON_SITE_MAP`), 고를 수 있으면 null.
     `UNREACHABLE_ON_SITE_MAP`은 "시작 화면에 보이는 링크로는 닿지 않는 화면"이라는 사이트 지도 진단 결과다.
     `siteMap.unreachablePages`: 지도가 기록한 닿지 않는 화면 목록 (지도가 없으면 null).
+    `siteUrl`·`allowedHosts`: 사용자가 입력한 링크로 이 사이트를 찾는 용도(#95). siteUrl은 공개 주소일 때만, 아니면 null.
     """
     config = scope.config
     site_map = site_map_of(scope)
@@ -99,6 +129,7 @@ def public_site(scope: SiteScope) -> dict:
         pages.append({"pageKey": key, "path": path, "label": config.page_labels.get(key, key), "goalText": goal_text,
                       "goalSelectable": reason is None, "goalUnavailableReason": reason})
     return {"siteId": config.name, "name": config.display_name, "mode": SCENARIO_MODE,
+            "siteUrl": public_site_url(scope), "allowedHosts": list(config.allowed_hosts),
             "startPage": config.start_page, "pages": pages,
             "siteMap": {"available": site_map is not None,
                         "siteMapVersion": site_map["siteMapVersion"] if site_map else None,
