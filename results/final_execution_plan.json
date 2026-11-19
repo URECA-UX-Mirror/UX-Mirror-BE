@@ -51,8 +51,8 @@
     }
   ],
   "executionOrder": ["e-s1-1119", "e-s2-1119", "e-s3-1119", "e-s4-1119"],
-  "gitCommit": "c2278a4",
-  "gitCommitScope": "실행 코드 기준 커밋 (develop = Merge PR #77; #70·#71·#75 외부 사이트 작업 포함). E 전 MORO 회귀 regress-75 통과 (11/18, 로컬 4bit, 통합 확인 Run과 경로·Step별 판단값·후보 확률·검토 후보까지 동일)",
+  "gitCommit": "ac153e6",
+  "gitCommitScope": "실행 코드 기준 커밋 (develop = Merge PR #84; #70·#71·#75 외부 사이트 작업, #82 파일 잠금 재시도, #84 실행 로그 내보내기 스크립트 포함). #82·#84는 판단·경로·지표 코드를 바꾸지 않는다. 이전 기준 c2278a4에서 E 전 MORO 회귀 regress-75 통과 (11/18, 로컬 4bit, 통합 확인 Run과 경로·Step별 판단값·후보 확률·검토 후보까지 동일)",
   "executionCommitRule": "실제 실행 환경의 체크아웃 커밋(이 manifest 머지 후 develop HEAD)은 run_log.md에 기록한다. E-1 전에 `git diff --name-only c2278a4 <실행 커밋>` 결과가 results/final_execution_plan.json(과 run_log.md)뿐인지 확인한다. 그 외 파일이 바뀌었으면 E-1을 시작하지 않고 팀과 확인한다.",
   "modelVersion": "trillionlabs/Zoro-1",
   "modelEndpointRule": "모델 서버 식별자는 E-1 직전 /api/health의 model.endpointId(ZORO_BACKEND=http)를 run_log.md에 기록한다. model.modelVersion이 위 modelVersion과 다르면 E-1을 시작하지 않는다.",
