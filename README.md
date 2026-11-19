@@ -143,13 +143,18 @@ copy .env.example .env
 
 ```
 .venv\Scripts\python scripts\export_run_logs.py <runId1> <runId2> <runId3>
-.venv\Scripts\python scripts\export_run_logs.py --results-dir D:\gpu_results <runId> ...   # GPU 서버 결과 폴더
+.venv\Scripts\python scripts\export_run_logs.py --results-dir D:\gpu_results --env D:\gpu\.env <runId> ...   # GPU 서버 결과·.env
 ```
 
-- Run 폴더의 `run.json`·`steps.jsonl`·`events.jsonl`·`issues.json`·`screenshots/`·`raw/`와 같은 실험 키의 비교 결과를 복사한다. 원본은 그대로 둔다 (`docs/final-run-evaluation.md` 4장).
-- 인증 정보(Bearer·키·비밀번호, `.env`의 키·토큰·서버 주소 값)나 로컬 사용자 경로가 섞여 있으면 아무것도 쓰지 않고 멈춘다.
+- Run 폴더 전체(하위 폴더 포함, 임시·`.env`·로그 파일 제외)와 같은 실험 키의 비교 결과를 복사한다. 원본은 그대로 둔다 (`docs/final-run-evaluation.md` 4장).
+- 공개되면 안 되는 값을 **모두 찾아 한 번에** 보여 주고, 하나라도 있으면 아무것도 쓰지 않고 멈춘다.
+  - 인증 정보: Bearer 토큰, JSON 키 형태의 키·비밀번호(`"password": "…"`). 화면 글자 `password: …`는 걸지 않는다.
+  - `.env`의 키·토큰·서버 주소 값. GPU 서버에서 돌린 결과면 `--env`로 그 서버의 `.env`를 같이 준다 (여러 번 가능).
+  - 서버 주소: IP 주소, 포트가 붙은 주소. 내 컴퓨터 주소(`127.0.0.1`, `localhost`)와 포트 없는 공개 사이트 주소는 통과.
+  - 로컬·서버 경로: `/Users`, `/home`, `/root`, `/workspace`, `/mnt`, `/data`, `/opt`, `/srv`, `C:\Users`, `C:/Users`.
+  - 사람이 확인한 값(예: 사이트 화면 문구)은 `--allow "<걸린 글자>"`로 건너뛴다.
+- 출력 폴더는 결과 폴더·저장소와 어느 방향으로도 겹칠 수 없다. 이미 내용이 있으면 멈추고, `--force`는 이 스크립트가 만든 폴더(`index.json`이 있는 폴더)만 다시 만든다. 옆 임시 폴더에 다 쓴 뒤 바꿔치기해서 중간에 실패해도 이전 제출본이 남는다.
 - `run-logs/README.md`에 Run별 목표·결과·지나간 화면·단계·찾은 Issue·모델을 정리한다. `resultOrigin`이 LIVE가 아니거나 `modelEndpointId`가 `local`·`mock`(리허설), 무효 Run, 분석 미완료는 "확인 필요"로 표시한다. API로 만든 Run은 가짜 모델이어도 LIVE로 저장되므로 행사 Run인지는 `modelEndpointId`로 확인한다.
-- 이미 내용이 있으면 멈추고, `--force`면 고른 Run으로 다시 만든다.
 
 ## 프론트엔드 실제 API 연동 테스트
 
