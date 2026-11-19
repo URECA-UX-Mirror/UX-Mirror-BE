@@ -62,6 +62,7 @@ def scrub(text: str) -> str:
 
 MAIN_KEY = "MAIN"
 GUARD_VERIFY_KEY = "S4"   # 실제로 다시 확인하는 다른 고객 목표 (문의). 입력 화면이 문의면 남은 첫 번째
+LIVE_EXTRA_HUMAN = ("주문 환불",)   # 공식 실행(imp-1119b) 2회차에 채택된 이름
 
 
 def goal_pool(template: dict) -> list[dict]:
@@ -87,6 +88,13 @@ def make_plan(template: dict, improvement_id: str, user_input: dict | None = Non
     plan["improvementId"] = improvement_id
     plan["improvementPlanId"] = f"{plan.get('improvementPlanId') or based_on}-live"   # 공식 계획과 구분 (#131 리뷰)
     plan.pop("secondRun", None)   # "2차 1회" 같은 공식 실행 기록은 복사본에 남기지 않는다
+    # 사람 후보에 공식 실행이 채택한 이름을 더한다. AI 제안은 실행마다 달라서(온도 0.6) 그 이름이 다시 나온다는 보장이 없다.
+    # 점수 기준·채택 규칙은 그대로라, 이 이름도 다른 후보와 똑같이 평가받고 기준을 못 넘으면 탈락한다.
+    human = plan.setdefault("humanCandidates", [])
+    labels = {c.get("label") for c in human}
+    for label in LIVE_EXTRA_HUMAN:
+        if label not in labels:
+            human.append({"candidateId": f"H{len(human) + 1}", "label": label})
     frozen = plan.get("verification", {}).get("frozen") if isinstance(plan.get("verification"), dict) else None
     if isinstance(frozen, dict):
         frozen["improvementId"] = improvement_id
