@@ -280,3 +280,24 @@ def test_finalize_rerun_does_not_keep_previous_verification():
     restore_loop_summary(imp)                                  # finalize 시작 때 되돌림
     assert imp["verification"] == verification_not_run("NOT_FINALIZED")
     assert verification_not_run("SKIPPED_BY_OPTION")["reason"] == "SKIPPED_BY_OPTION"
+
+
+# ---- 11/19 연습 실행 반영: 목적지 설명, 여러 번 요청해 통과 이름 합치기
+
+def test_proposal_collects_accepted_names_across_attempts_until_min_accepted():
+    plan = copy.deepcopy(PLAN)
+    plan["aiProposal"] = {"maxAttempts": 3, "minAccepted": 2}
+    plan["edit"]["targetPageDescription"] = "주문 목록 화면(주문·배송 조회, 환불·반품 신청)"
+    responses = iter(["고객센터", "주문내역\n고객센터", "주문내역\n구매내역", "안 쓰임"])
+    policy = FakePolicy()
+    deps = Deps(fake_collect([]), lambda prompt: next(responses, ""), policy, clock=lambda: "t")
+    imp = run_loop(plan, SITE_MAP, deps)["improvement"]
+    r1 = imp["rounds"][0]
+    assert r1["proposal"]["attempts"] == 3                                  # 2개 모일 때까지 3번
+    accepted = [f["label"] for f in r1["proposal"]["filtered"] if f["accepted"]]
+    assert accepted == ["주문내역", "구매내역"]                               # 여러 시도 합침, 중복 제거
+    dup = [f for f in r1["proposal"]["filtered"] if f["label"] == "주문내역" and not f["accepted"]]
+    assert dup and dup[0]["rejectedReason"] == "DUPLICATE_LABEL" and dup[0]["attempt"] == 3
+    assert {c["label"] for c in r1["candidates"] if c["source"] == "AI"} == {"주문내역", "구매내역"}
+    # 진단 문장에 목적지 설명이 들어간다 (모델이 메뉴가 어디로 가는지 알게)
+    assert policy.prompts[0][0].startswith("'이용정보' 메뉴를 누르면 주문 목록 화면(주문·배송 조회, 환불·반품 신청)으로 간다.")

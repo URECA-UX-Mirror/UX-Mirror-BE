@@ -163,10 +163,12 @@ def _run_round(ctx: _Ctx, rnd: int, current: dict, v1_label, tried: set, history
     target = diag["targetButton"]
     siblings = sorted({lbl for k, lbl in (labels.get(diag["bottleneckPage"]) or {}).items()
                        if k != target["semanticKey"] and region_of(k) == target["region"] and lbl})
-    diag["text"] = describe(diag, main_goal.get("situation") or main_goal["name"])
+    diag["text"] = describe(diag, main_goal.get("situation") or main_goal["name"],
+                            ctx.plan["edit"].get("targetPageDescription"))
     tried.add(target["label"])
-    attempts = _propose(ctx, rnd, diag, siblings, tried, history)
-    ai_labels = [f["label"] for f in attempts[-1]["filtered"] if f["accepted"]]
+    attempts, filtered = _propose(ctx, rnd, diag, siblings, tried, history)
+    # 여러 시도를 합치면 많아질 수 있어 회차당 AI 후보 수를 제한한다 (먼저 나온 순서)
+    ai_labels = [f["label"] for f in filtered if f["accepted"]][:ctx.plan.get("aiProposal", {}).get("maxPerRound", 6)]
 
     # 후보: 1회차는 사람 후보 + AI, 이후 AI만. 이미 시험한 이름은 뺀다
     pool = [(c["label"], "HUMAN") for c in ctx.plan.get("humanCandidates", []) if rnd == 1 and c["label"] not in tried]
@@ -177,26 +179,40 @@ def _run_round(ctx: _Ctx, rnd: int, current: dict, v1_label, tried: set, history
     baseline = {"mainScore": current["main"], "guardScores": dict(ctx.v1_guards)}
     chosen = ctx.deps.policy.choose(baseline, [_policy_view(c) for c in cands], policy_rules(ctx.plan["rules"]))
     _apply_decisions(cands, chosen, ctx.plan["rules"])
-    record.update(proposal={"filtered": attempts[-1]["filtered"], "attempts": len(attempts)},
+    record.update(proposal={"filtered": filtered, "attempts": len(attempts)},
                   candidates=cands, adopted=chosen["adopted"])
     return record, chosen, cands, evaluated
 
 
-def _propose(ctx: _Ctx, rnd: int, diag: dict, siblings: list, tried: set, history: list) -> list[dict]:
-    """제안 (모델 호출·통과 후보가 없으면 재요청·원본 저장). 시도 기록 목록을 돌려준다."""
+def _propose(ctx: _Ctx, rnd: int, diag: dict, siblings: list, tried: set, history: list) -> tuple[list[dict], list[dict]]:
+    """제안: 통과한 이름이 `minAccepted`개 모일 때까지 최대 `maxAttempts`번 요청하고, **모든 시도에서 통과한 이름을 합친다.**
+
+    반환 (시도 기록, 합친 걸러 내기 결과). 합친 결과의 각 줄에 `attempt`(몇 번째 요청)를 붙이고, 앞 시도에서 이미
+    통과한 이름이 다시 오면 `DUPLICATE_LABEL`로 바꾼다. 설정이 없으면 예전과 같다(1 + retryOnEmpty번, 하나라도 통과하면 멈춤).
+    """
+    ai = ctx.plan.get("aiProposal", {})
+    max_attempts = ai.get("maxAttempts", 1 + ai.get("retryOnEmpty", 1))
+    min_accepted = ai.get("minAccepted", 1)
     target = diag["targetButton"]
     prompt = ctx.deps.policy.build_prompt(diag["text"], target, siblings, ctx.plan["persona"], history)
     context = {"currentLabel": target["label"], "siblingLabels": siblings, "triedLabels": sorted(tried),
                "maxLength": ctx.plan["edit"]["maxNewLabelLength"]}
-    attempts = []
-    for _ in range(1 + ctx.plan.get("aiProposal", {}).get("retryOnEmpty", 1)):
+    attempts, merged, accepted = [], [], []
+    for n in range(1, max_attempts + 1):
         response = ctx.deps.propose(prompt)
         filtered = ctx.deps.policy.filter_labels(response, context)
         attempts.append({"prompt": prompt, "response": response, "filtered": filtered})
-        if any(f["accepted"] for f in filtered):
+        for f in filtered:
+            row = {**f, "attempt": n}
+            if f["accepted"] and f["label"] in accepted:
+                row.update(accepted=False, rejectedReason="DUPLICATE_LABEL")
+            elif f["accepted"]:
+                accepted.append(f["label"])
+            merged.append(row)
+        if len(accepted) >= min_accepted:
             break
     ctx.raw.append({"kind": "proposal", "round": rnd, "attempts": attempts})
-    return attempts
+    return attempts, merged
 
 
 def _evaluate_candidates(ctx: _Ctx, rnd: int, pool: list, tried: set) -> tuple[list[dict], dict]:
