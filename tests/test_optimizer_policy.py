@@ -8,7 +8,8 @@ def evaluation(cid="C0", target=0.4, path=0.6, **changes):
     item = {"candidateId": cid, "role": "BASELINE" if cid == "C0" else "CANDIDATE",
             "candidateOrder": int(cid[1:]), "label": "메뉴" + cid, "semanticClarityRank": int(cid[1:]),
             "evaluationStatus": "COMPLETED", "candidateValidity": "VALID", "invalidReasons": [],
-            "targetOptionProbability": target, "goalPathProbability": path}
+            "semanticKey": "target", "probabilities": {"target": target, "other": 1 - target} if target is not None else None,
+            "targetOptionProbability": target, "goalPathProbability": path, "goalPathBasis": "ALLOWED_PATHS"}
     item.update(changes)
     return item
 
@@ -18,7 +19,6 @@ def evaluation(cid="C0", target=0.4, path=0.6, **changes):
     ({"a": 1.0, "b": 0.0}, 0.0, 1.0),
     ({"a": 0.5, "b": 0.51}, 0.9999292857750865, 0.01),
     ({"a": 1.0}, None, None),
-    ({}, None, None),
 ])
 def test_metrics_and_input_preserved(probs, entropy, margin):
     ev = {"probabilities": probs, "targetOptionProbability": 0.5, "extra": {"a": [1]}}
@@ -38,8 +38,13 @@ def test_metrics_and_input_preserved(probs, entropy, margin):
 @pytest.mark.parametrize("probs", [{"a": -0.1, "b": 1.1}, {"a": float("nan")}, {"a": True},
                                    {"a": 0.5}, {"a": 0.5, "b": 0.521}, {"": 1.0}])
 def test_invalid_probability_distribution(probs):
-    with pytest.raises(ValueError):
-        compute_evaluation_metrics({"probabilities": probs})
+    result = compute_evaluation_metrics({"probabilities": probs})
+    assert result == {"normalizedEntropy": None, "top2Margin": None,
+                      "policyMetricError": "INVALID_PROBABILITY_DISTRIBUTION"}
+
+
+def test_missing_distribution_is_not_a_valid_zero():
+    assert compute_evaluation_metrics({"probabilities": {}})["policyMetricError"] == "INVALID_PROBABILITY_DISTRIBUTION"
 
 
 @pytest.mark.parametrize("target,recommended", [(0.449999, False), (0.45, True), (0.451, True)])
@@ -98,7 +103,16 @@ def test_incomplete_or_missing_candidates_excluded():
 
 
 def run(reached=True, cost=3, **changes):
-    result = {"validity": "VALID", "status": "SUCCESS", "summary": {"goalReached": reached, "navigationCost": cost}}
+    result = {"validity": "VALID", "status": "SUCCESS" if reached else "MAX_STEPS",
+              "terminationReason": "GOAL_VERIFIED" if reached else "MAX_STEPS_REACHED",
+              "modelVersion": "model", "modelEndpointId": "endpoint", "decisionMode": "DIRECT",
+              "promptVersion": "v2", "goal": "goal", "persona": "persona", "goalJudgmentMode": "DOM_ONLY",
+              "temperature": None, "limits": {"maxSteps": 8}, "startPath": "/shop/home", "viewport": {"width": 1440},
+              "siteVersion": "shop-v1", "thresholdConfig": {"version": "v1"}, "analysisVersion": "v1",
+              "referencePathConfig": None, "verification": {"path": "/shop/orders"}, "resultOrigin": "LIVE",
+              "comparisonContext": {"initialBrowserStateId": "clean", "layoutVersion": "v1",
+                                    "candidatePolicyVersion": "v1", "leakCheckPassed": True},
+              "summary": {"goalReached": reached, "navigationCost": cost}}
     result.update(changes)
     return result
 
@@ -110,7 +124,8 @@ def run(reached=True, cost=3, **changes):
     (run(validity="INVALID"), run(), "INCONCLUSIVE"), (run(summary=None), run(), "INCONCLUSIVE"),
     (run(summary={"goalReached": True}), run(), "INCONCLUSIVE"),
     (run(False, status="ERROR", terminationReason="OUT_OF_SCOPE_NAVIGATION"), run(True), "IMPROVEMENT_OBSERVED"),
-    (run(False, status="BLOCKED"), run(False, status="TIMEOUT"), "NEEDS_MORE_EVIDENCE"),
+    (run(False, status="BLOCKED", terminationReason="NO_VALID_CANDIDATES"),
+     run(False, status="TIMEOUT", terminationReason="RUN_TIMEOUT"), "NEEDS_MORE_EVIDENCE"),
     (run(False, status="MAX_STEPS"), run(True), "IMPROVEMENT_OBSERVED"),
 ])
 def test_judgment(b, c, expected):
@@ -123,3 +138,44 @@ def test_judgment(b, c, expected):
 @pytest.mark.parametrize("bad", [None, True, -1, float("nan"), float("inf")])
 def test_invalid_cost_is_inconclusive(bad):
     assert judge_verification(run(cost=bad), run())["finalDecision"] == "INCONCLUSIVE"
+
+
+@pytest.mark.parametrize("field,value", [("modelVersion", "other"), ("goal", "other"),
+                                        ("verification", {"path": "/shop/refund"}), ("limits", {"maxSteps": 2})])
+def test_mismatched_conditions_are_inconclusive(field, value):
+    assert judge_verification(run(), run(**{field: value}))["finalDecision"] == "INCONCLUSIVE"
+
+
+def test_invalid_status_reason_and_missing_conditions_are_inconclusive():
+    assert judge_verification(run(status="SUCCESS", terminationReason="MODEL_ERROR"), run())["finalDecision"] == "INCONCLUSIVE"
+    candidate = run()
+    del candidate["modelVersion"]
+    assert judge_verification(run(), candidate)["finalDecision"] == "INCONCLUSIVE"
+    assert judge_verification(run(cost=2.0), run(cost=3.0))["finalDecision"] == "HOLD"
+
+
+def test_basis_target_and_duplicate_id_checks():
+    base = evaluation()
+    mismatch_basis = evaluation("C1", goalPathBasis="SITE_MAP")
+    mismatch_target = evaluation("C2", targetOptionProbability=0.9)
+    duplicate = evaluation("C3")
+    result = select_candidate([base, mismatch_basis, mismatch_target, duplicate, copy.deepcopy(duplicate)])
+    assert result["verificationCandidateId"] is None
+    reasons = {item["candidateId"]: item["reasonCodes"] for item in result["excludedCandidates"]}
+    assert "GOAL_PATH_BASIS_MISMATCH" in reasons["C1"]
+    assert "TARGET_PROBABILITY_MISMATCH" in reasons["C2"]
+    assert "DUPLICATE_CANDIDATE_ID" in reasons["C3"]
+
+
+def test_integer_float_rank_and_invalid_baseline_are_safe():
+    assert select_candidate([evaluation(), evaluation("C1", semanticClarityRank=1.0)])["verificationCandidateId"] == "C1"
+    result = select_candidate([evaluation(evaluationStatus="FAILED"), evaluation("C1")])
+    assert result["verificationCandidateId"] is None
+
+
+def test_one_invalid_distribution_does_not_discard_other_candidate():
+    invalid = evaluation("C1", probabilities={"target": 0.9, "other": 0.9})
+    invalid.update(compute_evaluation_metrics(invalid))
+    result = select_candidate([evaluation(), invalid, evaluation("C2", target=0.5)])
+    assert result["verificationCandidateId"] == "C2"
+    assert result["excludedCandidates"] == [{"candidateId": "C1", "reasonCodes": ["INVALID_PROBABILITY_DISTRIBUTION"]}]

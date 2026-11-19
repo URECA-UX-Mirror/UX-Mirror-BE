@@ -129,6 +129,7 @@ copy .env.example .env
   - 후보 화면을 열지 못하면 `BROWSER_ERROR` "후보 화면을 열지 못했습니다." 원본 예외(내부 주소 포함)는 서버 로그에만 남긴다.
 - 지표 검증·후보 선정·최종 판단은 4번 `uxm/optimizer_policy.py`(`compute_evaluation_metrics`, `select_candidate`, `judge_verification`)를 부른다. 모듈이 없으면 `503 OPTIMIZER_POLICY_UNAVAILABLE`.
   - 확률 합은 엔진과 같은 ±0.02 기준으로 검증한다. 엔트로피는 합계가 1이 되도록 보정한 전체 후보 분포로 계산하고, Top-2 차이는 원본 확률을 사용한다. 입력 확률은 변경하지 않는다.
+  - 확률 분포가 잘못됐으면 지표를 `null`로 두고 `policyMetricError`를 남겨 해당 후보를 제외한다. 원본 대상 확률이 `probabilities[semanticKey]`와 다른 후보나 Baseline과 `goalPathBasis`가 다른 후보도 제외한다.
   - 평가가 `COMPLETED`이고 필수 지표가 있는 후보만 대상으로 경로 확률의 2%p 초과 감소를 제외한다. 남은 후보 중 최고 점수와 1%p 이내인 그룹은 의미 명확성·라벨 길이·후보 순서로 정렬한다. 이후 남은 후보도 같은 방식으로 그룹화한다. 추천은 5%p 이상 향상된 후보 중 순위가 가장 높은 후보이며, 검증 후보는 전체 적격 후보 중 1위라 두 ID가 다를 수 있다.
   - `selection.excludedCandidates`는 `candidateId`와 `reasonCodes`, `selectionReasonCode`는 선정 사유를 제공한다. 검증 판단은 `verification.finalDecision`·`reasonCode`·`navigationCostDelta`를 제공한다. 이유 코드와 근거 형식은 FE 연동 시 함께 확인한다.
 - 검증 Run은 기존 Runner로 만들어 `results/runs/`에 그대로 저장한다. `experimentKey = optimizationId`, 기준은 `variant=before`, 후보는 `after`(기존 비교 API 재사용), 역할은 `optimizationContext.executionRole`(`BASELINE`/`CANDIDATE`).

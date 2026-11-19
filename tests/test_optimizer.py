@@ -733,6 +733,10 @@ def test_real_policy_module_follows_contract(make):
     assert opt["recommendationStatus"] == "RECOMMENDED"
     assert opt["recommendedCandidateId"] == opt["verificationCandidateId"] == "C2"
     assert all(e["normalizedEntropy"] is not None and e["top2Margin"] is not None for e in opt["evaluations"])
+    to_next = [c["semanticKey"] for c in home_candidates() if c["href"] in ("/shop/orders", "/shop/mypage")]
+    for ev in opt["evaluations"]:
+        assert ev["targetOptionProbability"] == ev["probabilities"][TARGET]
+        assert ev["goalPathProbability"] == pytest.approx(sum(ev["probabilities"][key] for key in to_next))
     assert client.post(f"/api/optimizations/{opt['optimizationId']}/verify").status_code == 202
     app.state.optimizer.wait(20)
     done = client.get(f"/api/optimizations/{opt['optimizationId']}").json()
