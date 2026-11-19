@@ -57,3 +57,108 @@
 | 20261115_160748 | B5 after/home | v2 | local/cuda-4bit | 주문·환불=0.502, 고객센터=0.114, 마이페이지=0.255, 실시간 조회 이용정보 =0.088, 24H 빠른 접수 고객=0.041 / H_click=0.799 | 기록 |
 | 20261115_160748 | B5 before/orders | v2 | local/cuda-4bit | 홈=0.136, 환불 신청하기=0.864 / H_click=0.573 | 기록 |
 | 20261115_160748 | B5 after/orders | v2 | local/cuda-4bit | 홈=0.136, 환불 신청하기=0.864 / H_click=0.573 | 기록 |
+
+## E 실행 기록 (final-plan-1119, #93)
+
+E-1 전 확인 (2026-11-19 15:20, 실행 커밋 `230fd67`, 모델 서버 `brev-l40s-bf16` — 행사 GPU L40S 원본 bf16, `/api/health` modelVersion `trillionlabs/Zoro-1`):
+- `git diff --name-only ac153e6 230fd67` → 계획 파일 외에 #87·#88 파일(`.gitignore`, `README.md`, `scripts/check_site_instances.py`, `uxm/optimizer_policy.py`, 테스트 3개). 정책 모듈은 Optimizer에서만 불러오고 Explorer 루프는 쓰지 않아 E 결과에 영향 없음 → 팀 확인 후 E-1 시작
+- E 전 MORO 회귀 `regress-gpu-230fd67`: `run_before_20261119152012_73ab` / `run_after_20261119152031_8536` 둘 다 SUCCESS·VALID, 비교 조건 일치
+- 실행 방법: 화면 대신 실행 API(`POST /api/runs`)로 같은 조건(계획의 목표 문장·사용자 유형·성공 조건·maxSteps 8, siteId 없음)을 보내 실행 (FE 수정 중, 팀 확인)
+
+| finalExecutionPlanId | pairIndex | experimentKey | variant | actualOrder | startedAt | runId | executionCommit | modelEndpointId |
+|---|---|---|---|---|---|---|---|---|
+| final-plan-1119 | 1 | e-s1-1119 | before | 1 | 2026-11-19T15:24:27.609+09:00 | run_before_20261119152427_7646 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s1-1119 | after | 2 | 2026-11-19T15:24:45.500+09:00 | run_after_20261119152445_52ce | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s2-1119 | before | 1 | 2026-11-19T15:27:16.693+09:00 | run_before_20261119152716_6342 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s2-1119 | after | 2 | 2026-11-19T15:27:34.448+09:00 | run_after_20261119152734_aab5 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s3-1119 | before | 1 | 2026-11-19T15:27:52.122+09:00 | run_before_20261119152752_d372 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s3-1119 | after | 2 | 2026-11-19T15:28:04.968+09:00 | run_after_20261119152804_2323 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s4-1119 | before | 1 | 2026-11-19T15:28:24.850+09:00 | run_before_20261119152824_99ae | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s4-1119 | after | 2 | 2026-11-19T15:28:42.652+09:00 | run_after_20261119152842_443f | 230fd67 | brev-l40s-bf16 |
+
+E 결과 요약 (#94 리뷰 반영, 결과 원본은 Run 폴더와 `results/comparisons/e-s*-1119.json`):
+- Run 8개 모두 `VALID`, 4개 목표 모두 비교 조건 일치(`conditionsMatched`), 재실행 없음
+- 메인 지표 = home에서 정답 메뉴(`correctFirstLinks`)를 고를 확률 합 (= home `goalPathProbability`, SITE_MAP)
+
+| 목표 | experimentKey | Before | After | 변화 | 경로 Before / After |
+|---|---|---|---|---|---|
+| S1 환불 | e-s1-1119 | 0.537 | 0.717 | +0.180 | BLOCKED(REVISIT_LIMIT_REACHED, 미도달) / SUCCESS 2단계 |
+| S2 배송 | e-s2-1119 | 0.653 | 0.773 | +0.120 | SUCCESS 1단계 / SUCCESS 1단계 |
+| S3 쿠폰 | e-s3-1119 | 0.758 | 0.935 | +0.177 | SUCCESS 1단계 / SUCCESS 1단계 |
+| S4 문의 | e-s4-1119 | 0.771 | 0.611 | −0.160 | SUCCESS 1단계 / SUCCESS 1단계 (CHOICE_AMBIGUITY) |
+
+- 바꾼 메뉴(상단 `/shop/orders`, 이용정보 → 주문·환불) 확률: S1 0.205 → 0.596, S2 0.060 → 0.181, S3 0.170 → 0.023, S4 0.105 → 0.260
+- 해석: 환불·배송·쿠폰은 개선, 상품 문제로 문의하려는 S4에서는 "주문·환불"이 사용자를 끌어당기는 부작용. 목표당 Run 1쌍, 확률은 모델의 선택 분포이며 사람 클릭률이 아님
+
+## 자동 개선 본 실행 기록 (improve-plan-1119, #106)
+
+- 기준 고정: `results/improvement_plan.json` (FROZEN 2026-11-19T23:31:13+09:00, 기준 커밋 `731337c`)
+- 실행: 2026-11-19 23:35, 실행 커밋 `30f547c`(기준 커밋 + 동결 파일·.gitignore만), 모델 서버 `brev-l40s-bf16`, `scripts/improve.py loop` (동결 조건 확인 통과)
+- 결과 `imp-1119`: **NO_IMPROVEMENT** — 2회차 연속 채택 없음(`NO_ADOPTION_STREAK`), 실제 Run 검증 없음(`NOT_RUN`, `NO_IMPROVEMENT`). 결과 폴더 `results/improvements/imp-1119/`(git 제외)
+- v1 기준(최단 이동 수 안 도달): S1 환불 0.402 / S2 배송 0.654 / S3 쿠폰 0.762 / S4 문의 0.767
+
+| 회차 | 후보 (출처) | S1 | S4 | 판정 |
+|---|---|---|---|---|
+| 1 | 주문·배송 (사람) | 0.249 | 0.637 | GUARD_LOSS_EXCEEDED:S4 |
+| 1 | 주문·환불 (사람) | 0.655 | 0.627 | GUARD_LOSS_EXCEEDED:S4 |
+| 1 | 주문·반품 (사람) | 0.640 | 0.634 | GUARD_LOSS_EXCEEDED:S4 |
+| 1 | 주문 관리 (사람) | 0.522 | 0.522 | GUARD_LOSS_EXCEEDED:S4 |
+| 1 | 배송 조회 (AI) | 0.285 | 0.811 | MAIN_GAIN_INSUFFICIENT |
+| 1 | 주문 내역 (AI) | 0.476 | 0.523 | GUARD_LOSS_EXCEEDED:S4 |
+| 1 | 주문 상태 (AI) | 0.376 | 0.624 | GUARD_LOSS_EXCEEDED:S4 |
+| 2 | 주문 조회 (AI) | 0.425 | 0.547 | GUARD_LOSS_EXCEEDED:S4 |
+| 2 | 배송 추적 (AI) | 0.211 | 0.847 | MAIN_GAIN_INSUFFICIENT |
+| 2 | 배송 확인 (AI) | 0.270 | 0.758 | MAIN_GAIN_INSUFFICIENT |
+| 2 | 주문 확인 (AI) | 0.391 | 0.577 | GUARD_LOSS_EXCEEDED:S4 |
+
+- 해석: "주문"이 들어간 이름은 사람·AI 후보 모두 문의(S4) 사용자를 끌어당겨 −12~24%p로 탈락, "배송" 계열은 환불(S1) 개선이 +5%p에 못 미침. 지킬 목표 안전장치가 다른 사용자를 해치는 이름을 모두 막았다.
+- 팀 결정(11/19 23:40): 동결 결과를 그대로 공개, 추가 실행 없음(결과를 보고 다시 돌리지 않음). 동결 전 연습 실행 3회차(DRAFT 기준)에서 나온 "환불신청"(S1 +16.2%p, S4 +0.7%p)은 공식 결과가 아닌 **탐색 실행 예시**로만 표시.
+
+### 2차 실행 사전 등록 (imp-1119b)
+
+- 등록: 계획 파일 작성 2026-11-19T23:57:17+09:00, 등록 커밋 `300a5fc` 2026-11-20 00:04:37, **GitHub push 00:04:43** (브랜치 생성 기록). 계획 파일 `results/improvement_plan_1119b.json`
+- 이유: 1차(imp-1119) NO_IMPROVEMENT 확인 후, 팀 결정으로 같은 규칙의 2차 실행을 **1회만** 추가한다 (이름 제안이 실행마다 달라짐)
+- 바뀐 것: 실행 ID(`imp-1119b`)와 검증 키만. 목표·점수·채택 규칙·사람 후보·제안 설정·모델 조건은 1차와 동일
+- 공개 원칙: **1차·2차 결과를 모두 공개**한다. 2차도 채택이 없으면 '개선안 없음'으로 확정하고 더 실행하지 않는다
+- 위 '팀 결정(11/19 23:40) 추가 실행 없음'은 이 등록으로 변경됨 (1차 결과 이후의 결정임을 밝힘)
+
+### 2차 실행 결과 (imp-1119b)
+
+- 실행: **루프 시작 2026-11-20T00:05:39+09:00 → 종료 00:06:58** (`improvement.json` createdAt·finishedAt, 등록 push 56초 뒤 시작), 실행 커밋 `300a5fc`(사전 등록 커밋), 모델 서버 `brev-l40s-bf16`, 동결 조건 확인 통과. finalize 실제 Run은 00:35:43~00:36:03
+- 결과: **IMPROVED** — '이용정보' → **'주문 환불'**(AI 제안, 2회차 채택), 3회차는 채택 없음, 최대 회차로 멈춤(`MAX_ROUNDS`). 점수는 루프 안 A 점수(공식 B 점수는 `finalize`에서)
+
+| 목표 | v1 | 주문 환불 | 변화 |
+|---|---|---|---|
+| S1 환불 (주) | 0.402 | 0.596 | +19.4%p |
+| S2 배송 | 0.654 | 0.652 | −0.1%p |
+| S3 쿠폰 | 0.762 | 0.926 | +16.3%p |
+| S4 문의 | 0.767 | 0.763 | −0.4%p |
+
+| 회차 | 후보 (출처) | S1 | S4 | 판정 |
+|---|---|---|---|---|
+| 1 | 주문·배송 / 주문·환불 / 주문·반품 / 주문 관리 (사람) | 0.249 / 0.655 / 0.640 / 0.522 | 0.637 / 0.627 / 0.634 / 0.522 | 모두 GUARD_LOSS_EXCEEDED:S4 (1차와 같은 값) |
+| 1 | 주문·관리 (AI) | 0.484 | 0.488 | GUARD_LOSS_EXCEEDED:S3,S4 |
+| 1 | 주문 조회 / 주문 처리 (AI) | 0.425 / 0.391 | 0.547 / 0.653 | GUARD_LOSS_EXCEEDED:S4 |
+| 2 | 주문 배송 (AI) | 0.297 | 0.680 | GUARD_LOSS_EXCEEDED:S4 |
+| 2 | **주문 환불 (AI)** | **0.596** | **0.763** | **채택** |
+| 2 | 주문 변경 (AI) | 0.248 | 0.801 | MAIN_GAIN_INSUFFICIENT |
+| 3 | 주문 확인 / 주문 내역 (AI) | 0.391 / 0.476 | 0.577 / 0.523 | GUARD_LOSS_EXCEEDED:S4 |
+
+- 주의: 사람 후보 '주문·환불'(가운뎃점)은 S4 −14%p로 탈락했고, AI 후보 '주문 환불'(띄어쓰기)은 S4 −0.4%p로 통과했다. 표기가 다른 두 후보의 결과가 달랐으며, 표기(가운뎃점·띄어쓰기)가 차이의 원인인지는 추가 확인이 필요하다 (실제 사람 클릭률 아님).
+- 공개 원칙대로 1차(NO_IMPROVEMENT)와 2차(IMPROVED)를 함께 보고한다. 다음: 최종안 B(`build_shop.py --label "주문 환불"`) → `finalize`(공식 점수·실제 Run)
+
+### 2차 채택안 공식 확인·실제 Run 검증 (imp-1119b finalize)
+
+- 최종안 B: `build_shop.py --label "주문 환불"`(5개 화면 parity OK, 화면 검사 통과), 실행 PC에서 생성·임시 서버로 확인 후 `finalize`
+- 공식 B 점수 **CONFIRMED** (채택 규칙 재판정 통과, 기준은 최초 v1)
+
+| 목표 | v1 | 주문 환불 (공식 B) | 변화 |
+|---|---|---|---|
+| S1 환불 (주) | 0.402 | 0.597 | +19.6%p |
+| S2 배송 | 0.654 | 0.671 | +1.7%p |
+| S3 쿠폰 | 0.762 | 0.927 | +16.4%p |
+| S4 문의 | 0.767 | 0.763 | −0.4%p |
+
+- 실제 Run 검증 COMPLETED (목표당 1쌍, `personaId: null`): S1 v1 실패(BLOCKED, home↔support 반복) → 최종안 성공(home → orders → refund, 2번 이동). S4 v1 성공(home → support) → 최종안도 성공(home → support, 1번 이동). S4는 이 Run 1쌍에서 두 버전 모두 같은 경로로 성공했다(모든 사용자·상황에서 부작용이 없다는 뜻은 아님)
+- 비교 화면 키: `imp-1119b-S1`, `imp-1119b-S4`
+- 원본 공유: 팀 공유 폴더 「해커톤/자동 개선 초안/2차 실행 imp-1119b 원본 (리뷰 대조용)」 (`improvement/` 결과·raw, `runs/` 실제 Run 4개, `comparisons/` S1·S4 비교 결과). 저장소에는 올리지 않음(`results/improvements/`·`results/runs/` git 제외)

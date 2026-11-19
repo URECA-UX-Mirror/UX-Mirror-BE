@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+
+<html lang="ko"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_standard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"surface-bright":"#f9f9ff","primary-container":"#1c1b1b","surface-container-highest":"#dce2f3","surface-tint":"#5f5e5e","on-secondary":"#ffffff","on-secondary-container":"#00725f","on-tertiary-container":"#778784","inverse-surface":"#2a313d","secondary":"#006b59","on-secondary-fixed-variant":"#005143","on-secondary-fixed":"#00201a","on-tertiary":"#ffffff","on-background":"#151c27","background":"#f9f9ff","surface-container-high":"#e2e8f8","outline":"#747878","on-error-container":"#93000a","tertiary-fixed-dim":"#b9cac6","surface-container-lowest":"#ffffff","on-error":"#ffffff","on-tertiary-fixed":"#0f1e1c","inverse-on-surface":"#ebf1ff","tertiary-fixed":"#d5e6e2","primary":"#000000","surface-dim":"#d3daea","surface-variant":"#dce2f3","tertiary":"#000000","error":"#ba1a1a","secondary-fixed-dim":"#5ddbbe","on-primary":"#ffffff","inverse-primary":"#c8c6c5","outline-variant":"#c4c7c7","primary-fixed":"#e5e2e1","surface":"#f9f9ff","error-container":"#ffdad6","on-surface":"#151c27","on-tertiary-fixed-variant":"#3b4a47","on-primary-fixed":"#1c1b1b","surface-container":"#e7eefe","surface-container-low":"#f0f3ff","on-surface-variant":"#444748","tertiary-container":"#0f1e1c","primary-fixed-dim":"#c8c6c5","on-primary-container":"#858383","on-primary-fixed-variant":"#474646","secondary-fixed":"#7cf8da","secondary-container":"#7cf8da"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin-desktop":"5rem","space-md":"1rem","space-xs":"0.25rem","space-lg":"1.5rem","space-2xl":"4rem","space-sm":"0.5rem","margin":"2rem","gutter":"1.5rem","space-3xl":"6rem","gutter-desktop":"1.5rem","margin-mobile":"1rem","gutter-mobile":"0.75rem","space-xl":"2.5rem"},"fontFamily":{"label-md":["Noto Sans"],"body-md":["Noto Sans"],"headline-xl":["Plus Jakarta Sans"],"numeric-price":["Plus Jakarta Sans"],"display-hero":["Plus Jakarta Sans"],"headline-lg":["Plus Jakarta Sans"],"label-sm":["Noto Sans"],"body-lg":["Noto Sans"],"body-sm":["Noto Sans"],"headline-md":["Noto Sans"],"label-lg":["Noto Sans"],"headline-xl-mobile":["Plus Jakarta Sans"],"headline-sm":["Noto Sans"]},"fontSize":{"label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.02em","fontWeight":"500"}],"body-md":["14px",{"lineHeight":"22px","letterSpacing":"-0.005em","fontWeight":"400"}],"headline-xl":["36px",{"lineHeight":"46px","letterSpacing":"-0.025em","fontWeight":"600"}],"numeric-price":["20px",{"lineHeight":"24px","letterSpacing":"-0.02em","fontWeight":"700"}],"display-hero":["48px",{"lineHeight":"58px","letterSpacing":"-0.03em","fontWeight":"700"}],"headline-lg":["28px",{"lineHeight":"36px","letterSpacing":"-0.02em","fontWeight":"600"}],"label-sm":["11px",{"lineHeight":"14px","letterSpacing":"0.04em","fontWeight":"600"}],"body-lg":["16px",{"lineHeight":"26px","letterSpacing":"-0.01em","fontWeight":"400"}],"body-sm":["13px",{"lineHeight":"19px","letterSpacing":"0em","fontWeight":"400"}],"headline-md":["22px",{"lineHeight":"30px","letterSpacing":"-0.015em","fontWeight":"600"}],"label-lg":["14px",{"lineHeight":"20px","letterSpacing":"-0.01em","fontWeight":"600"}],"headline-xl-mobile":["28px",{"lineHeight":"36px","letterSpacing":"-0.02em","fontWeight":"600"}],"headline-sm":["18px",{"lineHeight":"26px","letterSpacing":"-0.01em","fontWeight":"600"}]}}}}</script><title>주문/배송 조회 | MORO MARKET</title><style id="uxm-nav-fixed-width">header nav[data-active-classes] > a{display:inline-block;box-sizing:border-box;width:84px;text-align:center;white-space:nowrap;}</style></head><body class="bg-surface-container-lowest font-body-md text-on-surface antialiased selection:bg-secondary selection:text-on-secondary"><header class="fixed top-0 left-0 w-full z-50 bg-surface-container-lowest/95 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-20 max-w-[1360px] mx-auto px-margin flex items-center justify-between gap-space-lg"><div class="flex items-center gap-space-xl"><a class="flex items-center gap-space-sm group" data-path="home" href="/shop/home"><img alt="MORO MARKET Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuANIqPUDt7APspZSmTuH-dB7qirAsNMLKym_mUTYVCnm7qE_swFrW-W28lRQSSY0p4wtXcGQIZfw5kCrWpgZtBQSHw-Xt2txMPIe-fQZK4ZMwM4ASoYY7AIMNCmq2ZHefq4rvFl2a6Jwi7QoAH1HWnruwDw6AHhyeE-_acyyH8c72n1LbjvZRB9ZBpQMpI7bMK6yzZ5GY9qH7VXyOpeSnRLOoptmdwlQOxxy1A0-lo"/><span class="font-headline-lg text-headline-lg tracking-tight text-primary uppercase">MORO MARKET</span></a><nav class="hidden xl:flex items-center gap-space-lg" data-active-classes="text-primary font-bold border-b-2 border-primary pb-1"><a class="font-label-lg text-label-lg text-on-surface-variant hover:text-primary transition-colors py-space-xs" data-path="best" href="#">베스트</a><a class="font-label-lg text-label-lg text-on-surface-variant hover:text-primary transition-colors py-space-xs" data-path="new" href="#">신상품</a><a aria-current="page" class="transition-colors py-space-xs text-primary font-bold border-b-2 border-primary pb-1" data-path="order-history" href="/shop/orders">주문·반품</a><a class="font-label-lg text-label-lg text-on-surface-variant hover:text-primary transition-colors py-space-xs" data-path="customer-service" href="/shop/support">고객센터</a><a class="font-label-lg text-label-lg text-on-surface-variant hover:text-primary transition-colors py-space-xs" data-path="my-page" href="/shop/mypage">마이페이지</a></nav></div><div class="flex-1 max-w-md hidden md:block"><div class="relative flex items-center w-full"><input class="w-full h-11 pl-space-md pr-11 bg-surface-container-low text-on-surface placeholder:text-outline font-body-sm text-body-sm rounded-lg focus:outline-none focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary transition-all" placeholder="트렌디한 라이프스타일 상품을 검색해 보세요" type="text"/><button aria-label="Search" class="absolute right-space-sm flex items-center justify-center text-outline hover:text-primary"><span class="material-symbols-outlined text-[20px]">search</span></button></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs text-on-surface-variant"><button aria-label="Notifications" class="p-space-xs hover:text-primary transition-colors rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-[22px]">notifications</span></button><button aria-label="Wishlist" class="relative p-space-xs hover:text-primary transition-colors rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-[22px]">favorite</span><span class="absolute top-0 right-0 w-4 h-4 bg-secondary text-on-secondary font-label-sm text-[10px] rounded-full flex items-center justify-center">5</span></button><button aria-label="Cart" class="relative p-space-xs hover:text-primary transition-colors rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-[22px]">shopping_bag</span><span class="absolute top-0 right-0 w-4 h-4 bg-primary text-on-primary font-label-sm text-[10px] rounded-full flex items-center justify-center">2</span></button></div><div class="flex items-center gap-space-sm pl-space-sm"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAweirDJCVlnfzPgmPp9PcPZONXOa9J2rDKxszq2vli_l6-5UwwUFzcH7BK470jWaaWvqDcZ9-vUgl6NU_kve3Rmy_w9f94sFHQXMKFHkvhLzgxpYUXFGU-20HES0V3WV8cDxCK0IcqLLp73Y73buGbtbOrV5t_s4iZoiDE9WPT3-z3M5MdhH-QW4ptXigbX1BnajkogMCxLMEJIzO2wxIVX3Uv_Qy-f1Zxt-GDxw"/><div class="hidden lg:flex items-center gap-space-xs cursor-pointer"><span class="font-label-md text-label-md text-primary">김모로 님</span><span class="material-symbols-outlined text-[16px] text-on-surface-variant">expand_more</span></div></div></div></div></header><main class="w-full pt-20 bg-surface-container-lowest min-h-screen"><div class="flex flex-col w-full">
+<!-- GNB Active State Sync Script for App Shell -->
+<script>
+    (function() {
+      const navLinks = document.querySelectorAll('header nav a');
+      navLinks.forEach(link => {
+        if (link.getAttribute('data-path') === 'order-history') {
+          link.classList.remove('text-on-surface-variant');
+          link.classList.add('text-primary', 'font-bold', 'border-b-2', 'border-primary', 'pb-1');
+        } else {
+          link.classList.remove('text-primary', 'font-bold', 'border-b-2', 'border-primary', 'pb-1');
+          link.classList.add('text-on-surface-variant');
+        }
+      });
+    })();
+  </script>
+<!-- Main Container -->
+<div class="max-w-[1360px] w-full mx-auto px-margin py-space-xl flex flex-col gap-space-xl">
+<!-- Breadcrumb & Top Page Header -->
+<div class="flex flex-col gap-space-sm">
+<nav aria-label="Breadcrumb" class="flex items-center gap-space-xs font-label-md text-label-md text-on-surface-variant">
+<a class="hover:text-primary transition-colors flex items-center gap-1" data-path="home" href="/shop/home">
+<span class="material-symbols-outlined text-[16px]">home</span>홈
+        </a>
+<span class="text-outline-variant font-normal">/</span>
+<span class="text-on-surface-variant">이용정보</span>
+<span class="text-outline-variant font-normal">/</span>
+<span class="text-primary font-bold">주문/배송 내역</span>
+</nav>
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-space-md pt-space-xs">
+<div>
+<div class="flex items-center gap-space-sm mb-1">
+<span class="h-2 w-2 rounded-full bg-secondary"></span>
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-secondary font-bold">Order Management</span>
+</div>
+<h1 class="font-headline-xl text-headline-xl text-primary tracking-tight font-bold">주문 / 배송 조회</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">
+            최근 6개월간 MORO MARKET에서 주문 및 결제하신 내역을 실시간으로 확인하실 수 있습니다.
+          </p>
+</div>
+<div class="flex items-center gap-space-sm">
+<button class="h-10 px-space-md bg-surface-container-low hover:bg-surface-container-high text-primary font-label-md text-label-md rounded flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[18px]">receipt_long</span>
+<span>전체 결제 영수증</span>
+</button>
+<button class="h-10 px-space-md bg-surface-container-low hover:bg-surface-container-high text-primary font-label-md text-label-md rounded flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[18px]">help_outline</span>
+<span>배송 안내 가이드</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Order & Shipping Status Stepper Dashboard -->
+<div class="w-full bg-surface-container-low p-space-lg rounded-xl flex flex-col gap-space-md shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs font-label-lg text-label-lg text-primary">
+<span class="material-symbols-outlined text-[20px] text-secondary">local_shipping</span>
+<span>진행 중인 주문 및 최근 배송 현황</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant">최근 1개월 기준 자동 집계</span>
+</div>
+<!-- Steps Visual Flow -->
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-space-sm relative pt-space-xs">
+<!-- Step 1 -->
+<div class="bg-surface-container-lowest p-space-md rounded-lg flex flex-col items-center justify-center text-center transition-all hover:bg-surface-bright">
+<span class="font-label-sm text-label-sm text-on-surface-variant">입금 대기</span>
+<span class="font-numeric-price text-[26px] leading-8 text-on-surface-variant font-bold mt-1">0</span>
+<span class="font-label-sm text-[10px] text-outline mt-0.5">결제 확인 전</span>
+</div>
+<!-- Step 2 -->
+<div class="bg-surface-container-lowest p-space-md rounded-lg flex flex-col items-center justify-center text-center transition-all hover:bg-surface-bright relative">
+<span class="font-label-sm text-label-sm text-primary font-bold">결제 완료</span>
+<span class="font-numeric-price text-[26px] leading-8 text-secondary font-bold mt-1">1</span>
+<span class="font-label-sm text-[10px] text-secondary mt-0.5">주문 확인 중</span>
+<div class="absolute -top-1.5 -right-1.5 w-3 h-3 bg-secondary rounded-full animate-ping"></div>
+</div>
+<!-- Step 3 -->
+<div class="bg-surface-container-lowest p-space-md rounded-lg flex flex-col items-center justify-center text-center transition-all hover:bg-surface-bright">
+<span class="font-label-sm text-label-sm text-on-surface-variant">배송 준비중</span>
+<span class="font-numeric-price text-[26px] leading-8 text-on-surface-variant font-bold mt-1">0</span>
+<span class="font-label-sm text-[10px] text-outline mt-0.5">물품 포장 중</span>
+</div>
+<!-- Step 4 -->
+<div class="bg-surface-container-lowest p-space-md rounded-lg flex flex-col items-center justify-center text-center transition-all hover:bg-surface-bright">
+<span class="font-label-sm text-label-sm text-primary font-bold">배송중</span>
+<span class="font-numeric-price text-[26px] leading-8 text-primary font-bold mt-1">2</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant mt-0.5">택배사 전달</span>
+</div>
+<!-- Step 5 (Finished) -->
+<div class="bg-surface-container-lowest p-space-md rounded-lg flex flex-col items-center justify-center text-center transition-all hover:bg-surface-bright">
+<span class="font-label-sm text-label-sm text-primary font-bold">배송 완료</span>
+<span class="font-numeric-price text-[26px] leading-8 text-secondary font-bold mt-1">4</span>
+<span class="font-label-sm text-[10px] text-secondary mt-0.5">수령 완료</span>
+</div>
+</div>
+</div>
+<!-- Filter Control Bar -->
+<div class="w-full bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-space-md">
+<!-- Quick Preset Tabs -->
+<div class="flex items-center gap-space-xs overflow-x-auto pb-1 lg:pb-0" id="period-tabs">
+<button class="px-space-md h-10 rounded font-label-md text-label-md text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors">
+          최근 1개월
+        </button>
+<button class="px-space-md h-10 rounded font-label-md text-label-md bg-primary text-on-primary font-bold transition-all shadow-sm">
+          3개월 (기본)
+        </button>
+<button class="px-space-md h-10 rounded font-label-md text-label-md text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors">
+          최근 6개월
+        </button>
+<button class="px-space-md h-10 rounded font-label-md text-label-md text-on-surface-variant hover:text-primary hover:bg-surface-container-low transition-colors">
+          직접 설정
+        </button>
+</div>
+<!-- Date Range Inputs and Action Button -->
+<div class="flex flex-wrap sm:flex-nowrap items-center gap-space-sm">
+<div class="flex items-center gap-space-xs flex-1 sm:flex-initial">
+<div class="relative flex items-center w-36">
+<input class="w-full h-10 px-3 bg-surface-container-low text-primary font-body-sm text-body-sm rounded focus:outline-none focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary text-center" type="text" value="2024.11.28"/>
+</div>
+<span class="text-outline-variant font-bold">~</span>
+<div class="relative flex items-center w-36">
+<input class="w-full h-10 px-3 bg-surface-container-low text-primary font-body-sm text-body-sm rounded focus:outline-none focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary text-center" type="text" value="2025.02.28"/>
+</div>
+</div>
+<button class="h-10 px-space-lg bg-surface-container-high hover:bg-primary hover:text-on-primary text-primary font-label-md text-label-md rounded flex items-center gap-1.5 transition-all">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<span>조회하기</span>
+</button>
+</div>
+</div>
+<!-- Active Orders List Header -->
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex items-center gap-space-sm">
+<h2 class="font-headline-md text-headline-md text-primary font-bold">주문 상세 목록</h2>
+<span class="font-label-sm text-label-sm bg-surface-container-low text-on-surface-variant px-2.5 py-0.5 rounded-full font-semibold">총 3건</span>
+</div>
+<div class="flex items-center gap-space-xs font-body-sm text-body-sm text-outline">
+<span class="material-symbols-outlined text-[16px]">info</span>
+<span>주문번호를 누르면 거래명세서 확인이 가능합니다.</span>
+</div>
+</div>
+<!-- Orders Matrix Stack -->
+<div class="flex flex-col gap-space-lg">
+<!-- ORDER 1: Target Order for Refund / Exchange (UX Highlighted) -->
+<div class="w-full bg-surface-container-lowest rounded-xl shadow-md overflow-hidden transition-all duration-200 hover:shadow-lg">
+<!-- Top Status Bar -->
+<div class="bg-surface-container-low/70 px-space-lg py-space-sm flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex flex-wrap items-center gap-x-space-md gap-y-1">
+<span class="font-headline-sm text-headline-sm text-primary font-bold">2025.02.24</span>
+<span class="text-outline-variant">|</span>
+<div class="flex items-center gap-1">
+<span class="font-label-sm text-label-sm text-outline">주문번호</span>
+<a class="font-numeric-price text-body-md text-primary hover:underline font-bold flex items-center" href="#">
+                ORD-20250224-884920
+                <span class="material-symbols-outlined text-[14px] ml-0.5 text-on-surface-variant">chevron_right</span>
+</a>
+</div>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="inline-flex items-center gap-1 px-space-sm py-1 rounded bg-secondary-container text-on-secondary-container font-label-md text-label-md font-bold">
+<span class="material-symbols-outlined text-[16px]">task_alt</span>
+              배송완료 (02.26 수령)
+            </span>
+</div>
+</div>
+<!-- Order Body Content -->
+<div class="p-space-lg flex flex-col lg:flex-row items-start lg:items-center justify-between gap-space-xl">
+<!-- Left: Product Item Detail -->
+<div class="flex items-start gap-space-md flex-1 min-w-0">
+<!-- 3:4 Editorial Thumbnail -->
+<div class="relative w-24 h-32 flex-shrink-0 bg-surface-container-high rounded overflow-hidden shadow-inner group">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" data-alt="Sophisticated charcoal grey wool minimal single jacket on an elegant wooden minimalist hanger in a natural sunlight studio with quiet editorial aesthetics and soft clean shadows" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDV0uPQ8h9rHiMaLsKXj2Ffsgc8BIMvCt2mzXpY40R2zEJOyn0iKWqr5PP8pcf-zOm3FKPszpE7j8xyObx2QhWNSYejYpQAKHqnXSHBJ4GQthIp0rrM4MmuYjujYBtggSCsVO3fZ9pv1ZrGRsCF-L78bJIiUUpyaW-_Kaqk1guJipgNXTgVD-57qDFWSWLR2h_aXOnC1EVyGQ0NDDVpgEJfuIHIZKb38it9dmlVNdE"/>
+<span class="absolute top-1 left-1 bg-primary text-on-primary text-[10px] font-bold px-1.5 py-0.5 rounded">EXCLUSIVE</span>
+</div>
+<div class="flex flex-col justify-center min-w-0 flex-1">
+<div class="flex items-center gap-space-xs mb-1">
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-outline font-bold">ANER (아네르)</span>
+<span class="text-outline-variant text-[10px]">•</span>
+<span class="font-label-sm text-label-sm text-secondary font-medium">모로 익스클루시브 라인</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-primary tracking-tight font-semibold line-clamp-1 hover:text-secondary transition-colors cursor-pointer">
+                울 블렌드 미니멀 오버핏 싱글 자켓
+              </h3>
+<div class="mt-1 flex flex-wrap items-center gap-x-space-sm gap-y-1 font-body-sm text-body-sm text-on-surface-variant">
+<span class="bg-surface-container-low px-2 py-0.5 rounded text-primary font-medium">옵션: Charcoal Grey / L (105)</span>
+<span>수량: 1개</span>
+</div>
+<div class="mt-2.5 flex items-baseline gap-space-sm">
+<span class="font-numeric-price text-numeric-price text-primary font-bold">189,000원</span>
+<span class="font-body-sm text-body-sm text-outline line-through">238,000원</span>
+<span class="font-label-sm text-label-sm text-secondary font-bold">20% OFF</span>
+</div>
+</div>
+</div>
+<!-- Right: Action Buttons Group (UX Primary Target) -->
+<div class="flex flex-col sm:flex-row lg:flex-col gap-space-xs w-full lg:w-48 flex-shrink-0">
+<!-- ★ Refund Action Button (Highlighted for UX task test) -->
+<a class="w-full h-11 px-space-md bg-primary hover:bg-neutral-800 text-on-primary font-label-lg text-label-lg rounded flex items-center justify-center gap-1.5 transition-all shadow-sm hover:shadow active:scale-[0.99] group" data-path="refund-request" href="/shop/refund">
+<span class="material-symbols-outlined text-[18px] text-secondary-fixed">assignment_return</span>
+<span class="font-bold">환불 신청하기</span>
+<span class="material-symbols-outlined text-[16px] transition-transform group-hover:translate-x-0.5">arrow_forward</span>
+</a>
+<button class="w-full h-9 px-space-md bg-surface-container-low hover:bg-surface-container-high text-primary font-label-md text-label-md rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-[16px]">swap_horiz</span>
+<span>사이즈/색상 교환</span>
+</button>
+<div class="grid grid-cols-2 gap-space-xs pt-0.5">
+<button class="h-9 px-space-xs bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-primary font-label-sm text-label-sm rounded flex items-center justify-center gap-0.5 transition-colors">
+<span class="material-symbols-outlined text-[15px]">inventory_2</span>
+<span>배송조회</span>
+</button>
+<button class="h-9 px-space-xs bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-primary font-label-sm text-label-sm rounded flex items-center justify-center gap-0.5 transition-colors">
+<span class="material-symbols-outlined text-[15px]">article</span>
+<span>주문상세</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Tracking Notice Footer Bar -->
+<div class="bg-surface-container-low/40 px-space-lg py-2 flex items-center justify-between text-on-surface-variant font-label-sm text-label-sm">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>한진택배 4029-8819-2041 (문앞 배송완료)</span>
+</div>
+<span class="text-secondary font-medium">수령 후 7일 이내 환불 보장 기간 (~03.05까지)</span>
+</div>
+</div>
+<!-- ORDER 2: Delivered Item (Mug & Saucer) -->
+<div class="w-full bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md">
+<!-- Top Status Bar -->
+<div class="bg-surface-container-low/70 px-space-lg py-space-sm flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex flex-wrap items-center gap-x-space-md gap-y-1">
+<span class="font-headline-sm text-headline-sm text-primary font-bold">2025.02.18</span>
+<span class="text-outline-variant">|</span>
+<div class="flex items-center gap-1">
+<span class="font-label-sm text-label-sm text-outline">주문번호</span>
+<a class="font-numeric-price text-body-md text-primary hover:underline font-bold flex items-center" href="#">
+                ORD-20250218-501239
+                <span class="material-symbols-outlined text-[14px] ml-0.5 text-on-surface-variant">chevron_right</span>
+</a>
+</div>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="inline-flex items-center gap-1 px-space-sm py-1 rounded bg-surface-container-high text-primary font-label-md text-label-md font-bold">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+              배송완료 (구매확정 대기)
+            </span>
+</div>
+</div>
+<!-- Order Body Content -->
+<div class="p-space-lg flex flex-col lg:flex-row items-start lg:items-center justify-between gap-space-xl">
+<!-- Left: Product Item Detail -->
+<div class="flex items-start gap-space-md flex-1 min-w-0">
+<div class="relative w-24 h-32 flex-shrink-0 bg-surface-container-high rounded overflow-hidden shadow-inner group">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" data-alt="Artisanal ceramic matte mug and delicate saucer set in soft pale cream mint tone resting on a textured linen table with subtle dappled daylight lifestyle composition" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAZPuP5Str6NU3p5EhFDYU2Nxp4FhKFTRe90MU2QGX5B1pJvgvHuT5fmkcZcHh5vnpuKF5dJgzvW8ob85chUyMhrcjAkeGO3G6hfW-lnUqhFlRKVCuEEZb9pMm0RP7OgGouMui5MmZljwzRdIQbmjS_k55ZjU2CXUum8DAplMlDG4lHGOyw96wjRKcxhkc2VnQGbgHPq3otgFFlNdCZm6G-yybfzVq2_b4WznQiDX0"/>
+</div>
+<div class="flex flex-col justify-center min-w-0 flex-1">
+<div class="flex items-center gap-space-xs mb-1">
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-outline font-bold">OVO HOME OBJECTS</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-primary tracking-tight font-semibold line-clamp-1 hover:text-secondary transition-colors cursor-pointer">
+                모던 세라믹 머그 앤 소서 세트 (Cream Mint)
+              </h3>
+<div class="mt-1 flex flex-wrap items-center gap-x-space-sm gap-y-1 font-body-sm text-body-sm text-on-surface-variant">
+<span class="bg-surface-container-low px-2 py-0.5 rounded text-primary font-medium">옵션: 단품 (머그 1ea + 소서 1ea)</span>
+<span>수량: 1개</span>
+</div>
+<div class="mt-2.5 flex items-baseline gap-space-sm">
+<span class="font-numeric-price text-numeric-price text-primary font-bold">34,000원</span>
+<span class="font-label-sm text-label-sm text-outline font-medium">무료배송</span>
+</div>
+</div>
+</div>
+<!-- Right: Action Buttons Group -->
+<div class="flex flex-col sm:flex-row lg:flex-col gap-space-xs w-full lg:w-48 flex-shrink-0">
+<button class="w-full h-10 px-space-md bg-secondary hover:bg-on-secondary-container text-on-secondary font-label-md text-label-md font-bold rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-[18px]">verified</span>
+<span>구매확정</span>
+</button>
+<button class="w-full h-9 px-space-md bg-surface-container-low hover:bg-surface-container-high text-primary font-label-md text-label-md rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-[16px] text-secondary">rate_review</span>
+<span>리뷰 작성 (500P 적립)</span>
+</button>
+<div class="grid grid-cols-2 gap-space-xs pt-0.5">
+<a class="h-9 px-space-xs bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-error font-label-sm text-label-sm rounded flex items-center justify-center gap-0.5 transition-colors" data-path="refund-request" href="/shop/refund">
+<span>환불 신청</span>
+</a>
+<button class="h-9 px-space-xs bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant hover:text-primary font-label-sm text-label-sm rounded flex items-center justify-center gap-0.5 transition-colors">
+<span>주문상세</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- ORDER 3: In Transit Delivery -->
+<div class="w-full bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md">
+<!-- Top Status Bar -->
+<div class="bg-surface-container-low/70 px-space-lg py-space-sm flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex flex-wrap items-center gap-x-space-md gap-y-1">
+<span class="font-headline-sm text-headline-sm text-primary font-bold">2025.02.27</span>
+<span class="text-outline-variant">|</span>
+<div class="flex items-center gap-1">
+<span class="font-label-sm text-label-sm text-outline">주문번호</span>
+<a class="font-numeric-price text-body-md text-primary hover:underline font-bold flex items-center" href="#">
+                ORD-20250227-104928
+                <span class="material-symbols-outlined text-[14px] ml-0.5 text-on-surface-variant">chevron_right</span>
+</a>
+</div>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="inline-flex items-center gap-1 px-space-sm py-1 rounded bg-secondary-container/50 text-on-secondary-container font-label-md text-label-md font-bold">
+<span class="material-symbols-outlined text-[16px] animate-pulse">local_shipping</span>
+              배송중 (CJ대한통운 6829482910)
+            </span>
+</div>
+</div>
+<!-- Order Body Content -->
+<div class="p-space-lg flex flex-col lg:flex-row items-start lg:items-center justify-between gap-space-xl">
+<!-- Left: Product Item Detail -->
+<div class="flex items-start gap-space-md flex-1 min-w-0">
+<div class="relative w-24 h-32 flex-shrink-0 bg-surface-container-high rounded overflow-hidden shadow-inner group">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" data-alt="Minimal architectural portable wireless LED lamp with warm ambient glow cast on a brushed aluminum stand against an understated clean interior design room background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD7rxQ7BvmxA2HqEgCeacZYLUsurTxyHkQWkK5wSfsAXy4O4emT4ZuAA1cq-ui5T8jWPkNJwiyC3u9oprJnqp1DrqqBBiZiZIhy69utPQ440E0x6aOUwJyUnqL5-S6M3x95S9O-FUnE5_Lj2WlSTDeBzI7pWR62foN9EyU3ZKBfcexLW4tZFQTycZsQzXwTckQlP1Jv_2rRCaUKYafI1kfZQiXwASzQmdaq-aSlZCs"/>
+</div>
+<div class="flex flex-col justify-center min-w-0 flex-1">
+<div class="flex items-center gap-space-xs mb-1">
+<span class="font-label-sm text-label-sm uppercase tracking-wider text-outline font-bold">LUMEN STUDIO</span>
+<span class="text-outline-variant text-[10px]">•</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">빠른출고</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-primary tracking-tight font-semibold line-clamp-1 hover:text-secondary transition-colors cursor-pointer">
+                포터블 LED 무선 램프 (스탠다드 충전 독 포함)
+              </h3>
+<div class="mt-1 flex flex-wrap items-center gap-x-space-sm gap-y-1 font-body-sm text-body-sm text-on-surface-variant">
+<span class="bg-surface-container-low px-2 py-0.5 rounded text-primary font-medium">옵션: 매트 샌드베이지 / 3단계 디밍</span>
+<span>수량: 1개</span>
+</div>
+<div class="mt-2.5 flex items-baseline gap-space-sm">
+<span class="font-numeric-price text-numeric-price text-primary font-bold">68,000원</span>
+<span class="font-body-sm text-body-sm text-outline line-through">85,000원</span>
+</div>
+</div>
+</div>
+<!-- Right: Action Buttons Group -->
+<div class="flex flex-col sm:flex-row lg:flex-col gap-space-xs w-full lg:w-48 flex-shrink-0">
+<button class="w-full h-10 px-space-md bg-surface-container-high hover:bg-primary hover:text-on-primary text-primary font-label-md text-label-md font-bold rounded flex items-center justify-center gap-1.5 transition-all">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span>실시간 위치추적</span>
+</button>
+<button class="w-full h-9 px-space-md bg-surface-container-low hover:bg-surface-container-high text-primary font-label-md text-label-md rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-[16px]">receipt</span>
+<span>주문상세 내역</span>
+</button>
+<div class="p-2 bg-surface-container-low rounded text-center">
+<span class="font-label-sm text-[11px] text-on-surface-variant leading-tight block">
+                배송 예정일: <strong class="text-primary font-semibold">내일 (03.01) 도착 예정</strong>
+</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Pagination & History Extension -->
+<div class="flex items-center justify-center gap-space-xs py-space-md">
+<button class="w-9 h-9 rounded bg-surface-container-low text-outline flex items-center justify-center hover:bg-surface-container-high hover:text-primary transition-colors disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined text-[18px]">chevron_left</span>
+</button>
+<button class="w-9 h-9 rounded bg-primary text-on-primary font-label-md text-label-md font-bold">1</button>
+<button class="w-9 h-9 rounded bg-surface-container-low text-primary font-label-md text-label-md hover:bg-surface-container-high transition-colors">2</button>
+<button class="w-9 h-9 rounded bg-surface-container-low text-primary font-label-md text-label-md hover:bg-surface-container-high transition-colors">3</button>
+<button class="w-9 h-9 rounded bg-surface-container-low text-outline flex items-center justify-center hover:bg-surface-container-high hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]">chevron_right</span>
+</button>
+</div>
+<!-- Bottom Notice & Return Policy Box -->
+<div class="w-full bg-surface-container-low p-space-lg rounded-xl flex flex-col gap-space-md mt-space-sm">
+<div class="flex items-center gap-space-xs font-label-lg text-label-lg text-primary">
+<span class="material-symbols-outlined text-[20px] text-primary">verified_user</span>
+<span>주문 / 취소 및 교환·환불 유의사항</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-md pt-space-xs font-body-sm text-body-sm text-on-surface-variant">
+<!-- Policy 1 -->
+<div class="flex items-start gap-space-sm bg-surface-container-lowest p-space-md rounded-lg">
+<span class="material-symbols-outlined text-secondary text-[20px] flex-shrink-0 mt-0.5">event_available</span>
+<div class="space-y-1">
+<strong class="text-primary font-bold block">7일 이내 환불 신청 가능</strong>
+<p class="leading-relaxed">상품 수령 후 7일 이내 주문내역 상세 페이지의 <span class="text-primary font-semibold">[환불 신청]</span> 버튼을 통해 즉시 접수하실 수 있습니다.</p>
+</div>
+</div>
+<!-- Policy 2 -->
+<div class="flex items-start gap-space-sm bg-surface-container-lowest p-space-md rounded-lg">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px] flex-shrink-0 mt-0.5">local_shipping</span>
+<div class="space-y-1">
+<strong class="text-primary font-bold block">반품 배송비 안내</strong>
+<p class="leading-relaxed">고객 단순 변심으로 인한 교환 및 반품 시 왕복 또는 편도 배송비(3,000원)가 발생하며 최초 결제금액에서 자동 차감됩니다.</p>
+</div>
+</div>
+<!-- Policy 3 -->
+<div class="flex items-start gap-space-sm bg-surface-container-lowest p-space-md rounded-lg">
+<span class="material-symbols-outlined text-secondary text-[20px] flex-shrink-0 mt-0.5">support_agent</span>
+<div class="space-y-1">
+<strong class="text-primary font-bold block">불량 및 오배송 시 100% 무상 수거</strong>
+<p class="leading-relaxed">제품 하자 또는 배송 오류의 경우 배송비 없이 무료 교환 및 환불이 진행되며, 고객센터를 통해 신속한 회수가 접수됩니다.</p>
+</div>
+</div>
+</div>
+<div class="flex flex-wrap items-center justify-between pt-space-xs text-outline font-label-sm text-label-sm border-t border-outline-variant/30">
+<span>온라인 환불 접수가 원활하지 않은 경우 모로마켓 고객행복센터(1588-0000)로 문의 바랍니다.</span>
+<a class="hover:text-primary underline flex items-center gap-0.5" data-path="customer-service" href="/shop/support">
+<span>1:1 상담 바로가기</span>
+<span class="material-symbols-outlined text-[13px]">open_in_new</span>
+</a>
+</div>
+</div>
+</div>
+</div></main><footer class="w-full bg-surface-container-lowest shadow-[0_-1px_0_rgba(0,0,0,0.06)]"><div class="max-w-[1360px] mx-auto px-margin pt-space-2xl pb-space-3xl"><div class="grid grid-cols-1 lg:grid-cols-12 gap-space-xl pb-space-xl"><div class="lg:col-span-7 flex flex-col gap-space-md"><div class="flex items-center gap-space-md flex-wrap"><span class="font-headline-sm text-headline-sm text-primary uppercase tracking-tight">MORO MARKET</span><span class="font-label-md text-label-md text-secondary bg-secondary-container/40 px-space-xs py-0.5 rounded">프리미엄 큐레이션 커머스</span></div><div class="flex flex-wrap items-center gap-x-space-md gap-y-space-xs font-label-md text-label-md text-on-surface-variant"><a class="hover:text-primary transition-colors" href="#">회사소개</a><span class="text-outline-variant">·</span><a class="hover:text-primary transition-colors font-bold text-primary" href="#">이용약관</a><span class="text-outline-variant">·</span><a class="hover:text-primary transition-colors font-bold text-primary" href="#">개인정보처리방침</a><span class="text-outline-variant">·</span><a class="hover:text-primary transition-colors" href="#">입점문의</a><span class="text-outline-variant">·</span><a class="hover:text-primary transition-colors flex items-center gap-1" href="#"><span class="material-symbols-outlined text-[14px] text-secondary">verified_user</span>에스크로 안전결제 인증</a></div><div class="font-body-sm text-body-sm text-on-surface-variant space-y-space-xs leading-relaxed"><p>주식회사 모로마켓 (MORO MARKET Co., Ltd.) | 대표자: 김모로 | 사업자등록번호: 220-88-00000</p><p>통신판매업신고번호: 제 2025-서울강남-0000호 | 호스팅서비스: 주식회사 모로마켓</p><p>주소: 서울특별시 강남구 테헤란로 123 모로타워 8층 | 이메일: contact@moromarket.kr</p></div></div><div class="lg:col-span-5 flex flex-col justify-start lg:items-end gap-space-sm"><div class="text-left lg:text-right"><span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider block">Customer Care Center</span><span class="font-headline-xl text-headline-xl text-primary tracking-tight font-bold">1588-0000</span></div><div class="text-left lg:text-right font-body-sm text-body-sm text-on-surface-variant space-y-0.5"><p>운영시간: 평일 10:00 - 18:00 (점심시간 12:30 - 13:30)</p><p>주말 및 공휴일 휴무 | 1:1 온라인 문의 24시간 접수 가능</p></div><div class="flex items-center gap-space-sm pt-space-xs"><a class="h-9 px-space-md bg-surface-container-low text-primary font-label-md text-label-md rounded flex items-center gap-1 hover:bg-surface-container-high transition-colors" data-path="customer-service" href="/shop/support"><span>자주 묻는 질문 (FAQ)</span><span class="material-symbols-outlined text-[14px]">arrow_forward</span></a><a class="h-9 px-space-md bg-surface-container-low text-primary font-label-md text-label-md rounded flex items-center gap-1 hover:bg-surface-container-high transition-colors" data-path="refund-request" href="/shop/refund"><span>반품/교환 안내</span><span class="material-symbols-outlined text-[14px]">restart_alt</span></a></div></div></div><div class="pt-space-lg flex flex-col sm:flex-row items-center justify-between gap-space-md text-on-surface-variant font-label-sm text-label-sm"><p>Copyright © 2025 MORO MARKET Co., Ltd. All rights reserved.</p><p class="text-outline text-right">소비자피해보상보험: 고객님의 안전거래를 위해 현금 결제 시 KG이니시스 에스크로 서비스를 이용하실 수 있습니다.</p></div></div></footer><script id="uxm-test-mode">
+(() => {
+  const q = new URLSearchParams(location.search).get('testMode');
+  if (q) sessionStorage.setItem('testMode', q);
+  const mode = sessionStorage.getItem('testMode');
+  const path = location.pathname.replace(/\/$/, '');
+  const find = (sel, text) => [...document.querySelectorAll(sel)].find(a => a.textContent.includes(text));
+  if (mode === 'nochange' && path === '/shop/mypage') {
+    const a = find('aside a[href="#"]', '쿠폰함');
+    a.setAttribute('href', '/shop/coupons');
+    a.addEventListener('click', e => e.preventDefault());
+  }
+  if (mode === 'deadend' && path === '/shop/support') {
+    find('a[href="/shop/orders"]', '배송 현황 확인').style.display = 'none';
+  }
+})();
+</script></body></html>

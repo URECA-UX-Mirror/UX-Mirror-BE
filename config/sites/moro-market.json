@@ -1,0 +1,29 @@
+{
+  "name": "moro-market",
+  "pages": {
+    "home": "/shop/home",
+    "mypage": "/shop/mypage",
+    "orders": "/shop/orders",
+    "support": "/shop/support",
+    "refund": "/shop/refund"
+  },
+  "startPage": "home",
+  "pathPrefix": "/shop/",
+  "allowedHosts": [],
+  "variants": {
+    "before": "http://127.0.0.1:8001"
+  },
+  "siteMapVersion": "sitemap-v1",
+  "out": "config/sitemaps/sitemap-shop-v1.json",
+  "presetCheck": true,
+  "meta": {
+    "siteVersion": "shop-v1",
+    "layoutVersion": "shop-layout-v1",
+    "candidatePolicyVersion": "candidate-v2",
+    "initialBrowserStateId": "clean-context-v1",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  }
+}

@@ -2,9 +2,44 @@
 __pycache__/
 .pytest_cache/
 .env
+# 접속 키·인증서 (EC2 .pem 등). 저장소 폴더에 두어도 커밋되지 않게
+*.pem
+*.ppk
+*.key
+id_rsa*
+id_ed25519*
+# .env 복사본(.env.local 등)도 막는다. 예시 파일만 올린다
+.env.*
+!.env.example
 results/screenshots/
+# 프로세스 사이 Run 잠금 (api/run_lock.py)
+results/.active_run.*
 # STS / Eclipse 설정
 .project
 .settings/
 .pydevproject
 .classpath
+
+# 개인 세션 메모 (Claude 작업 기록)
+.memory/
+
+# 실행 결과: 가짜 실행 샘플만 Git에 포함 (#3)
+results/runs/*
+!results/runs/sample_before/
+results/comparisons/
+
+# 쇼핑몰 서버 로그 (server.py > server.log 로 켤 때 생김)
+shop/**/server.log
+
+# UX Optimizer 실행 결과 (#57)
+results/optimizations/
+
+# 목표 도달 확률 추정 결과 (#61)
+results/reach/
+
+# C0~C4 사이트 점검 결과 (#85)
+results/site_checks/
+
+# 자동 개선 실행 결과 (#106) — 기준 고정 파일 results/improvement_plan.json은 커밋한다
+results/improvements/
+results/improvement_jobs/

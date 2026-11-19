@@ -1,0 +1,14 @@
+[Unit]
+Description=UX MIRROR test shops (v1·final·C1-C4, 127.0.0.1:8001,8003-8006,8010)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__APP_DIR__
+ExecStart=/usr/bin/env bash __APP_DIR__/deploy/run_shops.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

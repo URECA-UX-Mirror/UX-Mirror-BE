@@ -1,0 +1,43 @@
+name: 프론트 실제 API 연동
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      frontend_ref:
+        description: '프론트 ref (PR #22 변경 포함)'
+        required: true
+        default: cbf79e469d31c6b9173e155491927bbf13bb7542
+
+jobs:
+  frontend-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: backend
+      - uses: actions/checkout@v4
+        with:
+          repository: UX-Mirror/UX-Mirror-FE
+          ref: ${{ inputs.frontend_ref || 'cbf79e469d31c6b9173e155491927bbf13bb7542' }}
+          path: frontend
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 검증 커밋 기록
+        run: |
+          echo "Backend: $(git -C backend rev-parse HEAD)"
+          echo "Frontend: $(git -C frontend rev-parse HEAD)"
+      - name: 테스트 의존성 설치
+        run: |
+          python -m pip install fastapi uvicorn httpx pytest python-dotenv playwright
+          python -m playwright install --with-deps chromium
+          npm ci --prefix frontend
+      - name: 실제 API 연동 테스트
+        working-directory: backend
+        env:
+          UXM_FRONTEND_PATH: ${{ github.workspace }}/frontend
+        run: python -m pytest -q tests/test_frontend_live_api.py

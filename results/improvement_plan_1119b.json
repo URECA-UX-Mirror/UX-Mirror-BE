@@ -1,0 +1,219 @@
+{
+  "_note": "2차 실행 등록본 (FROZEN). 동결본 (FROZEN). 이 파일은 커밋 후 수정하지 않는다 (설계 v2.2 §4.0). E 계획(final_execution_plan.json)과 별개의 추가 실험이다. scripts/improve.py는 실행 전에 이 파일의 모델·사이트 지도 조건과 지금 환경이 같은지 확인한다.",
+  "improvementPlanId": "improve-plan-1119",
+  "improvementId": "imp-1119b",
+  "status": "FROZEN",
+  "frozenAt": "2026-11-19T23:31:13+09:00",
+  "secondRun": {
+    "registeredAt": "2026-11-19T23:57:17+09:00",
+    "basedOn": "results/improvement_plan.json (imp-1119, FROZEN 2026-11-19T23:31:13+09:00)",
+    "reason": "1차 imp-1119가 NO_IMPROVEMENT. 팀 결정으로 같은 규칙의 2차 실행을 1회만 추가한다",
+    "changes": "improvementId(imp-1119 → imp-1119b)와 검증 키만 다름. 목표·점수·채택 규칙·후보·모델 조건 모두 동일",
+    "disclosure": "1차·2차 결과를 모두 공개한다. 2차도 채택이 없으면 '개선안 없음'으로 확정하고 더 실행하지 않는다"
+  },
+  "gitCommit": "731337c",
+  "gitCommitScope": "실행 코드 기준 커밋 (develop = Merge PR #114: 자동 개선 진단·루프·실행 스크립트 #110, 이름 제안 보완 #113·#114, 정책 #105, 글자 바꾸기·화면 검사 #107, 검증 Run #102, 방문 확률 #100)",
+  "designDoc": "자동 개선 에이전트 설계 v2.2 + 역할 배분 §3 확정본 (11/19)",
+  "practiceRuns": "11/19 행사 GPU 연습 실행 3회(DRAFT 기준, 결과는 저장소 밖)로 제안 단계 보완(#113·#114) 후 동결. 연습 결과는 발표 수치로 쓰지 않는다",
+  "site": {
+    "siteId": "moro-market",
+    "variant": "before",
+    "siteVersion": "shop-v1",
+    "layoutVersion": "shop-layout-v1"
+  },
+  "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+  "mainGoal": {
+    "goalKey": "S1",
+    "goal": "지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다",
+    "goalPage": "refund",
+    "situation": "환불하려는",
+    "name": "환불",
+    "verification": {
+      "type": "PATH_AND_VISIBLE_TEXT",
+      "path": "/shop/refund",
+      "text": "환불 / 반품 신청",
+      "exact": false,
+      "scope": "page"
+    }
+  },
+  "guardGoals": [
+    {
+      "goalKey": "S2",
+      "goal": "어제 산 물건이 지금 어디쯤 오고 있는지 알고 싶다",
+      "goalPage": "orders",
+      "name": "배송",
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "path": "/shop/orders",
+        "text": "주문 / 배송 조회",
+        "exact": false,
+        "scope": "page"
+      }
+    },
+    {
+      "goalKey": "S3",
+      "goal": "내가 가진 할인 쿠폰이 몇 장 남았는지 보고 싶다",
+      "goalPage": "mypage",
+      "name": "쿠폰",
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "path": "/shop/mypage",
+        "text": "사용 가능 쿠폰",
+        "exact": false,
+        "scope": "page"
+      }
+    },
+    {
+      "goalKey": "S4",
+      "goal": "받은 상품에 문제가 있어서 직원에게 직접 물어보고 싶다",
+      "goalPage": "support",
+      "name": "문의",
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "path": "/shop/support",
+        "text": "자주 묻는 질문",
+        "exact": false,
+        "scope": "page"
+      }
+    }
+  ],
+  "goalSentenceSource": "E 계획 final-plan-1119의 S1~S4와 같은 문장 (사전 등록 문장 재사용, 결과를 보고 바꾸지 않음)",
+  "score": {
+    "main": "reachWithinShortestProbability",
+    "guard": "reachWithinShortestProbability",
+    "reportOnly": [
+      "reachProbability",
+      "expectedStepsGivenReach",
+      "bottleneckCorrectProbability",
+      "normalizedEntropy"
+    ],
+    "maxSteps": 8,
+    "engineVersion": "reach-v1"
+  },
+  "rules": {
+    "mainBaseline": "CURRENT",
+    "guardBaseline": "ORIGINAL_V1",
+    "tieGrouping": "LEADER_RELATIVE",
+    "tieBreak": [
+      "GUARD_MEAN",
+      "SHORTER_LABEL",
+      "HUMAN_FIRST",
+      "ORDER"
+    ],
+    "targetScore": 0.8,
+    "maxRounds": 3,
+    "stopAfterRoundsWithoutAdoption": 2,
+    "maxCandidatesPerRound": 10,
+    "minMainGain": 0.05,
+    "maxGuardLoss": 0.02,
+    "tieTolerance": 0.01,
+    "_keyNote": "키 이름은 PR #105 choose()와 같게 (minMainGain·maxGuardLoss·tieTolerance). 없으면 루프가 오류를 낸다"
+  },
+  "edit": {
+    "editableSemanticKeys": [
+      "상단 메뉴>/shop/orders#1"
+    ],
+    "editableNote": "1단계는 B 생성기(relabel_nav·parity_ok)가 바꿀 수 있는 이용정보 자리 버튼 하나만. 진단이 다른 버튼을 고르면 NOT_EDITABLE_IN_STAGE1로 멈춤",
+    "minNewLabelLength": 1,
+    "maxNewLabelLength": 6,
+    "labelNormalization": "앞뒤 공백 제거, 연속 공백 1칸 (filter_labels·apply_label·check_layout 공통)",
+    "oneButtonPerRound": true,
+    "methodInLoop": "A",
+    "methodOfficial": "B",
+    "layoutCheck": [
+      "VIEWPORT_MISMATCH",
+      "CANDIDATE_COUNT",
+      "CANDIDATE_ORDER",
+      "DESTINATION",
+      "SEMANTIC_KEY",
+      "OTHER_LABELS",
+      "TARGET_LABEL_MISMATCH",
+      "BBOX_2PX",
+      "LABEL_OVERFLOW"
+    ],
+    "_maxLengthNote": "이성집 측정(#107): 84px 상단 메뉴 칸에 한글 7자까지 들어감 → 6자 안전",
+    "targetPageDescription": "주문 내역 화면(주문·배송 조회와 환불·반품 신청을 하는 곳)"
+  },
+  "humanCandidates": [
+    {
+      "candidateId": "H1",
+      "label": "주문·배송"
+    },
+    {
+      "candidateId": "H2",
+      "label": "주문·환불"
+    },
+    {
+      "candidateId": "H3",
+      "label": "주문·반품"
+    },
+    {
+      "candidateId": "H4",
+      "label": "주문 관리"
+    }
+  ],
+  "aiProposal": {
+    "maxPerRound": 6,
+    "promptVersion": "propose-v2",
+    "chatTemperature": 0.6,
+    "enableThinking": false,
+    "maxAttempts": 3,
+    "minAccepted": 3,
+    "_note": "통과 이름이 minAccepted개 모일 때까지 최대 maxAttempts번 요청, 모든 시도의 통과 이름을 합침 (11/19 연습 실행 반영)"
+  },
+  "model": {
+    "modelVersion": "trillionlabs/Zoro-1",
+    "modelEndpointId": "brev-l40s-bf16",
+    "promptVersion": "v2",
+    "temperature": 1.52,
+    "goalJudgmentMode": "DOM_ONLY"
+  },
+  "referencePath": {
+    "basis": "SITE_MAP",
+    "siteMapVersion": "sitemap-v1",
+    "siteMapHash": "sha256:da53a6c6e38b53a7a1e02ff82e7ca6a9806ce24a22554beb547b3daad47731e3"
+  },
+  "browser": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "initialBrowserStateId": "clean-context-v1",
+    "candidatePolicyVersion": "candidate-v2"
+  },
+  "verification": {
+    "function": "api.improvement.run_verification(frozen, site_url, label, goals) — 장근창 PR #102. 한 번 호출로 목표마다 v1(site-c0)→최종안 1쌍",
+    "goals": [
+      "S1",
+      "S4"
+    ],
+    "optionalGoals": [
+      "S2",
+      "S3"
+    ],
+    "frozen": {
+      "improvementId": "imp-1119b",
+      "_improvementIdRule": "experimentKey = <improvementId>-<goalId>. 영문·숫자·_·-만, 키 64자 이하 (예: imp-1119-S1)",
+      "personaId": null,
+      "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+      "startPath": "/shop/home",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "limits": {
+        "maxSteps": 8
+      },
+      "modelMetadata": {
+        "modelVersion": "trillionlabs/Zoro-1",
+        "modelEndpointId": "brev-l40s-bf16",
+        "temperature": 1.52,
+        "promptVersion": "v2",
+        "goalJudgmentMode": "DOM_ONLY"
+      },
+      "_personaIdNote": "직접 입력 페르소나는 personaId=null (실행 API·E와 같게, PR #102 1b33426)"
+    }
+  },
+  "startPage": "home",
+  "gitCommitRule": "기준 동결 직전 develop HEAD를 기록한다. 실행 커밋과 다르면 차이 파일을 run_log에 남긴다."
+}

@@ -1,0 +1,675 @@
+"""에이전트 루프 (2번 흐름·저장, 이슈 #7).
+
+Zoro-1이 고른 행동을 그대로 실행하고, 실패를 처리하고, 언제 멈출지 정하고, 전부 기록한다.
+고르는 것은 모델(backend.decide)이고, 루프는 서버의 choice를 바꾸지 않는다 (계약 10.1).
+
+    run_agent(settings, backend, page) -> dict
+
+- 실행 API(api/runner.py)가 Run 폴더·run.json을 만들고 브라우저를 연 뒤 `page`만 넘긴다. 루프는 브라우저를 열고 닫지 않는다.
+- 돌려주는 값: status, terminationReason, progress, summary, error, finishedAt, comparisonContext.leakCheckPassed.
+  validity는 API가 terminationReason·error.code로 정한다 (계약 6.1, PR #5 3794897).
+- 기준: 인터페이스·데이터 계약 v1.3.5 6장·8장·11~13장, 1번 2번 협의 사항 3·5절, 테스트 시나리오 C.
+
+한 단계:
+  도착 판정 → 같은 화면 반복·최대 단계 검사 → 후보 추출(실패한 후보 제외, + 이전 화면이 있으면 GO_BACK)
+  → 요청 생성 → 누출 검사 → 원본 요청 저장 → 모델 호출 → 응답 검증 → 원본 응답·스크린샷 저장
+  → click / go_back → 결과 처리 → Step·Event 저장 → run.json progress 갱신
+
+"Step 저장(실행 전에 먼저)"(역할 분담)은 원본 모델 요청·응답과 스크린샷을 행동 전에 남기는 것으로 지킨다.
+steps.jsonl은 한 줄씩 추가만 하므로 Step 한 줄은 행동 결과까지 채운 뒤 쓴다 (계약 18.2 완전한 줄만).
+"""
+import concurrent.futures as cf
+import functools
+import importlib
+import math
+import time
+from dataclasses import dataclass
+from typing import Callable
+from urllib.parse import urlsplit
+
+from uxm import goal as goal_mod
+from uxm.candidates import extract as extract_candidates
+from uxm.leak import assert_no_leak
+from uxm.metrics import decision_metrics, validate_probabilities
+from uxm.screen_request import build_screen_request
+from uxm.status import STATUS_BY_REASON
+from uxm.storage import SCHEMA_VERSION, RunStore, StorageError, now_iso
+
+CANDIDATE_SCOPE = ["상단 메뉴", "본문", "사이드 메뉴", "경로 표시", "하단"]
+FAILED_ACTION_REASON = "FAILED_ACTION"   # 다시 판단할 때 뺀 후보의 exclusionReasons 키
+
+# 누르지 않았거나 화면이 그대로라 그 후보만 빼고 다시 판단하는 경우 (협의 5절)
+RETRY_REASONS = {"ELEMENT_NOT_FOUND", "ELEMENT_NOT_UNIQUE", "REJECTED_UNSAFE"}
+
+ERROR_MESSAGES = {
+    "MODEL_TIMEOUT": "모델이 제한 시간 안에 응답하지 않았습니다.",
+    "MODEL_UNAVAILABLE": "모델 서버에 연결하지 못했습니다.",
+    "MODEL_RESPONSE_INVALID": "AI 판단 결과를 정상적으로 처리할 수 없습니다.",
+    "INVALID_CHOICE": "AI가 후보에 없는 선택지를 골랐습니다.",
+    "BROWSER_ERROR": "브라우저 조작 중 오류가 발생했습니다.",
+    "PAGE_TIMEOUT": "화면을 다시 불러와도 로딩이 끝나지 않았습니다.",
+    "LEAK_CHECK_FAILED": "모델 요청에 실험 정보가 섞여 호출하지 않았습니다.",
+    "STORAGE_ERROR": "실행 기록을 저장하지 못했습니다.",
+    "NO_CANDIDATES": "누를 수 있는 후보가 없고 이전 화면으로도 돌아갈 수 없습니다.",
+}
+
+
+@dataclass
+class Env:
+    """루프가 쓰는 화면 쪽 함수들. 테스트에서는 가짜로 바꿔 끼운다."""
+    extract: Callable
+    verify_goal: Callable
+    click: Callable
+    go_back: Callable
+    reload: Callable
+    capture: Callable
+    page_key: Callable
+    page_signature: Callable
+
+
+def browser_module():
+    """1번 uxm/browser.py (PR #2).
+
+    실제로 실행할 때만 불러온다. browser.py는 playwright를 바로 import하므로, 이 파일(uxm/agent.py) 맨 위에서
+    불러오면 playwright가 없는 환경에서 실행 API가 뜨지 못한다 (API는 그때 /api/health·503으로 알려 준다).
+    """
+    return importlib.import_module("uxm.browser")
+
+
+def default_env(scope=None) -> Env:
+    """실제 브라우저 함수. scope(`uxm/site_scope.SiteScope`)를 넘기면 후보 추출·클릭·화면 구분이 그 사이트 기준 (#67).
+    None이면 MORO MARKET 기존 규칙 그대로."""
+    b = browser_module()
+    if scope is None:
+        return Env(extract=extract_candidates, verify_goal=goal_mod.verify_goal, click=b.click, go_back=b.go_back,
+                   reload=b.reload, capture=b.capture, page_key=b.page_key, page_signature=b.page_signature)
+    return Env(extract=functools.partial(extract_candidates, scope=scope), verify_goal=goal_mod.verify_goal,
+               click=functools.partial(b.click, scope=scope), go_back=functools.partial(b.go_back, scope=scope),
+               reload=b.reload, capture=b.capture, page_key=functools.partial(b.page_key, scope=scope),
+               page_signature=functools.partial(b.page_signature, scope=scope))
+
+
+def run_agent(settings: dict, backend, page, env: Env | None = None) -> dict:
+    """settings의 `siteId`가 있으면 그 사이트 설정으로 탐색한다 (외부 사이트 시나리오 테스트, #67)."""
+    if env is None:
+        from uxm.site_scope import load_scope
+        env = default_env(load_scope(settings.get("siteId")))
+    return _Loop(settings, backend, page, env).run()
+
+
+def agent_settings(run: dict, goal: dict | None, run_dir: str, start_url: str, shop_base_url: str) -> dict:
+    """run_agent에 넘기는 설정. 실행 API(api/runner.py)와 scripts/run_c.py가 같이 쓴다.
+
+    run: READY Run(run.json), goal: config/presets.json의 목표 preset (직접 입력한 목표면 None).
+    모델 요청의 목표·사용자 유형은 Run의 `goal`·`persona`를 쓴다 (#39).
+    성공 조건은 Run에 `verification`이 있으면 그것을, 없으면 목표 preset의 것을 쓴다.
+    허용 경로(`referencePathConfig`)는 없을 수 있다 (직접 입력한 목표) → 경로 지표는 null.
+    성공 조건·허용 경로는 채점용이라 모델 요청에 넣지 않는다 (계약 9.3).
+    """
+    source = run if run.get("verification") else goal
+    if not source:
+        raise ValueError(f"runId={run['runId']}: 성공 조건(verification)이 없습니다.")
+    return {
+        "run": run, "runId": run["runId"], "runDir": run_dir, "shopBaseUrl": shop_base_url,
+        "startUrl": start_url, "startPath": run["startPath"], "goalId": run.get("goalId"), "goal": run["goal"],
+        "persona": run["persona"], "successCondition": goal_mod.success_condition(source),
+        "referencePathConfig": run.get("referencePathConfig"), "limits": run["limits"], "viewport": run["viewport"],
+        "goalJudgmentMode": run["goalJudgmentMode"], "temperature": run["temperature"],
+        "promptVersion": run["promptVersion"], "resultOrigin": run["resultOrigin"],
+        "siteId": run.get("siteId"),   # 외부 사이트 시나리오 Run만 (#67). 없으면 MORO MARKET
+    }
+
+
+def _norm(url_or_path: str) -> str:
+    return urlsplit(url_or_path).path.rstrip("/") or "/"
+
+
+def _error(code: str, message: str | None = None, details: dict | None = None) -> dict:
+    return {"code": code, "message": message or ERROR_MESSAGES.get(code, code), "retryable": False,
+            "details": details, "occurredAt": now_iso()}
+
+
+class _Stop(Exception):
+    """루프 종료. reason=terminationReason, error=ErrorDetail."""
+
+    def __init__(self, reason: str, error: dict | None = None):
+        super().__init__(reason)
+        self.reason, self.error = reason, error
+
+
+def _distance(value) -> float:
+    """사이트 지도 거리. `null`(도착 화면으로 갈 수 없는 화면)은 무한대로 본다 (거리를 줄이지 않는 화면)."""
+    return math.inf if value is None else value
+
+
+@dataclass(frozen=True)
+class PathBasis:
+    """Run의 경로 기준 (#49). 루프는 지도 파일을 읽지 않고 Run에 복사된 값만 쓴다.
+
+    kind: "ALLOWED_PATHS"(허용 경로, basis 없는 과거 Run 포함) / "SITE_MAP"(사이트 지도 거리) / None(계산 안 함)
+    """
+    kind: str | None = None
+    allowed_paths: list | None = None     # ALLOWED_PATHS
+    shortest: int | None = None           # 최단 이동 수 (shortestAllowedSteps / shortestSteps)
+    distances: dict | None = None         # SITE_MAP: {pageKey: 도착 화면까지 거리 또는 None}
+
+
+NO_PATH_BASIS = PathBasis()
+
+
+def _path_basis(ref, start_page: str | None = None, goal_page: str | None = None) -> PathBasis:
+    """Run의 `referencePathConfig` → PathBasis. 형식·정합성이 맞지 않으면 기준 없음 (경로 지표 null, 실행은 계속).
+
+    `basis`가 없는 과거 Run은 ALLOWED_PATHS로 읽는다 (설계 4.1).
+    start_page·goal_page: 이 Run의 실제 시작 화면과 성공 조건 도착 화면. 설정이 다른 화면을 기준으로 하면 쓰지 않는다.
+    #47 분석·비교(`uxm/reference.py`)와 같은 기준으로 검사해 Run 요약과 분석 결과가 어긋나지 않게 한다 (#50 리뷰).
+    """
+    if not isinstance(ref, dict):
+        return NO_PATH_BASIS
+    kind = ref.get("basis", "ALLOWED_PATHS")
+    if kind == "ALLOWED_PATHS" and _allowed_paths_consistent(ref, start_page):
+        return PathBasis(kind, allowed_paths=ref["allowedPaths"], shortest=ref["shortestAllowedSteps"])
+    if kind == "SITE_MAP" and _site_map_consistent(ref, start_page, goal_page):
+        return PathBasis(kind, shortest=ref["shortestSteps"], distances=ref["distances"])
+    return NO_PATH_BASIS
+
+
+def _nonempty_str(value) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _allowed_paths_consistent(ref: dict, start_page: str | None) -> bool:
+    """ALLOWED_PATHS: `version` 문자열, `allowedPaths`는 빈 값 없는 pageKey 목록들, `shortestAllowedSteps` 0 이상 정수.
+    실제 시작 화면을 알면 허용 경로가 모두 그 화면에서 시작해야 한다 (preset 로드의 `_check_start_path`와 같은 규칙).
+    """
+    allowed, shortest = ref.get("allowedPaths"), ref.get("shortestAllowedSteps")
+    if not (_nonempty_str(ref.get("version")) and type(shortest) is int and shortest >= 0):
+        return False
+    if not (isinstance(allowed, list) and allowed
+            and all(isinstance(path, list) and path and all(_nonempty_str(k) for k in path) for path in allowed)):
+        return False
+    return start_page is None or all(path[0] == start_page for path in allowed)
+
+
+def _site_map_consistent(ref: dict, start_page: str | None, goal_page: str | None) -> bool:
+    """SITE_MAP: 형식과 정합성.
+
+    - `siteMapVersion`·`siteMapHash`·`startPageKey`·`goalPageKey`: 빈 값 아닌 문자열
+    - `distances`: {빈 값 아닌 pageKey: 0 이상 정수 또는 None}, `shortestSteps`: 0 이상 정수
+    - `distances[goalPageKey] == 0`, `distances[startPageKey] == shortestSteps`
+    - 실제 시작 화면·성공 조건 도착 화면을 알면 `startPageKey`·`goalPageKey`와 같아야 한다
+    """
+    dist, shortest = ref.get("distances"), ref.get("shortestSteps")
+    start, goal = ref.get("startPageKey"), ref.get("goalPageKey")
+    if not all(_nonempty_str(ref.get(k)) for k in ("siteMapVersion", "siteMapHash", "startPageKey", "goalPageKey")):
+        return False
+    if not (isinstance(dist, dict) and dist and type(shortest) is int and shortest >= 0):
+        return False
+    if not all(_nonempty_str(k) and (v is None or (type(v) is int and v >= 0)) for k, v in dist.items()):
+        return False
+    if dist.get(goal) != 0 or dist.get(start) != shortest:
+        return False
+    return (start_page is None or start == start_page) and (goal_page is None or goal == goal_page)
+
+
+class _Loop:
+    def __init__(self, settings, backend, page, env: Env):
+        self.s, self.backend, self.page, self.env = settings, backend, page, env
+        self.limits = settings["limits"]
+        self.store = RunStore.open_dir(settings["runDir"])
+        self.origin = settings["resultOrigin"]
+        self.success = settings["successCondition"]
+        # 경로 기준 (#49). 설정이 이 Run의 실제 시작 화면·성공 조건 도착 화면과 다른 화면 기준이면 쓰지 않는다
+        self.path = _path_basis(settings.get("referencePathConfig"), env.page_key(settings["startPath"]),
+                                env.page_key(self.success["path"]))
+        self.off_map = False        # SITE_MAP: 지도에 없는 화면으로 이동하면 우회 이동·추가 단계를 계산하지 않음
+        self.t0 = time.monotonic()
+        self.pool = cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="uxm-model")
+
+        self.step_id = 0            # 저장한 Step 수 = 마지막 stepId
+        self.step_count = 0         # 계약 6.4 stepCount
+        self.n = {"model_calls": 0, "clicks": 0, "nav_clicks": 0, "model_back": 0, "system_back": 0,
+                  "deviation": 0, "detour": 0}
+        self.events = 0
+        self.visits: list[dict] = []
+        self.visit_count: dict[str, int] = {}
+        self.stack: list[dict] = []          # 지금까지 들어온 화면 (뒤로가기로 빠짐). 마지막이 현재 화면
+        self.history: list[dict] = []        # recentActions
+        self.leak_passed: bool | None = None
+        self._reset_screen()
+
+    # ------------------------------------------------------------ 실행
+
+    def run(self) -> dict:
+        try:
+            self._event("RUN_STARTED", None, None, startPath=self.s["startPath"])
+            self._enter("RUN_START", None, None)
+            while True:
+                self._tick()
+        except _Stop as stop:
+            return self._finish(stop.reason, stop.error)
+        except StorageError as e:
+            return self._finish("STORAGE_FAILED", _error("STORAGE_ERROR", details={"exception": repr(e)}),
+                                best_effort=True)
+        finally:
+            self.pool.shutdown(wait=False)
+
+    def _tick(self) -> None:
+        if (time.monotonic() - self.t0) * 1000 > self.limits["runTimeoutMs"]:
+            raise _Stop("RUN_TIMEOUT")
+        reached, evidence = self.env.verify_goal(self.page, self.success)
+        if reached:
+            self._arrive(evidence)
+            raise _Stop("GOAL_VERIFIED")
+        here = self.stack[-1]
+        if self.visit_count[here["signature"]] >= self.limits["maxSamePageVisits"]:
+            raise _Stop("REVISIT_LIMIT_REACHED")
+        if self.step_count >= self.limits["maxSteps"]:
+            raise _Stop("MAX_STEPS_REACHED")
+        self._decide_and_act(here)
+
+    # ------------------------------------------------------------ 한 번의 판단과 행동
+
+    def _decide_and_act(self, here: dict) -> None:
+        extracted = self.env.extract(self.page)
+        kept = [c for c in extracted["candidates"] if c["semanticKey"] not in self.failed_keys]
+        cands = [{**c, "optionId": f"option_{i:02d}"} for i, c in enumerate(kept, 1)]   # 다시 판단해도 01부터
+        if not cands:
+            self._system_back(here, "후보 없음")
+            return
+
+        back_ok = (len(self.stack) > 1 and not self.back_failed
+                   and self.n["model_back"] < self.limits["maxModelBackActions"])
+        screen = {**extracted, "candidates": cands}
+        request, meta = build_screen_request(screen, history=self.history, failed=self.failed, go_back=back_ok,
+                                             goal=self.s["goal"], persona=self.s["persona"])
+        try:
+            assert_no_leak(request)
+        except RuntimeError as e:
+            self.leak_passed = False
+            raise _Stop("LEAK_CHECK_FAILED", _error("LEAK_CHECK_FAILED", details={"reason": str(e)}))
+        self.leak_passed = True   # 실패하면 바로 끝나므로 여기 오면 지금까지 모든 요청이 통과 (계약 6.5)
+
+        step_id = self.step_id + 1
+        retry_n = self.retry_n   # 행동 결과 처리에서 바뀌기 전 값 (candidateSetId용)
+        self.store.save_raw(step_id, "request", request)
+        response, latency = self._call_model(request, meta)
+        self.store.save_raw(step_id, "response", response)
+        option_ids = list(request["questions"]["next_click"]["criteria"])
+        choice, probs = self._validate(response, option_ids)
+        back_id = meta["backOptionId"]
+        is_back = choice == back_id
+        chosen = None if is_back else next(c for c in cands if c["optionId"] == choice)
+
+        shot = self.env.capture(self.page, self.store.dir, step_id, cands, probs, choice)
+        decision = self._decision(choice, is_back, probs, back_id, cands, latency)
+
+        timeout = self.limits["pageChangeTimeoutMs"]
+        if is_back:
+            expected = self.stack[-2]
+            res = self.env.go_back(self.page, expected["path"], timeout)
+        else:
+            res = self.env.click(self.page, chosen, timeout)
+
+        outcome = self._handle(res, here, chosen, is_back)   # 카운터·방문·스택 갱신, 종료면 _Stop을 미룸
+        step = self._step(step_id, here, extracted, cands, back_id, probs, choice, shot, decision, res,
+                          is_back, outcome, retry_n)
+        self.store.append_step(step)
+        self.step_id = step_id
+        self._after_step(step, res, here, is_back, outcome)
+        if outcome.get("stop"):
+            raise outcome["stop"]
+
+    def _call_model(self, request: dict, meta: dict) -> tuple[dict, int]:
+        kwargs = {"meta": meta} if getattr(self.backend, "wants_meta", False) else {}
+        self.n["model_calls"] += 1
+        started = time.perf_counter()
+        future = self.pool.submit(self.backend.decide, request, self.s.get("temperature"), **kwargs)
+        try:
+            response = future.result(timeout=self.limits["modelTimeoutMs"] / 1000)
+        except cf.TimeoutError:
+            raise _Stop("MODEL_TIMEOUT", _error("MODEL_TIMEOUT"))
+        except Exception as e:   # requests.ReadTimeout = 연결은 됐고 응답이 늦음. 그 외는 서버에 닿지 못함
+            code = "MODEL_TIMEOUT" if type(e).__name__ == "ReadTimeout" else "MODEL_UNAVAILABLE"
+            reason = "MODEL_TIMEOUT" if code == "MODEL_TIMEOUT" else "MODEL_ERROR"
+            raise _Stop(reason, _error(code, details={"exception": repr(e)}))
+        return response, round((time.perf_counter() - started) * 1000)
+
+    def _validate(self, response: dict, option_ids: list[str]) -> tuple[str, dict]:
+        try:
+            answer = response["answers"]["next_click"]
+            choice, probs = answer["choice"], dict(answer["probabilities"])
+            validate_probabilities(probs, option_ids)
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            raise _Stop("MODEL_ERROR", _error("MODEL_RESPONSE_INVALID", details={"reason": repr(e)}))
+        if choice not in option_ids:   # 서버 choice를 그대로 쓰되, 요청에 없는 ID면 실행하지 않는다
+            raise _Stop("MODEL_ERROR", _error("INVALID_CHOICE", details={"choice": choice}))
+        return choice, probs
+
+    # ------------------------------------------------------------ 행동 결과 처리 (협의 5절)
+
+    def _handle(self, res: dict, here: dict, chosen: dict | None, is_back: bool) -> dict:
+        result, reason, executed = res["result"], res.get("reason"), res.get("executed", False)
+        out: dict = {"navigated": False}
+
+        if is_back:
+            if result == "NAVIGATED":
+                out.update(navigated=True, entered=self._back_succeeded(here))
+            elif reason == "PAGE_TIMEOUT" and self._reload_ok():
+                if _norm(self.page.url) == self.stack[-2]["path"]:   # 늦게라도 이전 화면에 도착
+                    out.update(navigated=True, entered=self._back_succeeded(here))
+                else:
+                    out["stop"] = _Stop("BACK_RECOVERY_FAILED")
+            elif reason == "PAGE_TIMEOUT":
+                out["stop"] = _Stop("PAGE_LOAD_FAILED", _error("PAGE_TIMEOUT"))
+            elif reason == "ACTION_ERROR":
+                out["stop"] = _Stop("BROWSER_ERROR", _error("BROWSER_ERROR", details={"error": res.get("error")}))
+            elif _norm(self.page.url) != here["path"]:   # 엉뚱한 화면으로 가 버림 → 어디인지 확실하지 않아 멈춤
+                out["stop"] = _Stop("BACK_RECOVERY_FAILED")
+            else:                                        # NO_HISTORY 등: GO_BACK을 빼고 다시 판단
+                self.back_failed = True
+                self.failed.append({"steps": ["이전 화면으로 돌아가기 선택", "돌아갈 수 없음"]})
+                self.retry_n += 1
+            return out
+
+        label = chosen["label"]
+        if executed:
+            self.step_count += 1
+            self.n["clicks"] += 1
+        if result == "NAVIGATED":
+            self.n["nav_clicks"] += 1
+            out.update(navigated=True, entered=self._push_new_screen(here, label))
+        elif result == "NO_CHANGE":
+            self._fail_candidate(chosen, "화면 변화 없음")
+        elif reason in RETRY_REASONS or (reason == "OUT_OF_SCOPE" and not executed):
+            self._fail_candidate(chosen, "누를 수 없음")
+        elif reason == "OUT_OF_SCOPE":   # 누른 뒤 사이트 밖으로 나감 → 시스템 BACK
+            out["recover_out_of_scope"] = True
+            self._fail_candidate(chosen, "사이트 밖으로 나감")
+        elif reason == "PAGE_TIMEOUT":   # 주소는 이미 바뀜 → 새로고침해서 확인
+            if self._reload_ok():
+                out.update(navigated=True, entered=self._push_new_screen(here, label))
+            else:
+                out["stop"] = _Stop("PAGE_LOAD_FAILED", _error("PAGE_TIMEOUT"))
+        else:                            # ACTION_ERROR 등
+            out["stop"] = _Stop("BROWSER_ERROR", _error("BROWSER_ERROR", details={"error": res.get("error")}))
+        return out
+
+    def _after_step(self, step: dict, res: dict, here: dict, is_back: bool, outcome: dict) -> None:
+        a = step["action"]
+        if is_back and outcome.get("navigated"):
+            self._event("BACK_EXECUTED", "MODEL_DECISION", step["stepId"], result="NAVIGATED",
+                        fromPageSignature=here["signature"], toPageSignature=a["toPageSignature"])
+        elif is_back:
+            self._event("BACK_FAILED", "MODEL_DECISION", step["stepId"], result="BACK_FAILED",
+                        reason=res.get("reason"), fromPageSignature=here["signature"],
+                        expectedPageSignature=self.stack[-2]["signature"] if len(self.stack) > 1 else None)
+        else:
+            self._event("ACTION_COMPLETED", "MODEL_DECISION", step["stepId"], result=a["result"],
+                        reason=a["reason"], fromPath=a["fromPath"], toPath=a["toPath"])
+        entered = outcome.get("entered")
+        if entered and entered["visitCount"] > 1:
+            self._event("PAGE_REVISITED", "MODEL_DECISION", step["stepId"], pageSignature=entered["signature"],
+                        visitCount=entered["visitCount"], visitCause=entered["visitCause"])
+        if outcome.get("recover_out_of_scope"):
+            if not self._try_system_back(here, "사이트 밖에서 복귀", same_screen=True):
+                raise _Stop("OUT_OF_SCOPE_NAVIGATION")
+        self._update_progress()
+
+    # ------------------------------------------------------------ 화면 이동 기록
+
+    def _screen_now(self) -> dict:
+        title = (self.page.title() or "").split(" | ")[0]
+        return {"pageKey": self.env.page_key(self.page.url), "signature": self.env.page_signature(self.page),
+                "path": _norm(self.page.url), "title": title}
+
+    def _enter(self, cause: str, entered_by: str | None, step_id: int | None, keep_screen_state=False) -> dict:
+        """화면에 들어감: PathVisit 추가, 방문 수, 화면별 상태 초기화. 스택은 부른 쪽이 관리.
+
+        keep_screen_state: 같은 화면으로 돌아올 때(사이트 밖에서 복귀) 실패한 후보 기록을 지우지 않는다.
+        """
+        now = self._screen_now()
+        if cause == "RUN_START":
+            self.stack = [now]
+        elif cause == "MODEL_NAVIGATION":
+            self.stack.append(now)
+        else:                                  # MODEL_BACK, SYSTEM_BACK_RECOVERY: 스택은 이미 줄였음
+            self.stack[-1] = now
+        self.visit_count[now["signature"]] = self.visit_count.get(now["signature"], 0) + 1
+        self.visits.append({"sequence": len(self.visits), "pageKey": now["pageKey"],
+                            "pageSignature": now["signature"], "path": now["path"], "enteredBy": entered_by,
+                            "visitCause": cause, "stepId": step_id})
+        if not keep_screen_state:
+            self._reset_screen()
+        return {**now, "visitCount": self.visit_count[now["signature"]], "visitCause": cause}
+
+    def _back_succeeded(self, here: dict) -> dict:
+        """모델 GO_BACK이 이전 화면에 도착: stepCount·modelBackCount에 넣고 스택에서 뺀다 (계약 6.4)."""
+        self.step_count += 1
+        self.n["model_back"] += 1
+        self.stack.pop()
+        self.history.append({"steps": [f"{here['title']} 화면", "이전 화면으로 돌아감"]})
+        return self._enter("MODEL_BACK", "GO_BACK", self.step_id + 1)
+
+    def _push_new_screen(self, here: dict, label: str) -> dict:
+        entered = self._enter("MODEL_NAVIGATION", "CLICK", self.step_id + 1)
+        self._count_path_move([v["pageKey"] for v in self.stack])
+        self.history.append({"steps": [f"{here['title']} 화면", f"{label} 선택"]})
+        return entered
+
+    def _reset_screen(self) -> None:
+        self.failed_keys: set[str] = set()
+        self.failed: list[dict] = []          # previousFailedActions (지금 화면에서 확인된 실패)
+        self.back_failed = False
+        self.retry_n = 0
+
+    def _fail_candidate(self, cand: dict, why: str) -> None:
+        self.failed_keys.add(cand["semanticKey"])
+        self.failed.append({"steps": [f"{cand['label']} 선택", why]})
+        self.retry_n += 1
+
+    def _reload_ok(self) -> bool:
+        return self.env.reload(self.page, self.limits["pageChangeTimeoutMs"])["result"] == "NAVIGATED"
+
+    def _system_back(self, here: dict, why: str) -> None:
+        """클릭 후보 0개: 시스템 BACK (Step 없이 Event만, 계약 12.1·13.3)."""
+        if len(self.stack) < 2:
+            raise _Stop("NO_VALID_CANDIDATES", _error("NO_CANDIDATES"))
+        if not self._try_system_back(here, why, same_screen=False):
+            raise _Stop("BACK_RECOVERY_FAILED")
+        self._update_progress()
+
+    def _try_system_back(self, here: dict, why: str, same_screen: bool) -> bool:
+        """시스템 BACK. same_screen=True면 사이트 밖에서 지금 화면(here)으로, False면 이전 화면으로 돌아간다."""
+        if self.n["system_back"] >= self.limits["maxSystemBackActions"]:
+            return False
+        target = here if same_screen else self.stack[-2]
+        res = self.env.go_back(self.page, target["path"], self.limits["pageChangeTimeoutMs"])
+        if res["result"] != "NAVIGATED":
+            self._event("BACK_FAILED", "SYSTEM_RECOVERY", None, result="BACK_FAILED", reason=res.get("reason"),
+                        fromPageSignature=here["signature"], expectedPageSignature=target["signature"])
+            return False
+        self.n["system_back"] += 1
+        if not same_screen:
+            self.stack.pop()
+        # 같은 화면으로 돌아오면 밖으로 나간 후보를 다시 고르지 않게 실패 기록을 유지한다
+        entered = self._enter("SYSTEM_BACK_RECOVERY", "GO_BACK", None, keep_screen_state=same_screen)
+        self._event("BACK_EXECUTED", "SYSTEM_RECOVERY", None, result="NAVIGATED",
+                    fromPageSignature=here["signature"], toPageSignature=entered["signature"])
+        if entered["visitCount"] > 1:
+            self._event("PAGE_REVISITED", "SYSTEM_RECOVERY", None, pageSignature=entered["signature"],
+                        visitCount=entered["visitCount"], visitCause="SYSTEM_BACK_RECOVERY")
+        self.history.append({"steps": [f"{here['title']} 화면", why, "뒤로 감"]})
+        return True
+
+    # ------------------------------------------------------------ Step 만들기
+
+    def _decision(self, choice, is_back, probs, back_id, cands, latency) -> dict:
+        m = decision_metrics(probs, back_id)
+        return {
+            "selectedOptionId": choice, "selectedActionType": "GO_BACK" if is_back else "CLICK",
+            "mode": "DIRECT", "resultOrigin": self.origin, "goalJudgmentMode": self.s["goalJudgmentMode"],
+            "modelGoalReached": None, "modelGoalYesProb": None, "verifiedGoalReached": False,
+            "goalJudgmentMismatch": False, **m,
+            "goalPathProbability": self._goal_path_probability(probs, cands),
+            "modelLatencyMs": latency,
+        }
+
+    # ------------------------------------------------------------ 경로 지표 (기준별, #49)
+
+    def _count_path_move(self, route: list[str]) -> None:
+        """모델 CLICK으로 새 화면에 들어간 이동 하나를 경로 기준으로 센다. route는 이동 후 현재 경로."""
+        path = self.path
+        if path.kind == "ALLOWED_PATHS":
+            if not any(p[:len(route)] == route for p in path.allowed_paths):
+                self.n["deviation"] += 1   # 계약 14.2 REFERENCE_PATH_DEVIATION과 같은 기준
+        elif path.kind == "SITE_MAP" and len(route) >= 2:
+            before, after = route[-2], route[-1]
+            if before not in path.distances or after not in path.distances:
+                self.off_map = True        # 지도 밖 화면: 이 Run의 우회 이동·추가 단계는 null
+            elif _distance(path.distances[after]) >= _distance(path.distances[before]):
+                self.n["detour"] += 1      # 우회 이동: 목표까지 거리가 줄지 않은 모델 CLICK 이동 (설계 3.1)
+
+    def _goal_path_probability(self, probs, cands) -> float | None:
+        """목표 경로 확률 (계약 12.3, #49). GO_BACK은 CLICK 후보가 아니라 빠진다.
+
+        ALLOWED_PATHS: 허용 경로상 다음 화면으로 가는 후보 확률 합. 그런 후보가 없으면 null (기존 그대로).
+        SITE_MAP: 도착 화면까지 거리를 줄이는 후보(d(목적지) < d(현재)) 확률 합. 모든 후보의 거리를 알고
+        줄이는 후보가 없으면 0. 현재 화면이나 후보 하나라도 지도에 없으면 null (부분합 금지, 설계 3.2).
+        """
+        path = self.path
+        if path.kind == "ALLOWED_PATHS":
+            route = [v["pageKey"] for v in self.stack]
+            nxt = {p[len(route)] for p in path.allowed_paths if len(p) > len(route) and p[:len(route)] == route}
+            hits = [probs[c["optionId"]] for c in cands if self.env.page_key(c["href"]) in nxt]
+            return sum(hits) if hits else None
+        if path.kind == "SITE_MAP":
+            dist = path.distances
+            here = self.stack[-1]["pageKey"]
+            if here not in dist:
+                return None
+            total = 0.0
+            for c in cands:
+                dest = self.env.page_key(c["href"])
+                if dest not in dist:
+                    return None
+                if _distance(dist[dest]) < _distance(dist[here]):
+                    total += probs[c["optionId"]]
+            return total
+        return None
+
+    def _step(self, step_id, here, extracted, cands, back_id, probs, choice, shot, decision, res, is_back,
+              outcome, retry_n) -> dict:
+        reasons: dict[str, int] = {}
+        for e in extracted["excluded"]:
+            reasons[e["reason"]] = reasons.get(e["reason"], 0) + 1
+        dropped = len(extracted["candidates"]) - len(cands)
+        if dropped:
+            reasons[FAILED_ACTION_REASON] = dropped
+        excluded_n = sum(reasons.values())
+        entered = outcome.get("entered")
+        stop = outcome.get("stop")
+        action_error = None
+        if res.get("reason") == "ACTION_ERROR":
+            action_error = _error("BROWSER_ERROR", details={"error": res.get("error")})
+        set_id = f"{here['signature']}_initial" if retry_n == 0 else f"{here['signature']}_retry_{retry_n}"
+        return {
+            "schemaVersion": SCHEMA_VERSION, "runId": self.store.run_id, "stepId": step_id,
+            "timestamp": shot.get("capturedAt") or now_iso(),
+            "page": {"pageKey": here["pageKey"], "pageSignature": here["signature"], "path": here["path"],
+                     "title": extracted["title"], "viewport": shot.get("viewport"),
+                     "screenshotSize": shot.get("screenshotSize"), "scroll": shot.get("scroll"),
+                     "screenshotRef": shot.get("screenshotRef"), "overlayScreenshotRef": shot.get("overlayRef"),
+                     "capturedAt": shot.get("capturedAt")},
+            "candidateSet": {
+                "candidateSetId": set_id, "candidateSetChanged": retry_n > 0,
+                "candidateScope": CANDIDATE_SCOPE,
+                "candidateCountCollected": len(cands) + excluded_n,
+                "candidateCountSent": len(cands) + (1 if back_id else 0),
+                "excludedCandidateCount": excluded_n, "exclusionReasons": reasons,
+                "actionSetIncludesBack": back_id is not None, "backOptionId": back_id,
+                "candidates": [{k: c[k] for k in ("optionId", "label", "region", "context", "href", "bbox",
+                                                   "semanticKey")}
+                               | {"actionType": "CLICK", "probability": probs[c["optionId"]],
+                                  "selected": c["optionId"] == choice} for c in cands],
+            },
+            "decision": decision,
+            "action": {
+                "selectedOptionId": choice, "executedOptionId": choice if res.get("executed") else None,
+                "actionType": "GO_BACK" if is_back else "CLICK", "eventOrigin": "MODEL_DECISION",
+                "result": res["result"], "reason": res.get("reason"), "executed": bool(res.get("executed")),
+                "fromPath": here["path"], "toPath": res.get("toPath"),
+                "fromPageSignature": here["signature"],
+                "toPageSignature": entered["signature"] if entered else
+                (here["signature"] if res["result"] == "NO_CHANGE" else None),
+                "startedAt": res.get("startedAt"), "finishedAt": res.get("finishedAt"), "error": action_error,
+            },
+            "statusAfterStep": STATUS_BY_REASON[stop.reason] if stop else "RUNNING",
+            "error": None,
+        }
+
+    # ------------------------------------------------------------ 저장
+
+    def _event(self, event_type: str, origin: str | None, step_id: int | None, **details) -> None:
+        self.events += 1
+        self.store.append_event({"schemaVersion": SCHEMA_VERSION, "eventId": f"event_{self.events:02d}",
+                                 "runId": self.store.run_id, "stepId": step_id, "timestamp": now_iso(),
+                                 "eventType": event_type, "eventOrigin": origin, "details": details})
+
+    def _progress(self) -> dict:
+        return {"stepRecordCount": self.step_id, "stepCount": self.step_count, "maxSteps": self.limits["maxSteps"],
+                "currentPageKey": self.stack[-1]["pageKey"] if self.stack else None, "lastUpdatedAt": now_iso()}
+
+    def _update_progress(self) -> None:
+        run = self.store.read_run()
+        run["progress"] = self._progress()
+        self.store.write_run(run)
+
+    def _arrive(self, evidence: dict) -> None:
+        here = self.stack[-1]
+        shot = self.env.capture(self.page, self.store.dir, self.step_id + 1, [], None, None)
+        self._event("GOAL_REACHED", None, None, pageKey=here["pageKey"], pageSignature=here["signature"],
+                    path=here["path"], screenshotRef=shot.get("screenshotRef"), capturedAt=shot.get("capturedAt"),
+                    verification={k: evidence.get(k) for k in ("pathMatched", "textVisible")})
+
+    def _summary(self, reason: str) -> dict:
+        reached = reason == "GOAL_VERIFIED"
+        n, back = self.n, self.n["model_back"] + self.n["system_back"]
+        nav_cost = n["nav_clicks"] + back
+        kind, shortest = self.path.kind, self.path.shortest
+        site_map_ok = kind == "SITE_MAP" and not self.off_map
+        # 기준이 없거나(직접 입력·지도 오류) SITE_MAP에서 지도 밖으로 나갔으면 추가 단계를 계산하지 않는다
+        extra = reached and (kind == "ALLOWED_PATHS" or site_map_ok)
+        return {
+            "goalReached": reached, "stepCount": self.step_count, "stepRecordCount": self.step_id,
+            "modelCallCount": n["model_calls"], "clickCount": n["clicks"],
+            "successfulNavigationClickCount": n["nav_clicks"], "modelBackCount": n["model_back"],
+            "systemBackCount": n["system_back"], "backCount": back,
+            "revisitCount": sum(c - 1 for c in self.visit_count.values()),
+            "referencePathDeviationCount": n["deviation"] if kind == "ALLOWED_PATHS" else None,
+            "detourMoveCount": n["detour"] if site_map_ok else None,   # SITE_MAP 전용 우회 이동 (#49)
+            "navigationCost": nav_cost,
+            "extraSteps": max(0, n["nav_clicks"] - shortest) if extra else None,
+            "extraNavigationCost": max(0, nav_cost - shortest) if extra else None,
+            "attemptedExtraSteps": max(0, self.step_count - shortest) if extra else None,
+            "executionTimeMs": round((time.monotonic() - self.t0) * 1000), "path": self.visits,
+            "detectedIssueTypes": [],   # Issue 분석은 실행 API가 Run 종료 후 채운다 (계약 14.2)
+        }
+
+    def _finish(self, reason: str, error: dict | None, best_effort: bool = False) -> dict:
+        status = STATUS_BY_REASON[reason]
+        result = {"status": status, "terminationReason": reason, "progress": self._progress(),
+                  "summary": self._summary(reason), "error": error, "finishedAt": now_iso(),
+                  "comparisonContext": {"leakCheckPassed": self.leak_passed}}
+        try:
+            run = self.store.read_run()
+            run.update({k: result[k] for k in ("status", "terminationReason", "progress", "summary", "error",
+                                                "finishedAt")})
+            run["comparisonContext"]["leakCheckPassed"] = self.leak_passed
+            self.store.write_run(run)
+            self._event("RUN_FAILED" if status == "ERROR" else "RUN_FINISHED", None, None,
+                        status=status, terminationReason=reason)
+        except (StorageError, OSError, ValueError):
+            if not best_effort:
+                return self._finish("STORAGE_FAILED", _error("STORAGE_ERROR"), best_effort=True)
+        return result

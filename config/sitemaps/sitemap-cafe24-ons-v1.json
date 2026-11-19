@@ -1,0 +1,258 @@
+{
+  "siteMapVersion": "sitemap-cafe24-ons-v1",
+  "siteMapHash": "sha256:8b479b3602acd0b61235c8931c2f1b2d001dc26dfb96a5bbc43917dd5117d5f8",
+  "siteVersion": "cafe24-ons-live",
+  "layoutVersion": "cafe24-ons-layout-live",
+  "candidatePolicyVersion": "candidate-scenario-v1",
+  "initialBrowserStateId": "clean-context-v1",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "startPageKey": "home",
+  "generatedAt": "2026-11-18T21:28:15+09:00",
+  "pages": {
+    "basket": {
+      "path": "/order/basket.html",
+      "edges": [
+        {
+          "semanticKey": "본문>/#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/gallery/list.html?board_no=8#1",
+          "to": "event"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/review/list.html?board_no=4#1",
+          "to": "review"
+        },
+        {
+          "semanticKey": "상단 메뉴>/ons/html/brand.html#1",
+          "to": "brand"
+        },
+        {
+          "semanticKey": "상단 메뉴>/product/list.html?cate_no=23#1",
+          "to": "products"
+        }
+      ]
+    },
+    "brand": {
+      "path": "/ons/html/brand.html",
+      "edges": [
+        {
+          "semanticKey": "상단 메뉴>/board/gallery/list.html?board_no=8#1",
+          "to": "event"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/review/list.html?board_no=4#1",
+          "to": "review"
+        },
+        {
+          "semanticKey": "상단 메뉴>/order/basket.html#1",
+          "to": "basket"
+        },
+        {
+          "semanticKey": "상단 메뉴>/product/list.html?cate_no=23#1",
+          "to": "products"
+        }
+      ]
+    },
+    "company": {
+      "path": "/shopinfo/company.html",
+      "edges": [
+        {
+          "semanticKey": "본문>/#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/gallery/list.html?board_no=8#1",
+          "to": "event"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/review/list.html?board_no=4#1",
+          "to": "review"
+        },
+        {
+          "semanticKey": "상단 메뉴>/ons/html/brand.html#1",
+          "to": "brand"
+        },
+        {
+          "semanticKey": "상단 메뉴>/order/basket.html#1",
+          "to": "basket"
+        },
+        {
+          "semanticKey": "상단 메뉴>/product/list.html?cate_no=23#1",
+          "to": "products"
+        }
+      ]
+    },
+    "event": {
+      "path": "/board/gallery/list.html",
+      "edges": [
+        {
+          "semanticKey": "본문>/#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/review/list.html?board_no=4#1",
+          "to": "review"
+        },
+        {
+          "semanticKey": "상단 메뉴>/ons/html/brand.html#1",
+          "to": "brand"
+        },
+        {
+          "semanticKey": "상단 메뉴>/order/basket.html#1",
+          "to": "basket"
+        },
+        {
+          "semanticKey": "상단 메뉴>/product/list.html?cate_no=23#1",
+          "to": "products"
+        }
+      ]
+    },
+    "guide": {
+      "path": "/shopinfo/guide.html",
+      "edges": [
+        {
+          "semanticKey": "본문>/#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/gallery/list.html?board_no=8#1",
+          "to": "event"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/review/list.html?board_no=4#1",
+          "to": "review"
+        },
+        {
+          "semanticKey": "상단 메뉴>/ons/html/brand.html#1",
+          "to": "brand"
+        },
+        {
+          "semanticKey": "상단 메뉴>/order/basket.html#1",
+          "to": "basket"
+        },
+        {
+          "semanticKey": "상단 메뉴>/product/list.html?cate_no=23#1",
+          "to": "products"
+        }
+      ]
+    },
+    "home": {
+      "path": "/",
+      "edges": [
+        {
+          "semanticKey": "본문>/product/list.html?cate_no=23#1",
+          "to": "products"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/gallery/list.html?board_no=8#1",
+          "to": "event"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/review/list.html?board_no=4#1",
+          "to": "review"
+        },
+        {
+          "semanticKey": "상단 메뉴>/ons/html/brand.html#1",
+          "to": "brand"
+        },
+        {
+          "semanticKey": "상단 메뉴>/order/basket.html#1",
+          "to": "basket"
+        },
+        {
+          "semanticKey": "상단 메뉴>/product/list.html?cate_no=23#1",
+          "to": "products"
+        }
+      ]
+    },
+    "products": {
+      "path": "/product/list.html",
+      "edges": [
+        {
+          "semanticKey": "본문>/#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/gallery/list.html?board_no=8#1",
+          "to": "event"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/review/list.html?board_no=4#1",
+          "to": "review"
+        },
+        {
+          "semanticKey": "상단 메뉴>/ons/html/brand.html#1",
+          "to": "brand"
+        },
+        {
+          "semanticKey": "상단 메뉴>/order/basket.html#1",
+          "to": "basket"
+        }
+      ]
+    },
+    "qna": {
+      "path": "/board/product/list.html",
+      "edges": [
+        {
+          "semanticKey": "본문>/#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/gallery/list.html?board_no=8#1",
+          "to": "event"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/review/list.html?board_no=4#1",
+          "to": "review"
+        },
+        {
+          "semanticKey": "상단 메뉴>/ons/html/brand.html#1",
+          "to": "brand"
+        },
+        {
+          "semanticKey": "상단 메뉴>/order/basket.html#1",
+          "to": "basket"
+        },
+        {
+          "semanticKey": "상단 메뉴>/product/list.html?cate_no=23#1",
+          "to": "products"
+        }
+      ]
+    },
+    "review": {
+      "path": "/board/review/list.html",
+      "edges": [
+        {
+          "semanticKey": "본문>/#1",
+          "to": "home"
+        },
+        {
+          "semanticKey": "상단 메뉴>/board/gallery/list.html?board_no=8#1",
+          "to": "event"
+        },
+        {
+          "semanticKey": "상단 메뉴>/ons/html/brand.html#1",
+          "to": "brand"
+        },
+        {
+          "semanticKey": "상단 메뉴>/order/basket.html#1",
+          "to": "basket"
+        },
+        {
+          "semanticKey": "상단 메뉴>/product/list.html?cate_no=23#1",
+          "to": "products"
+        }
+      ]
+    }
+  },
+  "unreachablePages": [
+    "qna",
+    "guide",
+    "company"
+  ]
+}

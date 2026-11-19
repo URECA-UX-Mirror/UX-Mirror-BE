@@ -1,0 +1,213 @@
+{
+  "runs": [
+    {
+      "runId": "run_before_20261120073628_0ba9",
+      "experimentKey": "imp-live-20261120073424-5254-MAIN",
+      "variant": "before",
+      "siteId": null,
+      "mode": "VERSION_COMPARE",
+      "goal": "지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다",
+      "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "exact": false,
+        "scope": "page",
+        "path": "/shop/refund",
+        "text": "환불 / 반품 신청"
+      },
+      "status": "BLOCKED",
+      "terminationReason": "REVISIT_LIMIT_REACHED",
+      "validity": "VALID",
+      "goalReached": false,
+      "stepCount": 4,
+      "backCount": 2,
+      "path": [
+        "home",
+        "support",
+        "home",
+        "support",
+        "home"
+      ],
+      "issueTypes": [
+        "CHOICE_AMBIGUITY",
+        "GOAL_NOT_REACHED",
+        "REPEATED_VISIT"
+      ],
+      "analysisStatus": "COMPLETED",
+      "resultOrigin": "LIVE",
+      "modelVersion": "trillionlabs/Zoro-1",
+      "modelEndpointId": "brev-l40s-bf16",
+      "promptVersion": "v2",
+      "temperature": 1.52,
+      "createdAt": "2026-11-20T07:36:28.552+09:00",
+      "finishedAt": "2026-11-20T07:36:38.336+09:00",
+      "fileCount": 20,
+      "screenshotCount": 8,
+      "rawCount": 8,
+      "warnings": []
+    },
+    {
+      "runId": "run_after_20261120073638_384e",
+      "experimentKey": "imp-live-20261120073424-5254-MAIN",
+      "variant": "after",
+      "siteId": null,
+      "mode": "VERSION_COMPARE",
+      "goal": "지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다",
+      "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "exact": false,
+        "scope": "page",
+        "path": "/shop/refund",
+        "text": "환불 / 반품 신청"
+      },
+      "status": "SUCCESS",
+      "terminationReason": "GOAL_VERIFIED",
+      "validity": "VALID",
+      "goalReached": true,
+      "stepCount": 2,
+      "backCount": 0,
+      "path": [
+        "home",
+        "orders",
+        "refund"
+      ],
+      "issueTypes": [],
+      "analysisStatus": "COMPLETED",
+      "resultOrigin": "LIVE",
+      "modelVersion": "trillionlabs/Zoro-1",
+      "modelEndpointId": "brev-l40s-bf16",
+      "promptVersion": "v2",
+      "temperature": 1.52,
+      "createdAt": "2026-11-20T07:36:38.416+09:00",
+      "finishedAt": "2026-11-20T07:36:45.237+09:00",
+      "fileCount": 13,
+      "screenshotCount": 5,
+      "rawCount": 4,
+      "warnings": []
+    },
+    {
+      "runId": "run_before_20261120073645_2357",
+      "experimentKey": "imp-live-20261120073424-5254-S4",
+      "variant": "before",
+      "siteId": null,
+      "mode": "VERSION_COMPARE",
+      "goal": "받은 상품에 문제가 있어서 직원에게 직접 물어보고 싶다",
+      "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "exact": false,
+        "scope": "page",
+        "path": "/shop/support",
+        "text": "자주 묻는 질문"
+      },
+      "status": "SUCCESS",
+      "terminationReason": "GOAL_VERIFIED",
+      "validity": "VALID",
+      "goalReached": true,
+      "stepCount": 1,
+      "backCount": 0,
+      "path": [
+        "home",
+        "support"
+      ],
+      "issueTypes": [],
+      "analysisStatus": "COMPLETED",
+      "resultOrigin": "LIVE",
+      "modelVersion": "trillionlabs/Zoro-1",
+      "modelEndpointId": "brev-l40s-bf16",
+      "promptVersion": "v2",
+      "temperature": 1.52,
+      "createdAt": "2026-11-20T07:36:45.363+09:00",
+      "finishedAt": "2026-11-20T07:36:50.523+09:00",
+      "fileCount": 9,
+      "screenshotCount": 3,
+      "rawCount": 2,
+      "warnings": []
+    },
+    {
+      "runId": "run_after_20261120073650_bdec",
+      "experimentKey": "imp-live-20261120073424-5254-S4",
+      "variant": "after",
+      "siteId": null,
+      "mode": "VERSION_COMPARE",
+      "goal": "받은 상품에 문제가 있어서 직원에게 직접 물어보고 싶다",
+      "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "exact": false,
+        "scope": "page",
+        "path": "/shop/support",
+        "text": "자주 묻는 질문"
+      },
+      "status": "SUCCESS",
+      "terminationReason": "GOAL_VERIFIED",
+      "validity": "VALID",
+      "goalReached": true,
+      "stepCount": 1,
+      "backCount": 0,
+      "path": [
+        "home",
+        "support"
+      ],
+      "issueTypes": [
+        "CHOICE_AMBIGUITY"
+      ],
+      "analysisStatus": "COMPLETED",
+      "resultOrigin": "LIVE",
+      "modelVersion": "trillionlabs/Zoro-1",
+      "modelEndpointId": "brev-l40s-bf16",
+      "promptVersion": "v2",
+      "temperature": 1.52,
+      "createdAt": "2026-11-20T07:36:50.600+09:00",
+      "finishedAt": "2026-11-20T07:36:55.422+09:00",
+      "fileCount": 9,
+      "screenshotCount": 3,
+      "rawCount": 2,
+      "warnings": []
+    },
+    {
+      "runId": "run_before_20261120073657_8b5c",
+      "experimentKey": "exp_b02a56dc84414574a4dfc3ebc1d28f92",
+      "variant": "before",
+      "siteId": null,
+      "mode": "VERSION_COMPARE",
+      "goal": "어제 산 물건이 지금 어디쯤 오고 있는지 알고 싶다",
+      "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+      "verification": {
+        "type": "PATH_AND_VISIBLE_TEXT",
+        "exact": false,
+        "scope": "page",
+        "path": "/shop/orders",
+        "text": "주문 / 배송 조회"
+      },
+      "status": "SUCCESS",
+      "terminationReason": "GOAL_VERIFIED",
+      "validity": "VALID",
+      "goalReached": true,
+      "stepCount": 1,
+      "backCount": 0,
+      "path": [
+        "home",
+        "orders"
+      ],
+      "issueTypes": [],
+      "analysisStatus": "COMPLETED",
+      "resultOrigin": "LIVE",
+      "modelVersion": "trillionlabs/Zoro-1",
+      "modelEndpointId": "brev-l40s-bf16",
+      "promptVersion": "v2",
+      "temperature": 1.52,
+      "createdAt": "2026-11-20T07:36:57.843+09:00",
+      "finishedAt": "2026-11-20T07:37:02.607+09:00",
+      "fileCount": 9,
+      "screenshotCount": 3,
+      "rawCount": 2,
+      "warnings": []
+    }
+  ],
+  "comparisons": [
+    "imp-live-20261120073424-5254-MAIN",
+    "imp-live-20261120073424-5254-S4"
+  ]
+}
