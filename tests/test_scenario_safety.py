@@ -95,3 +95,41 @@ def test_registered_pages_are_frozen_at_construction():
 def test_rejects_invalid_registration(base, pages):
     with pytest.raises(ValueError):
         ScenarioSafety(base, pages)
+
+
+# ---- cafe24-ons 장바구니 경계 (#91): 장바구니는 조회용 목표 화면으로만 허용, 상태 변경 동작은 후보에서 제외
+BASKET_URL = "https://ecudemo360127.cafe24.com/order/basket.html"
+
+
+@pytest.fixture
+def cafe24():
+    from uxm.site_scope import load_scope
+    return load_scope("cafe24-ons")
+
+
+def dom(tag="a", href=None, label="", onclick=None):
+    return {"tag": tag, "href": href, "label": label,
+            "attrs": {"onclick": onclick, "download": None, "target": None, "role": None}}
+
+
+@pytest.mark.parametrize("href, label", [("/order/basket.html", "장바구니 (0)"), ("/order/basket.html", "0")])
+def test_cafe24_basket_is_reachable_as_goal_screen(cafe24, href, label):
+    assert cafe24.candidate_rejection("https://ecudemo360127.cafe24.com/", dom(href=href, label=label)) is None
+
+
+@pytest.mark.parametrize("el", [
+    # 2026-11-19 실제 장바구니 화면(빈 장바구니)에서 읽은 DOM
+    dom(href="#none", label="전체상품주문", onclick="Basket.orderAll(this)"),
+    dom(href="#none", label="선택상품주문", onclick="Basket.orderSelectBasket(this)"),
+    dom(href="#none", label="변경"),
+    dom(href="/myshop/order/list.html", label="주문조회"),
+    # 상품이 담긴 장바구니의 cafe24 기본 스킨 형태 (깨끗한 브라우저로 시작하면 빈 장바구니라 실제 화면에서는 관찰 불가)
+    dom(href="javascript:;", label="", onclick="Basket.addQuantityShortcut('quantity_id_0', 0);"),
+    dom(href="javascript:;", label="삭제", onclick="Basket.deleteBasketItem(0);"),
+    dom(href="/exec/front/order/basket/?command=delete", label="삭제"),
+    dom(href="/order/orderform.html?basket_type=all_buy", label="주문하기"),
+    dom(href="/product/detail.html?product_no=10", label="장바구니 담기"),
+    dom(tag="button", label="장바구니 비우기"),
+])
+def test_cafe24_basket_state_changes_are_not_candidates(cafe24, el):
+    assert cafe24.candidate_rejection(BASKET_URL, el) is not None
