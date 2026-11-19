@@ -33,7 +33,7 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
                      presets=None, registry=None, wait_s: float = VERIFY_RUN_WAIT_S) -> list[dict]:
     """목표마다 v1·최종안 Run 1쌍을 실행하고 Run 목록을 돌려준다.
 
-    frozen: 루프 시작 때 동결한 조건. `improvementId`, `personaId`, `persona`, `startPath`, `viewport`,
+    frozen: 루프 시작 때 동결한 조건. `improvementId`, `personaId`(직접 입력이면 None), `persona`, `startPath`, `viewport`,
             `limits`(`maxSteps` 필수, 나머지는 기본값), `modelMetadata`(있으면 지금 모델 설정과 같아야 실행).
     site_url: 최종안 사이트 주소 (`http(s)://host:port`). 기록하지 않는다.
     label: 최종안 버튼 이름.
@@ -112,9 +112,12 @@ def _check_frozen(frozen: dict) -> dict:
     imp = frozen.get("improvementId")
     if not isinstance(imp, str) or not _ID_RE.match(imp):
         raise ValueError("improvementId는 영문·숫자·_.- 로 된 문자열이어야 합니다.")
-    for k in ("personaId", "persona"):
-        if not isinstance(frozen.get(k), str) or not frozen[k].strip():
-            raise ValueError(f"frozen.{k}가 필요합니다.")
+    if not isinstance(frozen.get("persona"), str) or not frozen["persona"].strip():
+        raise ValueError("frozen.persona가 필요합니다.")
+    # 직접 입력 페르소나는 POST /api/runs와 같이 personaId=None (preset이면 그 id)
+    pid = frozen.get("personaId")
+    if pid is not None and (not isinstance(pid, str) or not pid.strip()):
+        raise ValueError("frozen.personaId는 preset id 또는 None(직접 입력)이어야 합니다.")
     start = frozen.get("startPath")
     if not isinstance(start, str) or not start.startswith("/"):
         raise ValueError("frozen.startPath는 /로 시작하는 경로여야 합니다.")
@@ -122,7 +125,7 @@ def _check_frozen(frozen: dict) -> dict:
     if not isinstance(limits.get("maxSteps"), int) or limits["maxSteps"] < 1:
         raise ValueError("frozen.limits.maxSteps(1 이상 정수)가 필요합니다.")
     viewport = frozen.get("viewport") or {"width": 1440, "height": 900}
-    return {"improvementId": imp, "personaId": frozen["personaId"], "persona": frozen["persona"], "startPath": start,
+    return {"improvementId": imp, "personaId": pid, "persona": frozen["persona"], "startPath": start,
             "viewport": dict(viewport), "limits": {**run_factory.DEFAULT_LIMITS, **limits}}
 
 

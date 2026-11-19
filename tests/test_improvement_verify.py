@@ -245,3 +245,14 @@ def test_refused_run_keeps_finished_runs_on_error(env, monkeypatch):
     with pytest.raises(ApiError) as e:
         improvement.run_verification(frozen(), FINAL_URL, "주문·조회", goals(), runner=runner)
     assert [r["executionRole"] for r in e.value.runs] == ["BASELINE"]
+
+
+def test_direct_input_persona_uses_null_persona_id(env):
+    """직접 입력 페르소나는 POST /api/runs와 같이 personaId=None으로 기록한다."""
+    runner, _, _ = env
+    out = improvement.run_verification(frozen(personaId=None, persona="70대, 인터넷 쇼핑이 서툰 사용자"), FINAL_URL,
+                                       "주문·조회", goals()[:1], runner=runner)
+    run = runner.store.load_run(out[1]["runId"])
+    assert run["personaId"] is None and run["persona"] == "70대, 인터넷 쇼핑이 서툰 사용자"
+    with pytest.raises(ValueError):
+        improvement.run_verification(frozen(personaId=""), FINAL_URL, "주문·조회", goals()[:1], runner=runner)
