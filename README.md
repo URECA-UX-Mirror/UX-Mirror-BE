@@ -1,288 +1,523 @@
-# UX MIRROR — Zoro-1 테스트 프로젝트
+# UX MIRROR — 백엔드
 
-테스트 시나리오 문서의 **A 묶음(G0-A, 브라우저 없이 단일 판단)**을 실제 Zoro-1로 돌리는 프로젝트.
-이후 B~E(쇼핑몰·Playwright·에이전트)도 여기에 붙인다.
+> **Zoro-1이 사용자 대신 사이트를 탐색하고, 사용자가 막히는 화면과 버튼을 찾는다.**
+> 사람 사용성 테스트 전에 확인할 화면과 버튼 이름 후보를 정리한다.
+
+```mermaid
+flowchart LR
+    U["목표 + 사용자 유형"] --> API["실행 API"]
+    API --> L["에이전트 루프"]
+    L <-->|"화면 후보 → 버튼별 확률"| Z(["Zoro-1"])
+    L <-->|"클릭·이동"| B["실제 브라우저<br/>(쇼핑몰 v1 / v2 / 외부 사이트)"]
+    L --> S[("Run 기록<br/>Step·스크린샷·원본 요청")]
+    S --> A["Issue 분석 · v1/v2 비교"]
+    S --> I["자동 개선<br/>진단 → 이름 제안 → 재평가"]
+    A --> FE["프론트 화면 · 재생"]
+    I --> FE
+    classDef inp fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#0D47A1
+    classDef model fill:#EDE7F6,stroke:#7E57C2,stroke-width:2px,color:#311B92
+    classDef sys fill:#E0F2F1,stroke:#26A69A,stroke-width:2px,color:#004D40
+    classDef store fill:#FFF8E1,stroke:#FFB300,stroke-width:2px,color:#E65100
+    classDef ok fill:#E8F5E9,stroke:#43A047,stroke-width:2px,color:#1B5E20
+    class U inp
+    class Z model
+    class API,L,B sys
+    class S store
+    class A,I,FE ok
+```
+
+## 특징
+
+- **막히는 버튼 탐지 → 이름 수정 제안** ([자동 개선 에이전트](#자동-개선-에이전트))
+- **다른 목표 점수도 확인.** 다른 목표가 2%p 넘게 내려가면 탈락
+- **사이트 수정 없이 실행.** 도착 판정 = 주소 + 화면 글자 ([외부 사이트 시나리오](#외부-사이트-시나리오))
+- **브라우저 실행 없이 도달 확률 추정** ([목표 도달 확률 엔진](#목표-도달-확률-엔진))
+- **결과는 사람 사용성 테스트에 올릴 후보**
+
+## Zoro-1의 역할
+
+화면마다 "다음에 누를 버튼"을 묻고, 버튼별 확률을 받는다.
+
+| 쓰임 | 하는 일 | 코드 |
+|---|---|---|
+| 빠른 진단 | 선택이 헷갈리는 화면, 목표로 못 가는 화면 찾기 | `uxm/screen_request.py`, `uxm/metrics.py`, `uxm/reach.py` |
+| 라우팅 | 고른 버튼을 눌러 목표까지 이동 | `uxm/agent.py`, `uxm/browser.py` |
+| 검증 | 바꾼 이름 재평가, 최종안 브라우저 재실행 | `api/optimizer.py`, `uxm/label_edit.py`, `api/improvement.py` |
+
+- 실행 조건: 행사 GPU(L40S, bf16), temperature 1.52, prompt v2
+- 도착 판정은 모델 대신 주소 + 화면 글자로 (모델 YES/NO 오답 때문, [결정 사항](#결정-사항))
+
+## 결과: v1 vs v2
+
+쇼핑몰 v1·v2, 같은 목표·같은 사용자 유형. Run 8개 모두 `VALID`. 기록: [run-logs/](run-logs/README.md)
+
+```mermaid
+flowchart LR
+    subgraph V1["v1 · 상단 메뉴 '이용정보'"]
+        a1[home] --> a2[support] --> a3[home] --> a4[support] --> a5["home ✗<br/>같은 화면 반복"]
+    end
+    subgraph V2["v2 · 상단 메뉴 '주문·환불'"]
+        b1[home] --> b2[orders] --> b3["refund ✓<br/>2단계"]
+    end
+    classDef bad fill:#FFEBEE,stroke:#E53935,stroke-width:2px,color:#B71C1C
+    classDef ok fill:#E8F5E9,stroke:#43A047,stroke-width:2px,color:#1B5E20
+    classDef step fill:#F5F5F5,stroke:#9E9E9E,stroke-width:1px,color:#212121
+    class a1,a2,a3,a4,b1,b2 step
+    class a5 bad
+    class b3 ok
+    style V1 fill:#FFF5F5,stroke:#E53935,color:#B71C1C
+    style V2 fill:#F1F8F1,stroke:#43A047,color:#1B5E20
+```
+
+| 목표 | 결과 v1 → v2 | 이동 수 v1 → v2 | 되돌아가기 v1 → v2 | 실행 시간 v1 → v2 | home 정답 방향 확률 v1 → v2 |
+|---|---|---|---|---|---|
+| S1 환불 (최단 2) | **실패 → 성공** | 4 → **2** | 2 → **0** | 7.3초 → **3.7초** | 0.537 → **0.717** (+18.0%p) |
+| S2 배송 조회 (최단 1) | 성공 → 성공 | 1 → 1 | 0 → 0 | 2.9초 → 2.1초 | 0.653 → **0.773** (+12.0%p) |
+| S3 쿠폰 (최단 1) | 성공 → 성공 | 1 → 1 | 0 → 0 | 2.2초 → 2.5초 | 0.758 → **0.935** (+17.7%p) |
+| S4 문의 (최단 1) | 성공 → 성공 | 1 → 1 | 0 → 0 | 3.4초 → 2.2초 | 0.771 → 0.611 (**−16.0%p**) |
+
+```mermaid
+%%{init: {"themeVariables": {"xyChart": {"plotColorPalette": "#90CAF9, #E53935"}}}}%%
+xychart-beta
+    title "home 정답 방향 확률 (파란 막대 v1 · 빨간 선 v2)"
+    x-axis ["S1 환불", "S2 배송", "S3 쿠폰", "S4 문의"]
+    y-axis "확률" 0 --> 1
+    bar [0.537, 0.653, 0.758, 0.771]
+    line [0.717, 0.773, 0.935, 0.611]
+```
+
+- home 정답 방향 확률 = 첫 화면에서 목표 쪽 버튼들의 확률 합
+- S1: 바뀐 메뉴 확률 0.205 → 0.596. v1은 `고객센터`(0.341)를 골라 같은 화면 반복
+- S4: v2에서 −16.0%p. 한 목표에 맞춘 이름이 다른 목표엔 불리할 수 있음
+
+## 빠른 실행
+
+```bash
+python shop/moro-before/server.py --port 8001     # v1
+python shop/moro-after/server.py --port 8002      # v2
+python -m uvicorn api.main:app --port 8000        # API (.env에 행사 GPU 설정)
+curl localhost:8000/api/health                    # 모델·브라우저·에이전트 READY 확인
+```
+
+프론트(UX-Mirror-FE)에서 목표·사용자 유형 선택 → v1·v2 Run → 경로·Issue·비교 표시. 저장된 Run은 재생 가능.
+
+## 실패 처리
+
+| 상황 | 동작 |
+|---|---|
+| 브라우저·페이지 로드 실패 | 멈추지 않고 결과로 기록, 해당 Run은 `INVALID`로 비교 제외 |
+| 같은 화면 반복·단계 초과 | 멈추고 Issue로 기록 |
+| 모델 시간 초과·서버 재시작 | 해당 후보만 실패 처리, 늦은 호출이 끝날 때까지 새 실행 차단 |
+| 동시 실행 요청 | 한 번에 1개 (`409`) |
+| 잘못된 입력·없는 도착 화면 | 실행 전 확인 후 거절 (`422`/`503`) |
+| 외부 사이트 위험 버튼 | 주문·삭제·로그아웃·장바구니 변경 제외, 등록 화면만 이동 |
+| 실험 정보 누출 | 모델 입력에 버전·정답 정보가 있으면 요청 차단 |
+| 계산할 수 없는 값 | 0 대신 `null` + 사유 |
+| 공개 로그 비밀값 | 키·토큰·서버 주소가 있으면 내보내기 중단 |
+
+테스트 898개 (`pytest -q tests`, 모델 없이 실행).
+
+## 기능 지도
+
+| 흐름 | 내용 |
+|---|---|
+| [단일 판단](#설치실행) | 브라우저 없이 화면 1개에서 Zoro-1 판단 확인 (A1~A10) |
+| [버전 비교](#실행-api) | v1(8001)·v2(8002)에서 같은 목표로 Run 1쌍 → Issue 분석·비교 |
+| [외부 사이트 시나리오](#외부-사이트-시나리오) | 등록한 외부 사이트(cafe24) 1곳에서 Run 1개 |
+| [UX Optimizer](#ux-optimizer) | 사람이 만든 이름 후보 C1~C4 평가 → 선정 → 실제 Run 재검증 |
+| [목표 도달 확률 엔진](#목표-도달-확률-엔진) | 실행 없이 사이트 지도 + 화면별 확률로 도달 확률 추정 |
+| [자동 개선 에이전트](#자동-개선-에이전트) (진행 중) | v1 하나로 진단 → 이름 제안 → 수정 → 재평가 → 실제 Run 검증 |
 
 ## 구조
 
-```
-uxm/
-  prompts.py     # 튜닝 대상(지시문, 후보 설명 형식, 페르소나, 이력 표현) + PROMPT_VERSION
-  scenarios.py   # A1~A10 정의. semanticKey는 백엔드 전용
-  backends.py    # http(/v1/decide 서버) | local(transformers로 같은 헤드 직접 실행)
-  metrics.py     # 정규화 엔트로피, Top-2, GO_BACK 조건부 재정규화 (기획안 8.2)
-  candidates.py  # 화면에서 클릭 후보 추출(semanticKey·bbox), 확률 배지 그리기
-  browser.py     # 브라우저 조작: open/close, click, go_back, reload, capture, page_key, page_signature (예외 대신 ActionResult)
-  leak.py        # T-LEAK: 모델 입력에 variant/testMode/정답 마커 차단
-  sitemap.py     # 사이트 지도(SITE_MAP): 간선·해시·최단 거리·지도 검증·실제 Run 대조 (#46)
-  label_edit.py  # 자동 개선 수정 A: apply_label(상단 메뉴 이용정보 글자만 변경, 1단계 이 버튼만), check_layout(v1 기준 대비 위치·후보·이름 + LABEL_OVERFLOW·VIEWPORT_MISMATCH, B 화면에도 사용) (#104)
-  config.py      # .env 로딩
-scripts/run_a.py # A 실행기 → results/json/a/, results/run_log.md
-scripts/run_b5.py        # B3+B5 실제 화면 확률 → results/json/b5/, results/screenshots/b5/
-scripts/show_candidates.py  # 후보·도착 판정 확인 (모델 없음) → results/json/candidates/, results/screenshots/candidates/
-scripts/check_site_instances.py  # Optimizer 후보 사이트 C0~C4 점검 (모델 없음, --serve로 서버 5개 기동): 유효성·겹침·잘림·라벨 외 화면 변화 → results/site_checks/
-results/README.md        # 남겨둔 결과별 의미
-scripts/build_shop.py  # shop/stitch_moro_market → shop/moro-before(8001), shop/moro-after(8002) 생성 + 라벨 1개 차이 검사
-scripts/build_sitemap.py  # 쇼핑몰 화면 5개(Before·After)에서 후보를 뽑아 사이트 지도 생성·검증 → config/sitemaps/ (쇼핑몰 서버 필요)
-config/sites/moro-market.json        # 사이트 지도용 사이트 설정 (화면 목록·시작 화면·경로 범위·허용 도메인·주소)
-config/sitemaps/sitemap-shop-v1.json  # 고정한 사이트 지도 (siteMapVersion·siteMapHash)
-shop/
-  server.py              # 쇼핑몰 서버 원본 (build_shop.py가 두 쇼핑몰에 복사)
-  stitch_moro_market/    # Stitch 시안 원본 (쇼핑몰 수정은 여기 또는 build_shop.py에서)
-  moro-before/, moro-after/  # 생성 결과 (직접 수정 금지). 서버: cd shop\moro-before 후 py -3.11 server.py
-                             # 테스트 모드: 첫 주소에 ?testMode=nochange(마이페이지 쿠폰함 눌러도 안 바뀜) | deadend(고객센터 배송 현황 확인 숨김)
-  moro-c1/, moro-c3/, moro-c4/  # Optimizer 라벨 후보 변형 (build_shop.py --label, 직접 수정 금지). 서버: cd shop\moro-c1 후 py -3.11 server.py --port 8003 (C3 8004, C4 8005)
-api/             # 실행 API (FastAPI). 다른 모듈과의 연결은 api/integrations.py 한 곳
-config/presets.json  # 목표·페르소나 preset (성공 조건·허용 경로는 Backend 전용)
-tests/           # 모델 없이 도는 테스트
-vendor/trida-stack/  # 공식 코드 일부(Apache-2.0): 요청 인코딩·포인터 헤드·서버
+```mermaid
+flowchart LR
+    E["<b>진입점</b><br/>api/ 실행 API<br/>scripts/ 명령줄 도구"]
+    C["<b>uxm/ 핵심 로직</b><br/>Run 실행 · 모델 호출<br/>분석 · 추정·개선"]
+    Z(["Zoro-1"])
+    D["<b>데이터</b><br/>shop/ 쇼핑몰<br/>config/ 설정<br/>results/ Run 기록"]
+    E --> C
+    C <--> Z
+    C --> D
+    classDef entry fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#0D47A1
+    classDef core fill:#E0F2F1,stroke:#26A69A,stroke-width:2px,color:#004D40
+    classDef model fill:#EDE7F6,stroke:#7E57C2,stroke-width:2px,color:#311B92
+    classDef data fill:#FFF8E1,stroke:#FFB300,stroke-width:2px,color:#E65100
+    class E entry
+    class C core
+    class Z model
+    class D data
 ```
 
-## 설치 (완료됨)
+| 폴더 | 역할 | 주요 파일 |
+|---|---|---|
+| `uxm/` | 핵심 로직 (API 없이 동작) | 아래 표 |
+| `api/` | 실행 API | `main.py`, `runner.py`, `optimizer.py`, `improvement.py`, `integrations.py`(모듈 연결) |
+| `scripts/` | 명령줄 도구 | `build_shop.py`, `build_sitemap.py`, `estimate_reach.py`, `export_run_logs.py` |
+| `shop/` | 테스트 쇼핑몰 | `moro-before`(v1), `moro-after`(v2), `moro-c1·c3·c4`(이름 변형). 생성 결과라 직접 수정 금지, 원본은 `stitch_moro_market/` |
+| `config/` | 설정 | 목표·페르소나(`presets.json`), 사이트, 사이트 지도, Optimizer 후보 |
+| `tests/` | 테스트 | 모델 없이 실행 |
+| `vendor/trida-stack/` | 공식 코드 일부 (Apache-2.0) | 요청 인코딩·서버 |
+
+`uxm/` 파일:
+
+| 묶음 | 파일 | 하는 일 |
+|---|---|---|
+| Run 실행 | `agent.py` | 판단 → 클릭 → 도착 판정 → 저장 반복 |
+| | `browser.py` | 브라우저 조작 |
+| | `candidates.py` | 화면에서 클릭 후보 추출 |
+| | `goal.py` | 도착 판정 (주소 + 화면 글자) |
+| | `storage.py`, `status.py` | Run 저장, 종료 상태 |
+| 모델 호출 | `backends.py`, `mock.py` | Zoro-1 서버 / 로컬 / 가짜 모델 |
+| | `prompts.py`, `screen_request.py` | 요청 문구, 화면 → 요청 변환 |
+| | `leak.py` | 모델 입력의 정답 정보 차단 |
+| 분석 | `analysis.py`, `comparison.py`, `reference.py` | Issue 탐지, v1/v2 비교, 경로 기준 |
+| | `metrics.py` | 엔트로피, Top-2 |
+| 추정·개선 | `sitemap.py`, `reach.py` | 사이트 지도, 도달 확률 |
+| | `optimizer_policy.py` | Optimizer 선정·판단 |
+| | `improve_policy.py`, `label_edit.py` | 자동 개선: 이름 제안·채택, 글자 바꾸기·화면 검사 |
+| 외부 사이트 | `site_scope.py`, `scenario_safety.py` | 탐색 범위, 위험 링크 차단 |
+
+쇼핑몰 테스트 모드: 첫 주소에 `?testMode=nochange`(쿠폰함 눌러도 안 바뀜) | `deadend`(고객센터 배송 현황 숨김).
+
+## 설치·실행
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cu126
 .\.venv\Scripts\pip install numpy pillow -r requirements.txt
 copy .env.example .env
-```
 
-## 실행
-
-```powershell
 .\.venv\Scripts\python -m pytest -q tests          # 오프라인 테스트
-.\.venv\Scripts\python scripts\run_a.py --dry-run   # 요청 payload 확인
-.\.venv\Scripts\python scripts\run_a.py             # A1~A10
-.\.venv\Scripts\python scripts\run_a.py A2 A3       # 일부
+.\.venv\Scripts\python scripts\run_a.py --dry-run   # 단일 판단 요청 확인
+.\.venv\Scripts\python scripts\run_a.py A2 A3       # 일부만 실행 (생략하면 A1~A10)
 ```
 
 ## 실행 API
 
-행사 최종 Before/After 실행과 결과 보존 절차는 [최종 Run 비교·증거 보존 절차](docs/final-run-evaluation.md)를 참고한다.
+행사 Before/After 실행과 결과 보존 절차: [최종 Run 비교·증거 보존 절차](docs/final-run-evaluation.md)
 
-```powershell
-.\.venv\Scripts\python -m uvicorn api.main:app --port 8000
+```mermaid
+flowchart LR
+    R["POST /api/runs"] --> P{"실행 전 검사"}
+    P -->|"입력·도착 화면 오류"| E["422 / 503"]
+    P -->|"통과"| RUN["Run 실행<br/>(한 번에 1개)"]
+    RUN --> F["종료 → 유효성 재계산"]
+    F --> IS["Issue 분석"]
+    IS --> C["GET /api/comparisons/{key}"]
+    classDef inp fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#0D47A1
+    classDef store fill:#FFF8E1,stroke:#FFB300,stroke-width:2px,color:#E65100
+    classDef bad fill:#FFEBEE,stroke:#E53935,stroke-width:2px,color:#B71C1C
+    classDef sys fill:#E0F2F1,stroke:#26A69A,stroke-width:2px,color:#004D40
+    classDef ok fill:#E8F5E9,stroke:#43A047,stroke-width:2px,color:#1B5E20
+    class R inp
+    class P store
+    class E bad
+    class RUN,F,IS sys
+    class C ok
 ```
 
 | Method | 주소 | 내용 |
 |---|---|---|
-| GET | `/api/presets` | 목표·페르소나 선택지 (`?includeTest=true`면 C3용 테스트 전용 목표 포함) |
-| POST | `/api/runs` | Run 생성 `{experimentKey, variant, goalId|goal+verification, personaId|persona, maxSteps?, startPath?}` → `201` READY, 실행은 별도 스레드 |
-| GET | `/api/runs` | Run 목록 `?experimentKey=&variant=` (계약 밖 추가) |
-| GET | `/api/runs/{runId}` | 상태·요약 |
-| GET | `/api/runs/{runId}/steps` | 저장이 끝난 Step |
-| GET | `/api/runs/{runId}/issues` | UX 검토 후보 (`PENDING`/`COMPLETED`/`FAILED`) |
-| GET | `/api/runs/{runId}/screenshots/{stepId}?kind=original\|overlay` | 스크린샷 |
-| GET | `/api/runs/{runId}/screenshots/goal` | 도착 화면 스크린샷 (Step이 없는 경로 마지막 노드, OI-3). 도착하지 않았거나 사진이 없으면 `404` |
-| GET | `/api/comparisons/{experimentKey}` | Before/After 비교 (VALID 최종 Run, 두 Run의 Issue 분석이 모두 `COMPLETED`일 때만) |
+| GET | `/api/presets` | 목표·페르소나 선택지 |
+| POST | `/api/runs` | `{experimentKey, variant, goalId \| goal+verification, personaId \| persona, maxSteps?, startPath?}` → `201` |
+| GET | `/api/runs`, `/api/runs/{runId}` | 목록 / 상태·요약 |
+| GET | `/api/runs/{runId}/steps`, `/issues` | Step, UX 검토 후보 |
+| GET | `/api/runs/{runId}/screenshots/{stepId}?kind=original\|overlay`, `/screenshots/goal` | 스크린샷, 도착 화면 |
+| GET | `/api/comparisons/{experimentKey}` | v1/v2 비교 (두 Run 모두 `VALID`·분석 완료일 때) |
 | GET | `/api/health` | 모델·브라우저·에이전트 준비 상태 |
 
-- 동시에 1개만 실행 (`409 RUN_ALREADY_ACTIVE`). 같은 `experimentKey`+`variant`에 VALID·진행 중 Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`. 무효(INVALID) Run만 다시 실행할 수 있고 원본의 `replacementRunId`에 연결된다.
-- 에이전트 루프(`uxm/agent.py`)나 브라우저(`uxm/browser.py`)가 없으면 `POST /api/runs`는 `503`.
-- Issue 분석(`detect_issues(run, steps, events)`)은 Run이 끝날 때 한 번만 돌고 `issues.json`을 쓴다. 조회 API는 파일을 쓰지 않는다. 분석 모듈이 없을 때 끝난 Run은 `PENDING`으로 남고, 비교는 `409 COMPARISON_NOT_READY`(분석 `FAILED`면 `500 ANALYSIS_ERROR`).
-- 나중에 분석하려면 `python scripts/analyze_runs.py --all` (`issues.json`만 쓰고 `run.json`은 건드리지 않음). 이렇게 분석한 Run은 저장된 `summary.detectedIssueTypes`가 비어 있을 수 있지만, `GET /api/runs/{runId}`와 비교 API는 완료된 `issues.json`에서 다시 계산한 값을 쓴다.
-- 목표는 `goalId`(preset) 또는 `goal` 문장 + 성공 조건 `verification{path, text, exact?, scope?}` 중 하나, 사용자 유형은 `personaId` 또는 `persona` 문장 중 하나. 직접 입력 문장은 빈 값·200자 초과·누출 금지 문자열(`uxm/leak.py` `FORBIDDEN`: `before`, `after`, `variant` 등)이면 실행 전에 `422`. 성공 조건은 preset 로드와 같은 검사(`_check_verification`)를 거친다.
-- Run에는 목표·사용자 유형·`verification`을 저장하고 루프·분석은 Run 값만 읽는다. `verification`은 공백 정리 + `exact=false`·`scope=page` 기본값을 채워 저장한다(preset 실행도 복사). 직접 입력한 목표는 허용 경로가 없어 사이트 지도 기준(`referencePathConfig.basis = SITE_MAP`, `distances` 복사)으로 저장한다 (#51). 지도를 쓸 수 없으면 `referencePathConfig: null`로 실행하고 경로 지표는 `null`, 시작 화면에서 도착 화면으로 가는 길이 없으면 `422`.
-- 같은 `experimentKey`의 두 번째 Run부터는 첫 Run과 `goalId`·`goal`·`personaId`·`persona`·`verification`이 같아야 한다 (다르면 `422`).
-- 실행 전 검사: 직접 입력한 성공 조건은 Run을 만들기 전에 Before·After 쇼핑몰에서 도착 화면을 실제로 열어 확인한다 (`api/preflight.py`, 판정은 루프와 같은 `verify_goal`). 쇼핑몰에 없는 화면·다른 화면으로 이동·글자 없음은 `422`(어느 쪽인지 메시지에 표시), 화면을 열지 못하거나 10초 안에 응답이 없으면 재시도 가능한 `503 BROWSER_ERROR`. 다른 Run이 실행 중이면 브라우저를 띄우지 않고 바로 `409`. preset 목표는 로드 때 검사하므로 건너뛴다.
-- 비교의 `GOAL_MATCHED`는 저장된 목표 문장과 완전한 `verification`을, `PERSONA_MATCHED`는 사용자 유형 문장을 비교한다. 과거 Run에 `verification`이 없으면 현재 preset을 추측하지 않고 `GOAL_MATCHED=false`와 확인 불가 사유를 반환한다.
-- `REFERENCE_PATH_CONFIG_MATCHED`는 양쪽이 명시적 `null`이면 일치하며, 설정이 있으면 버전·허용 경로·최단 경로 길이를 비교한다.
-- preset 목표마다 시작 화면이 정해져 있다 (`refund` = `/shop/home`, C3용 `refund-from-mypage-test` = `/shop/mypage`). 허용 경로가 시작 화면 기준이라 다른 화면에서는 실행하지 않는다. 생략하면 그 값을 쓰고 다르면 `422`.
-- `validity`·`invalidReason`은 루프가 넘긴 값을 쓰지 않고, 종료 시 `terminationReason`·`error.code`로 항상 다시 정한다 (계약 6.1 유효성 표).
-- `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`(`BROWSER_CRASH`) (계약 v1.3.3~).
+<details>
+<summary>세부 규칙</summary>
 
-## 시나리오 테스트 API (외부 사이트, #74)
+- 동시에 1개만 실행(`409 RUN_ALREADY_ACTIVE`). 같은 `experimentKey`+`variant`에 VALID·진행 중 Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`. INVALID Run만 다시 실행할 수 있고 원본의 `replacementRunId`에 연결된다.
+- 루프나 브라우저 모듈이 없으면 `POST /api/runs`는 `503`.
+- Issue 분석은 Run이 끝날 때 한 번 돌고 `issues.json`을 쓴다. 분석 전이면 비교는 `409 COMPARISON_NOT_READY`, 분석 실패면 `500 ANALYSIS_ERROR`. 나중에 분석: `python scripts/analyze_runs.py --all`.
+- 목표는 `goalId` 또는 `goal` + `verification{path, text, exact?, scope?}`, 사용자 유형은 `personaId` 또는 `persona`. 직접 입력 문장이 비었거나 200자 초과·누출 금지 문자열이면 `422`.
+- 직접 입력한 목표는 사이트 지도 기준(`referencePathConfig.basis = SITE_MAP`)으로 경로 지표를 낸다. 지도를 못 쓰면 `null`, 시작 화면에서 길이 없으면 `422`.
+- 같은 `experimentKey`의 두 Run은 목표·사용자 유형·`verification`이 같아야 한다.
+- 실행 전 검사: 직접 입력한 성공 조건은 v1·v2에서 도착 화면을 열어 확인한다. 없는 화면·다른 화면·글자 없음은 `422`, 10초 안에 못 열면 `503 BROWSER_ERROR`.
+- preset 목표마다 시작 화면이 정해져 있다(`refund` = `/shop/home`). 다르면 `422`.
+- `validity`는 루프가 넘긴 값을 쓰지 않고 종료 사유로 항상 다시 정한다. `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`.
 
-버전 비교(MORO MARKET v1/v2)와 별도로, 등록한 외부 사이트 1곳에서 사용자 상황(목표)으로 Run 1개를 돌린다 (팀 문서 「외부 사이트 시나리오 테스트」 4.3). 사이트 설정은 `config/sites/<siteId>.json`, 탐색 범위는 `uxm/site_scope.py`(#71).
+</details>
 
-| Method | Path | 설명 |
-|---|---|---|
-| GET | `/api/sites` | 시나리오 사이트 목록. `{siteId, name, mode: SCENARIO, siteUrl, allowedHosts, startPage, pages: [{pageKey, path, label, goalText, goalSelectable, goalUnavailableReason}], siteMap: {available, siteMapVersion, unreachablePages}}` |
-| POST | `/api/runs` + `siteId` | 시나리오 Run. 응답에 `siteId`·`mode` |
+## 외부 사이트 시나리오
 
-- `siteId`가 없으면 지금까지와 같은 MORO MARKET 버전 비교 Run이다. Run에 `siteId`·`mode` 필드를 쓰지 않는다.
-- 시나리오 Run 규칙: `variant=before`만, 목표는 직접 입력(`goal` + `verification`)만. 시작·도착 화면은 그 사이트에 등록된 화면(`pages`)의 경로와 정확히 같아야 한다(쿼리·끝 `/`가 붙으면 `422`, 화면은 설정의 `open` 주소로 연다). 시작 화면을 생략하면 사이트의 `startPage`. 등록되지 않은 `siteId`·MORO MARKET `siteId`·위 규칙 위반은 `422`.
-- 실행 주소와 사이트 버전 값(`siteVersion`, `comparisonContext`의 layout·candidatePolicy·initialBrowserState)은 사이트 설정(`variants`·`meta`)에서 온다. 사이트 주소는 Run에 넣지 않는다. `GET /api/sites`에는 FE가 사용자가 입력한 링크로 등록 사이트를 찾을 수 있게 `siteUrl`(공개 주소일 때만: http(s), 호스트가 `allowedHosts`에 있고 내 컴퓨터·사설망·내부용 이름(점 없는 이름, `.local`·`.internal`·`.lan`·`.home.arpa` 등)이 아님, 아니면 `null`. IPv6는 `[...]`, 기본 포트 80·443은 표기 안 함)과 `allowedHosts`(같은 판정으로 공개 호스트만)를 내려 준다(#95). 실행은 여전히 `siteId`로만 하고 `POST /api/runs`는 주소를 받지 않는다.
-- 실행 전 검사는 사이트 1곳만 확인한다. 쿼리가 있어야 열리는 화면(게시판 등)은 설정의 `open` 주소로 연다. 메시지에 Before/After를 붙이지 않는다.
-- 사이트 지도가 있으면 그 지도로 `SITE_MAP` 경로 기준을 만든다. 지도상 시작 화면에서 갈 수 없는 도착 화면은 `422` "도착 화면으로 가는 경로가 없습니다." (`/api/sites`의 `goalSelectable: false`. 고를 수 있는 화면 = 확인 글자 있음 + 시작 화면 아님 + 지도에서 닿음). 지도가 없으면 `referencePathConfig: null`.
-- 사이트 지도 진단: 도착 화면으로 고를 수 없는 이유는 `goalUnavailableReason`(`START_PAGE` / `NO_GOAL_TEXT` / `UNREACHABLE_ON_SITE_MAP`). `UNREACHABLE_ON_SITE_MAP`은 "시작 화면에 보이는 링크로는 닿지 않는 화면"이고, 목록은 `siteMap.unreachablePages`(지도를 만들 때 기록한 값 그대로). cafe24는 `qna`·`guide`·`company`이며 실행하지 않고 이 진단으로 보여 준다(경고 후 실행 허용은 행사 뒤 고도화).
-- 같은 `experimentKey`에 버전 비교 Run과 시나리오 Run을 섞을 수 없다 (`siteId`가 다르면 `422`).
-- 비교 API는 시나리오 Run을 대상에서 뺀다. 시나리오 Run만 있는 키는 `404 RUN_NOT_FOUND` "시나리오 실행은 비교하지 않습니다."
-
-## UX Optimizer API (고도화 v1.3, #57)
-
-라벨 후보 풀을 Zoro-1로 평가 → 후보 선정 → 실제 브라우저 재검증 → 최종 판단. 기존 `POST /api/runs`(P0)와 별도 흐름이다.
+등록한 외부 사이트 1곳에서 사용자 목표로 Run 1개를 돌린다. 사이트 설정은 `config/sites/<siteId>.json`, 탐색 범위는 `uxm/site_scope.py`.
 
 | Method | Path | 설명 |
 |---|---|---|
-| POST | `/api/optimizations` | `{sourceRunId?}` → `202` `{optimizationId, status: CREATED, createdAt}`. 후보 평가를 비동기로 시작 |
-| GET | `/api/optimizations/{id}` | 상태·진행(`progress`)·후보별 평가(`evaluations`)·선정·검증 Run ID·최종 판단·오류 |
-| POST | `/api/optimizations/{id}/verify` | `202` `{optimizationId, status: VERIFYING, verificationPhase: BASELINE, baselineRunId, validationRunId}`. 기준(C0)과 검증 후보 사이트를 차례로 실행 |
-| GET | `/api/optimizations/{id}/report` | 완료된 Optimization의 보고서 (미완료 `409 OPTIMIZATION_NOT_READY`) |
+| GET | `/api/sites` | 사이트 목록: 화면(`pages`)·도착 가능 여부·공개 주소(`siteUrl`, `allowedHosts`)·지도 정보 |
+| POST | `/api/runs` + `siteId` | 시나리오 Run |
 
-- 상태: `CREATED → EVALUATING → EVALUATED → VERIFYING → COMPLETED`, 실패 시 `FAILED`(`error.failedPhase`·`lastStatus` 보존). 프론트는 1초 폴링, 종료 상태에서 멈춘다.
-- 후보 풀·대상 메뉴·정책 버전: `config/optimization.json` (C0 `이용정보` 기준, C1~C4). 동률일 때 쓰는 의미 명확성 순위 `semanticClarityRank`(C2 1, C3 2, C4 3, C1 4, 작을수록 우선)도 여기 고정하고 평가마다 넘긴다. 생성 시 모델·프롬프트·목표·사이트 조건과 함께 `frozenConditions`·`modelMetadata`에 동결한다. 요청으로 바꿀 수 없다.
-- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 후보 5개가 모두 등록돼 있다: C0 8001(`moro-before`), C1 8003(`moro-c1`), C2 8002(`moro-after`), C3 8004(`moro-c3`), C4 8005(`moro-c4`). Optimizer를 돌리기 전에 서버 5개를 띄운다 (`scripts/check_site_instances.py`로 모델 없이 점검). 꺼진 후보는 그 후보만 `FAILED`(`BROWSER_ERROR`)로 남는다. 등록되지 않은 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
-- 평가: 후보 화면을 실제로 열어 스냅샷(`raw/snapshot_<C>.json`) → 유효성 검사 → Zoro-1 Direct 1회. 실패 시 재시도하지 않는다.
-  - 기준(C0) 자체: 대상 semanticKey가 있고 라벨이 `originalLabel`, 목적지가 설정과 같은지 먼저 본다. 다르면 모델을 부르지 않고 `FAILED`(`BASELINE_INVALID`).
-  - 후보: C0 대비 후보 수·순서·화면 제목·목적지·영역(region)·다른 라벨·bbox ±2px·누출. 모든 스냅샷은 semanticKey 누락(`SEMANTIC_KEY_MISSING`)·중복(`SEMANTIC_KEY_DUPLICATE`)도 확인한다 (확률을 키로 묶을 때 덮어쓰기 방지).
-  - 결과: `targetOptionProbability`(대상 메뉴), `goalPathProbability`(허용 경로 다음 화면으로 가는 후보 확률 합, 기준은 `goalPathBasis: ALLOWED_PATHS`), `probabilities`(semanticKey 기준), `requestHash`·`snapshotHash`, 원본 요청·응답 `raw/model_request_<C>.json`·`model_response_<C>.json`. 계산할 수 없는 지표는 0이 아니라 `null`이고 사유는 `metricNullReasons`.
-  - 모델이 제한 시간(`modelTimeoutMs`)을 넘기면 그 후보는 `MODEL_TIMEOUT`. 늦은 호출이 끝날 때까지 같은 시간만큼 더 기다린 뒤 다음 후보로 가고, 그래도 안 끝나면 평가를 `FAILED`(`MODEL_TIMEOUT`)로 멈춘다. 그 호출이 실제로 끝날 때까지는 시간 제한 없이 일반 Run·새 Optimization이 409이고, health `activeOptimization.status`는 `MODEL_CALL_PENDING` (호출 중첩 방지).
-  - 후보 화면을 열지 못하면 `BROWSER_ERROR` "후보 화면을 열지 못했습니다." 원본 예외(내부 주소 포함)는 서버 로그에만 남긴다.
-- 지표 검증·후보 선정·최종 판단은 4번 `uxm/optimizer_policy.py`(`compute_evaluation_metrics`, `select_candidate`, `judge_verification`)를 부른다. 모듈이 없으면 `503 OPTIMIZER_POLICY_UNAVAILABLE`.
-  - 확률 합은 엔진과 같은 ±0.02 기준으로 검증한다. 엔트로피는 합계가 1이 되도록 보정한 전체 후보 분포로 계산하고, Top-2 차이는 원본 확률을 사용한다. 입력 확률은 변경하지 않는다.
-  - 확률 분포가 잘못됐으면 지표를 `null`로 두고 `policyMetricError`를 남겨 해당 후보를 제외한다. 원본 대상 확률이 `probabilities[semanticKey]`와 다른 후보나 Baseline과 `goalPathBasis`가 다른 후보도 제외한다.
-  - 평가가 `COMPLETED`이고 필수 지표가 있는 후보만 대상으로 경로 확률의 2%p 초과 감소를 제외한다. 남은 후보 중 최고 점수와 1%p 이내인 그룹은 의미 명확성·라벨 길이·후보 순서로 정렬한다. 이후 남은 후보도 같은 방식으로 그룹화한다. 추천은 5%p 이상 향상된 후보 중 순위가 가장 높은 후보이며, 검증 후보는 전체 적격 후보 중 1위라 두 ID가 다를 수 있다.
-  - `selection.excludedCandidates`는 `candidateId`와 `reasonCodes`, `selectionReasonCode`는 선정 사유를 제공한다. 검증 판단은 `verification.finalDecision`·`reasonCode`·`navigationCostDelta`를 제공한다. 이유 코드와 근거 형식은 FE 연동 시 함께 확인한다.
-- 검증 Run은 기존 Runner로 만들어 `results/runs/`에 그대로 저장한다. `experimentKey = optimizationId`, 기준은 `variant=before`, 후보는 `after`(기존 비교 API 재사용), 역할은 `optimizationContext.executionRole`(`BASELINE`/`CANDIDATE`).
-  - 목표·사용자 유형·성공 조건·경로 기준·제한·viewport는 생성 때 동결한 `frozenConditions`로 만든다. 검증 시작 때 현재 preset·모델 설정(`goalJudgmentMode` 포함)이 동결 값과 다르면 `422 EXPERIMENT_CONDITION_MISMATCH`.
-  - 검증 Run을 만들기 전에 기준·선정 후보 화면을 다시 찍어 평가 때 스냅샷과 비교한다(같은 Site Instance, 같은 `snapshotHash`). 다르면 `FAILED`(`SITE_INSTANCE_CHANGED`), 다시 열지 못하면 `FAILED`(`SITE_RECHECK_FAILED`)이고 Run은 만들지 않는다. 확인 결과는 `siteRecheck`.
-  - **결과는 `variant`가 아니라 `optimizationContext.siteInstanceId`·`label`로 본다.** C1·C3·C4 Run도 `variant=after`이고 `siteVersion`은 그대로 `shop-v1`이라 Run 필드만으로는 어느 라벨 사이트인지 구분되지 않는다.
-- 후보 평가·검증 중에는 `POST /api/runs`도 `409 RUN_ALREADY_ACTIVE`(메시지 "Optimization … 후보 평가가/후보 검증 실행이 진행 중입니다."). 검증 중에는 기준 Run과 후보 Run 사이 빈 구간에도 막고, 이 Optimization의 검증 Run만 통과한다. 진행 중인 Optimization은 `/api/health`의 `activeOptimization`(`{optimizationId, status}` 또는 `null`)에 보인다.
-- Optimization 실패 코드(`error.code`): `BASELINE_INVALID`, `BASELINE_NOT_EVALUATED`, `MODEL_TIMEOUT`, `SITE_INSTANCE_CHANGED`, `SITE_RECHECK_FAILED`, `RUN_TIMEOUT`, `OPTIMIZATION_INTERRUPTED`(서버 재시작), `OPTIMIZATION_FAILED`.
-- 오류: `404 OPTIMIZATION_NOT_FOUND`, `409 OPTIMIZATION_NOT_READY`·`OPTIMIZATION_ALREADY_PROCESSED`·`RUN_ALREADY_ACTIVE`, `422 INVALID_SITE_INSTANCE`·`EXPERIMENT_CONDITION_MISMATCH`, `503 MODEL_UNAVAILABLE`·`OPTIMIZER_POLICY_UNAVAILABLE`.
-- 저장: `results/optimizations/<optimizationId>/optimization.json` + `raw/`.
+<details>
+<summary>세부 규칙</summary>
 
-## 자동 개선 최종안 검증 Run (#101)
+- `siteId`가 없으면 기존 MORO MARKET 버전 비교 Run.
+- `variant=before`만, 목표는 직접 입력만. 시작·도착 화면은 등록된 화면 경로와 정확히 같아야 한다(다르면 `422`). 시작 화면을 생략하면 `startPage`.
+- 사이트 주소는 Run에 넣지 않는다. `siteUrl`은 공개 주소일 때만 내려 주고(사설망·내부용 이름이면 `null`), 실행은 `siteId`로만 한다.
+- 지도상 시작 화면에서 갈 수 없는 도착 화면은 `422`. 고를 수 없는 이유는 `goalUnavailableReason`(`START_PAGE` / `NO_GOAL_TEXT` / `UNREACHABLE_ON_SITE_MAP`). cafe24는 `qna`·`guide`·`company`가 닿지 않는 화면이다.
+- 같은 `experimentKey`에 버전 비교 Run과 시나리오 Run을 섞을 수 없고, 비교 API는 시나리오 Run을 뺀다(`404`).
 
-자동 개선 루프가 고른 최종안 사이트로 실제 Run을 돌린다 (설계 v2.1 §4.6 (a)). 스크립트에서 부르는 함수다.
+</details>
+
+## UX Optimizer
+
+사람이 만든 메뉴 이름 후보(C1~C4)를 Zoro-1로 평가 → 후보 선정 → 실제 브라우저 재검증 → 최종 판단.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> CREATED
+    CREATED --> EVALUATING: 평가 시작
+    EVALUATING --> EVALUATED: 후보마다 화면 스냅샷 → 유효성 검사 → Zoro-1 1회
+    EVALUATED --> VERIFYING: 검증 요청
+    VERIFYING --> COMPLETED: 기준 Run → 후보 Run → 최종 판단
+    EVALUATING --> FAILED
+    VERIFYING --> FAILED
+    classDef inp fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#0D47A1
+    classDef sys fill:#E0F2F1,stroke:#26A69A,stroke-width:2px,color:#004D40
+    classDef ok fill:#E8F5E9,stroke:#43A047,stroke-width:2px,color:#1B5E20
+    classDef bad fill:#FFEBEE,stroke:#E53935,stroke-width:2px,color:#B71C1C
+    class CREATED inp
+    class EVALUATING,EVALUATED,VERIFYING sys
+    class COMPLETED ok
+    class FAILED bad
+```
+
+행사 GPU 실행 결과 (환불 목표, 같은 조건으로 2회 실행):
+
+| 후보 | 이름 | 사이트 | 대상 메뉴 확률 | 정답 경로 확률 | 결과 |
+|---|---|---|---|---|---|
+| C0 | 이용정보 | `moro-before` 8001 | 0.078 | 0.919 | 기준 |
+| C1 | 주문·배송 | `moro-c1` 8003 | 0.372 | 0.897 (−2.3%p) | 제외 (경로 확률 −2%p 초과) |
+| C2 | 주문·환불 | `moro-after` 8002 | **0.725** (+64.7%p) | **0.968** (+4.9%p) | **추천·검증 1위** |
+| C3 | 주문·반품 | `moro-c3` 8004 | 0.665 | 0.950 (+3.1%p) | 2위 |
+| C4 | 주문 관리 | `moro-c4` 8005 | 0.583 | 0.938 (+1.9%p) | 3위 |
+
+- 실제 브라우저 재검증: C0 3단계 → C2 2단계 (이동 비용 −1), 최종 판단 `IMPROVEMENT_OBSERVED`.
+- 두 번째 실행도 선정·제외·최종 판단이 같았고, 확률 차이는 최대 1.5%p (C2 대상 메뉴 0.725 / 0.711).
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | `/api/optimizations` | 후보 평가 시작 → `202` |
+| GET | `/api/optimizations/{id}` | 상태·진행·후보별 평가·선정·검증 Run·최종 판단 |
+| POST | `/api/optimizations/{id}/verify` | 기준(C0)과 선정 후보를 차례로 실제 Run |
+| GET | `/api/optimizations/{id}/report` | 완료된 보고서 |
+
+선정 규칙: 정답 경로 확률이 기준보다 2%p 넘게 떨어지면 제외 → 남은 후보를 대상 메뉴 확률로 순위(1등과 1%p 이내는 의미 명확성 → 이름 길이 → 순서) → 대상 메뉴 확률이 기준보다 +5%p 이상이면 추천.
+
+<details>
+<summary>세부 규칙</summary>
+
+- 후보·대상 메뉴·정책 버전은 `config/optimization.json`, 사이트는 `config/site_instances.json`(`baseUrl`은 응답·모델 요청에 넣지 않음). 생성 때 모델·목표·사이트 조건을 `frozenConditions`에 동결한다.
+- 기준(C0)이 설정과 다르면 모델을 부르지 않고 `FAILED`(`BASELINE_INVALID`). 후보는 C0 대비 후보 수·순서·제목·목적지·영역·다른 이름·bbox ±2px·누출을 검사한다(`scripts/check_site_instances.py`로 모델 없이 점검).
+- 결과: `targetOptionProbability`, `goalPathProbability`, `probabilities`(semanticKey 기준), 원본 요청·응답. 계산할 수 없는 지표는 `null` + `metricNullReasons`.
+- 모델 시간 초과는 그 후보만 `MODEL_TIMEOUT`. 늦은 호출이 끝날 때까지 다른 실행을 막는다(`/api/health`의 `activeOptimization`).
+- 검증 Run은 기존 Runner로 만들고(`experimentKey = optimizationId`, 기준 before / 후보 after), 만들기 전에 화면을 다시 찍어 평가 때와 같은지 확인한다(다르면 `SITE_INSTANCE_CHANGED`). 결과는 `variant`가 아니라 `optimizationContext.siteInstanceId`·`label`로 본다.
+- 실패 코드: `BASELINE_INVALID`, `BASELINE_NOT_EVALUATED`, `MODEL_TIMEOUT`, `SITE_INSTANCE_CHANGED`, `SITE_RECHECK_FAILED`, `RUN_TIMEOUT`, `OPTIMIZATION_INTERRUPTED`, `OPTIMIZATION_FAILED`.
+- 저장: `results/optimizations/<optimizationId>/`.
+
+</details>
+
+## 자동 개선 에이전트
+
+입력: 사이트 v1 + 페르소나 + 목표. 출력: 다른 목표 점수를 2%p 넘게 낮추지 않는 새 버튼 이름. (v1·v2 비교와 별도 실험)
+
+```mermaid
+flowchart TB
+    IN["v1 · 페르소나 · 주 목표 + 지킬 목표"] --> FZ["기준 고정<br/>(점수·채택 규칙·회차 한도)"]
+    FZ --> D
+    subgraph LOOP["개선 루프 (최대 N회)"]
+        D["① 진단<br/>막히는 화면 · 고칠 버튼"] --> P["② 제안<br/>사람 후보 + Zoro-1 제안 → 걸러 내기"]
+        P --> A["③ 수정 A<br/>글자만 바꿔 화면 검사 + 재평가"]
+        A --> C{"④ 채택?"}
+        C -->|"예"| D
+        C -->|"아니오"| P
+    end
+    C -->|"멈춤"| B["⑤ 수정 B<br/>실제 변형 사이트 → 공식 점수"]
+    B --> V["⑥ 실제 Run 검증<br/>v1 vs 최종안"]
+    V --> R["⑦ 리포트"]
+    classDef inp fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#0D47A1
+    classDef model fill:#EDE7F6,stroke:#7E57C2,stroke-width:2px,color:#311B92
+    classDef store fill:#FFF8E1,stroke:#FFB300,stroke-width:2px,color:#E65100
+    classDef sys fill:#E0F2F1,stroke:#26A69A,stroke-width:2px,color:#004D40
+    classDef ok fill:#E8F5E9,stroke:#43A047,stroke-width:2px,color:#1B5E20
+    class IN,FZ inp
+    class D,P,A model
+    class C store
+    class B,V sys
+    class R ok
+    style LOOP fill:#FAF7FF,stroke:#7E57C2,color:#311B92
+```
+
+| 1단계 범위 | |
+|---|---|
+| 사이트·목표 | MORO MARKET v1, 주 목표 S1 환불, 지킬 목표 S2 배송·S3 쿠폰·S4 문의 |
+| 고칠 버튼 | 상단 메뉴 "이용정보" 자리 하나 (변형 사이트 생성기가 이 버튼만 바꿀 수 있음) |
+| 점수 | 최단 이동 수 안 도달 확률 `reachWithinShortestProbability` |
+| 채택 | 주 목표: 직전 채택안 대비 +5%p 이상 · 지킬 목표: **처음 v1 대비** −2%p 이내 · 1%p 이내는 동률 |
+| 새 이름 | 1~6자 (84px 칸에 14px 한글은 7자까지 들어감, 실측) |
+| A / B | A(글자만 바꾸기)는 후보 걸러 내기용, 발표 수치·실제 Run은 B(실제 변형 사이트)만 |
+
+| 단계 | 함수 | 위치 | 상태 |
+|---|---|---|---|
+| 진단 재료 | `reach.estimate(...)["pageVisitProbability"]` | `uxm/reach.py` | 완료 |
+| ① 진단 | `diagnose(...)` | 루프 | 진행 중 |
+| ② 제안·걸러 내기 | `build_prompt`, `filter_labels` | `uxm/improve_policy.py` | 완료 ([연동 설명](docs/improve-policy-integration.md)) |
+| ③ 수정 A·화면 검사 | `apply_label`, `check_layout` | `uxm/label_edit.py` | 완료 |
+| ④ 채택 | `choose` | `uxm/improve_policy.py` | 완료 |
+| 루프·저장·리포트 | `scripts/improve.py` → `results/improvements/<id>/` | 루프 | 진행 중 |
+| ⑥ 실제 Run 검증 | `run_verification` | `api/improvement.py` | 완료 |
+
+<details>
+<summary>수정 A·화면 검사 사용법</summary>
+
+```python
+from uxm.label_edit import apply_label, check_layout, EDITABLE_KEY
+extract = lambda p: (apply_label(p, EDITABLE_KEY, label), base_extract(p))[1]   # collect_page_probabilities(extract=...)
+result = check_layout(baseline, page, EDITABLE_KEY, label)                      # {valid, reasons}
+```
+
+- `apply_label`: 상단 메뉴 이용정보 링크 글자만 바꾼다. 화면을 이동하면 원래대로 돌아오므로 화면을 열 때마다 다시 부른다. 바꿀 수 없으면 `ValueError`(루프는 `LABEL_NOT_APPLIED`).
+- `check_layout`: `baseline`은 v1 home 스냅샷(`snapshot_from_extracted(extract(page), "/shop/home", VIEWPORT, "candidate-v2")`). 창 크기가 다르면 `VIEWPORT_MISMATCH`만, 그 외에는 Optimizer와 같은 검사(후보·위치 ±2px·새 이름 적용 여부) + 글자 넘침 `LABEL_OVERFLOW`. B 화면에도 그대로 쓴다.
+- C1~C4 이름으로 A와 B 결과가 같음을 테스트로 확인했다.
+
+</details>
+
+<details>
+<summary>최종안 검증 Run 사용법</summary>
 
 ```python
 from api.improvement import run_verification
 runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["refund", s4_goal])
 ```
 
-- 목표마다 v1(`config/site_instances.json`의 `site-c0`, variant=before) → 최종안(`site_url`, variant=after) 순서로 Run 1쌍. 한 번에 Run 하나.
-- `frozen`: `improvementId`, `personaId`(직접 입력이면 `null`), `persona`, `startPath`, `viewport`, `limits.maxSteps`(나머지 제한은 기본값), `modelMetadata`(있으면 지금 모델 설정과 같아야 실행). `goals`: preset goalId 또는 `{goalId, goal, verification, referencePathConfig}`.
-- 반환: 실행 순서대로 `[{runId, goalId, experimentKey, variant, executionRole, label, status, validity}]`. 같은 목표의 두 Run은 같은 `experimentKey`(`<improvementId>-<goalId>`)라 기존 조회·비교·재생 API를 그대로 쓴다.
-- Run에는 `improvementContext: {improvementId, goalId, label, siteInstanceId, executionRole}`만 남고 최종안 주소는 남지 않는다.
-- 입력이 잘못되면 Run을 만들지 않고 `ValueError` (만들 `experimentKey`가 영문·숫자·`_`·`-` 64자 이하가 아닐 때도). 다른 Run이 진행 중이면 `RUN_ALREADY_ACTIVE`(같은 프로세스 안에서만 확인), Run이 제한 시간(기본 600초) 안에 안 끝나면 `TimeoutError`. 중간에 멈추면 그때까지 끝난 Run 목록이 예외의 `runs`에 들어 있다.
-- API 서버와 같은 결과 폴더(`UXM_RESULTS_DIR` 또는 `results/`)를 쓴다. 실행 중에는 API로 Run을 만들지 않는다 (서버와 단일 활성 Run을 공유하지 않음).
+- 목표마다 v1(`site-c0`, before) → 최종안(after) Run 1쌍. 같은 목표의 두 Run은 같은 `experimentKey`(`<improvementId>-<goalId>`)라 기존 비교·재생 화면을 그대로 쓴다.
+- `frozen`: `improvementId`, `personaId`, `persona`, `startPath`, `viewport`, `limits.maxSteps`, `modelMetadata`. `goals`: preset goalId 또는 `{goalId, goal, verification, referencePathConfig}`.
+- 반환: `[{runId, goalId, experimentKey, variant, executionRole, label, status, validity}]`. Run에는 `improvementContext`만 남고 최종안 주소는 남지 않는다.
+- 입력 오류는 Run을 만들기 전에 `ValueError`, 제한 시간(600초) 초과는 `TimeoutError`(끝난 Run 목록은 예외의 `runs`). 실행 중에는 API로 Run을 만들지 않는다.
 
-## 제출용 실행 로그 (#83)
+</details>
 
-해커톤 Track 1 제출물 "시나리오 3가지의 에이전트 실행 로그"를 저장소에 올린다. `results/runs/`는 Git에서 빠져 있으므로 고른 Run을 `run-logs/`로 복사한다.
+## 목표 도달 확률 엔진
+
+실행 없이 "이 목표에 닿을 확률"을 본다. 사이트 지도 간선 + 화면마다 Zoro-1이 준 후보 확률(화면당 1번) → 화면 사이 이동 확률 → 단계별 도달 확률 (`uxm/reach.py`).
 
 ```
-.venv\Scripts\python scripts\export_run_logs.py <runId1> <runId2> <runId3>
-.venv\Scripts\python scripts\export_run_logs.py --results-dir D:\gpu_results --env D:\gpu\.env <runId> ...   # GPU 서버 결과·.env
+python scripts/estimate_reach.py                                   # v1/v2, 환불 목표
+python scripts/estimate_reach.py --goal-page orders --persona "70대, 인터넷 쇼핑이 서툰 사용자"
+python scripts/estimate_reach.py --url C1=http://127.0.0.1:8003 --url C2=http://127.0.0.1:8002
+python scripts/estimate_reach.py --site cafe24-ons                 # 외부 사이트
 ```
 
-- Run 폴더 전체(하위 폴더 포함, 임시·`.env`·`*.log` 파일 제외)와 같은 실험 키의 비교 결과를 복사한다. 원본은 그대로 둔다 (`docs/final-run-evaluation.md` 4장).
-- 공개되면 안 되는 값을 **모두 찾아 한 번에** 보여 주고, 하나라도 있으면 아무것도 쓰지 않고 멈춘다.
-  - 인증 정보: Bearer 토큰, JSON 키 형태의 키·비밀번호(`"password": "…"`). 화면 글자 `password: …`는 걸지 않는다.
-  - `.env`의 키·토큰·서버 주소 값. GPU 서버에서 돌린 결과면 `--env`로 그 서버의 `.env`를 같이 준다 (여러 번 가능). `*_ID`로 끝나는 값(`ZORO_ENDPOINT_ID` 등)은 기록에 남기는 공개 이름이라 검사하지 않는다.
-  - 서버 주소: IP 주소, 포트가 붙은 주소. 내 컴퓨터 주소(`127.0.0.1`, `localhost`)와 포트 없는 공개 사이트 주소는 통과.
-  - 로컬·서버 경로: `/Users`, `/home`, `/root`, `/workspace`, `/mnt`, `/data`, `/opt`, `/srv`, `C:\Users`, `C:/Users`. 화면 경로 필드(`path`·`href` 등)의 `/home/…html`·`/data/…?id=` 같은 웹 페이지 주소는 통과.
-  - 걸린 값은 파일마다 모두 보여 준다. 사람이 확인한 값(예: 사이트 화면 문구)은 `--allow "<걸린 글자>"`로 건너뛴다. 빈 값·8자 미만은 검사를 통째로 끌 수 있어 받지 않는다.
-- 출력 폴더는 결과 폴더·저장소와 어느 방향으로도 겹칠 수 없다. 이미 내용이 있으면 멈추고, `--force`는 이 스크립트가 만든 폴더(`index.json`이 있는 폴더)만 다시 만든다. 옆 임시 폴더에 다 쓴 뒤 바꿔치기한다. 복사나 바꿔치기가 중간에 실패하면 이전 제출본을 제자리로 되돌리고 임시 폴더를 지운다.
-- `run-logs/README.md`에 Run별 목표·결과·지나간 화면·단계·찾은 Issue·모델을 정리한다. `resultOrigin`이 LIVE가 아니거나 `modelEndpointId`가 `local`·`mock`(리허설), 무효 Run, 분석 미완료는 "확인 필요"로 표시한다. API로 만든 Run은 가짜 모델이어도 LIVE로 저장되므로 행사 Run인지는 `modelEndpointId`로 확인한다.
+| 값 | 뜻 |
+|---|---|
+| `reachWithinShortestProbability` | 지도상 최단 이동 수 안에 닿을 확률 (비교·채택에 쓰는 값) |
+| `reachProbability` | `maxSteps` 안에 닿을 확률 (넉넉하면 거의 1이라 참고만) |
+| `expectedStepsGivenReach`, `mostLikelyPath` | 닿을 때 기대 단계, 가장 가능성 높은 경로 |
+| `pageVisitProbability` | 도착 전에 그 화면에서 한 번 이상 고르게 될 확률 (자동 개선 진단용) |
+| `lostProbability`, `unfinishedProbability` | 지도 밖으로 가는 확률, 못 닿은 확률 |
 
-## 프론트엔드 실제 API 연동 테스트
+- **구조 기준 추정치**다. 되돌아가기·재방문 제한이 없어 실제 Run과 다를 수 있다.
+- 실제 화면 후보와 지도가 다르면 `MAP_MISMATCH`(비교 불가), 확률이 빠진 화면이 있으면 `INCOMPLETE`(개선 판단에 쓰지 않음). 결과는 `results/reach/`.
 
-프론트 저장소에서 `npm ci`, 백엔드 가상환경에서 의존성 설치와
-`python -m playwright install chromium`을 마친 뒤 아래 명령으로 실행한다.
-`UXM_FRONTEND_PATH`는 Issue 상세에서 관련 Step을 볼 수 있는 프론트 체크아웃을 지정한다.
-테스트는 임시 MOCK Run으로 FastAPI와 Vite를 실행하고, 실제 모델은 호출하지 않는다.
+## 사이트 지도
+
+후보 규칙으로 뽑은 링크만으로 "화면 → 갈 수 있는 화면" 지도를 만든다. 쇼핑몰 링크 전체를 쓰면 모든 화면이 서로 이어져 최단 거리가 전부 1이 되기 때문이다.
+
+```mermaid
+flowchart LR
+    home --> mypage & orders & support
+    mypage --> home & orders & refund & support
+    orders --> home & refund
+    refund --> home & orders
+    support --> orders
+    classDef inp fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#0D47A1
+    classDef ok fill:#E8F5E9,stroke:#43A047,stroke-width:2px,color:#1B5E20
+    classDef step fill:#F5F5F5,stroke:#9E9E9E,stroke-width:1px,color:#212121
+    class home inp
+    class refund ok
+    class mypage,orders,support step
+```
+
+```
+python scripts/build_sitemap.py --check-runs   # 생성 + 저장된 Run 후보와 대조
+python scripts/build_sitemap.py --dry-run      # 파일을 쓰지 않고 결과만
+```
+
+<details>
+<summary>세부 규칙</summary>
+
+- 화면 5개를 v1·v2 각각 새 브라우저(1440×900)로 열어 후보를 뽑는다. 간선 = `{fromPageKey, semanticKey, to}`.
+- 검증(하나라도 실패하면 파일을 만들지 않음): 화면 누락, v1·v2 간선 일치, home에서 모든 화면 도달, preset 허용 경로 대조. 저장된 LIVE Run Step 76개와 대조해 불일치 0.
+- `siteMapHash`: `pages`의 `{path, edges}`만 정렬·중복 제거해 SHA-256.
+- Run에 `referencePathConfig.basis = SITE_MAP`이면 복사된 거리로 경로 지표를 낸다: `extraSteps`(최단보다 더 간 수), `detourMoveCount`(거리가 줄지 않은 이동), Step `goalPathProbability`(거리를 줄이는 후보 확률 합).
+- 다른 사이트는 `config/sites/`에 설정을 만들고 `--site 파일 --url 이름=주소`로 실행한다.
+
+</details>
+
+## 제출용 실행 로그
+
+`results/runs/`는 Git에서 빠져 있으므로 고른 Run을 `run-logs/`로 복사한다.
+
+```
+python scripts/export_run_logs.py <runId1> <runId2> <runId3>
+python scripts/export_run_logs.py --results-dir <GPU 결과> --env <GPU .env> <runId> ...
+```
+
+- 공개되면 안 되는 값(인증 정보, `.env`의 키·서버 주소, IP·포트 주소, 로컬 경로)을 모두 찾아 보여 주고, 하나라도 있으면 아무것도 쓰지 않는다. 확인한 값은 `--allow`로 건너뛴다.
+- 출력 폴더가 이미 있으면 멈추고, `--force`는 이 스크립트가 만든 폴더만 다시 만든다. 중간에 실패하면 이전 제출본을 되돌린다.
+- `run-logs/README.md`에 Run별 목표·결과·경로·Issue·모델을 정리한다. 행사 Run이 아니거나 무효·분석 미완료면 "확인 필요"로 표시한다.
+
+## 프론트엔드 연동 테스트
+
+임시 MOCK Run으로 FastAPI와 프론트(Vite)를 띄워 확인한다. 모델은 호출하지 않는다. 프론트에서 `npm ci`, 백엔드에서 `python -m playwright install chromium`을 먼저 한다.
 
 ```bash
 UXM_FRONTEND_PATH="/path/to/UX-Mirror-FE" .venv/bin/python -m pytest -q tests/test_frontend_live_api.py
 ```
 
-Windows PowerShell에서는 다음과 같이 실행한다.
+변수가 없으면 건너뛴다. GitHub Actions `프론트 실제 API 연동` 워크플로가 PR마다 실행한다(기본 프론트 커밋 `cbf79e469d31c6b9173e155491927bbf13bb7542`, 수동 실행 시 ref 지정 가능).
 
-```powershell
-$env:UXM_FRONTEND_PATH = "C:\path\to\UX-Mirror-FE"
-.venv\Scripts\python.exe -m pytest -q tests/test_frontend_live_api.py
-```
+## 모델 설정 (.env)
 
-변수를 지정하지 않은 일반 테스트에서는 이 연동 테스트를 건너뛴다. GitHub Actions의
-`프론트 실제 API 연동` 워크플로는 PR에서 자동 실행되며 수동 실행에서는 프론트 ref를 지정할 수 있다.
-기본 ref는 프론트 PR #22의 검증된 커밋 `cbf79e469d31c6b9173e155491927bbf13bb7542`다.
-실행에 사용한 백엔드·프론트 커밋은 워크플로 로그에 남는다. 수동 실행에도 PR #22의 변경이 포함된 ref가 필요하다.
+| 설정 | 용도 |
+|---|---|
+| `ZORO_BACKEND=http`, `ZORO_BASE_URL=...`, `ZORO_ENDPOINT_ID=brev-l40s-bf16` | **행사 GPU 서버 (L40S, bf16). 발표 수치는 이것만.** 주소가 바뀌면 `ZORO_BASE_URL`만 바꾸고, 주소는 커밋하지 않는다 |
+| `ZORO_BACKEND=local`, `ZORO_DEVICE=cuda-4bit` | 개발용 (GTX 1660 6GB, nf4). 확률이 원본과 다를 수 있어 형식 확인용 |
+| `ZORO_BACKEND=local`, `ZORO_DEVICE=cpu` | 원본 bf16 확인 (RAM 9GB+, 느림) |
 
-## 백엔드 선택 (.env)
-
-| 설정 | 용도 | 비고 |
-|---|---|---|
-| `ZORO_BACKEND=local`, `ZORO_DEVICE=cuda-4bit` | 이 PC(GTX 1660 6GB) 개발용 | nf4 양자화. 확률이 원본과 다를 수 있음 → 형식·프롬프트 확인용 |
-| `ZORO_BACKEND=local`, `ZORO_DEVICE=cpu` | 원본 bf16 확인 | RAM 여유 9GB+ 필요, 느림 |
-| `ZORO_BACKEND=http`, `ZORO_BASE_URL=...` | 행사 GPU 서버 | 서버: `python serve_decide.py C:\AI\Zoro-1 --port 30001` (SGLang ≥0.5.22, Linux). **발표·E 수치는 이것만** |
-
-`ZORO_TEMPERATURE=1.52`(모델 카드 보정값)를 요청마다 명시해서 보낸다. Before/After 동일 필수.
+`ZORO_TEMPERATURE=1.52`(모델 카드 보정값)를 요청마다 보낸다. v1·v2 동일 필수. 서버: `python serve_decide.py <Zoro-1 경로> --port 30001` (SGLang ≥0.5.22, Linux).
 
 ## 결정 사항
 
-### 목표 도달 판정 = `DOM_ONLY` (2026-11-15, G0-A)
+### 도착 판정은 "주소 + 보이는 글자" (`DOM_ONLY`)
 
-테스트 시나리오 판정 규칙 "A9·A10 중 하나라도 틀리면 `DOM_ONLY`"에 따름.
+모델 YES/NO 판정이 오탐을 냈다 (cuda-4bit 측정).
 
-| promptVersion | YES/NO 질문 문구 | A9 refund (기대 YES) | A10 orders (기대 NO) |
-|---|---|---|---|
-| v1 | 현재 화면에서 사용자의 목표를 바로 수행할 수 있습니까? | 0.566 PASS | 0.672 **FAIL** |
-| v2 | 현재 화면이 사용자가 찾던 바로 그 화면입니까? | 0.832 PASS | 0.700 **FAIL** |
+| 질문 문구 | refund (기대 YES) | orders (기대 NO) |
+|---|---|---|
+| v1 "현재 화면에서 목표를 바로 수행할 수 있습니까?" | 0.566 통과 | 0.672 **오탐** |
+| v2 "현재 화면이 찾던 바로 그 화면입니까?" | 0.832 통과 | 0.700 **오탐** |
 
-- 응답 시간은 1.4~2.2초로 5초 기준 안이었음. 실패 사유는 오탐(정확도).
-- 참고 진단(기록 외): orders 화면 글자에서 버튼 문구 `환불 신청`만 빼면 P(yes)=0.204로 NO. 버튼 글자와 목표 문구가 겹쳐서 생긴 오탐으로 추정. 화면 글자 형식 변경은 튜닝 허용 항목이 아니라 적용하지 않음.
-- 측정은 cuda-4bit 기준. 원본 bf16·행사 서버에서는 확인하지 않음.
-- 구현: `uxm/goal.py`. `DOM_ONLY`에서는 모델 YES/NO를 호출하지 않음(`modelGoalReached=null`). `.env`의 `GOAL_JUDGMENT_MODE`로 설정하며 Before/After 동일 필수.
-- **성공 판정은 마커 없이 "주소 + 화면에 보이는 글자"** (2026-11-15 변경, 팀 공유 필요): `/shop/refund`이고 `환불 / 반품 신청`이 화면에 보임.
-  사이트를 고치지 않아도 되므로 실제 사이트에도 적용 가능. URL만으로는 성공 처리 안 함. 쇼핑몰에서 `data-test-goal` 마커 제거.
-  목표별 조건은 `uxm/goal.py`의 `GOALS` (대시보드 입력으로 받을 때 같은 형식).
-- 모델 YES/NO 판정은 기획안 3.2에 따라 P1로 넘김.
+- orders 화면의 `환불 신청` 버튼 글자가 목표 문구와 겹쳐서 생긴 오탐으로 추정.
+- 그래서 성공은 테스트용 표시 없이 "주소 + 화면에 보이는 글자"로 판정한다(예: `/shop/refund` + `환불 / 반품 신청`). 사이트를 고치지 않아도 돼 실제 사이트에도 쓸 수 있다. 주소만으로는 성공 처리하지 않는다. 구현 `uxm/goal.py`, 설정 `GOAL_JUDGMENT_MODE`.
 
-### 클릭 후보 규칙 (2026-11-15, B 단계) — 5번은 팀 합의 필요
+### 클릭 후보 규칙
 
-1. 다른 쇼핑몰 페이지로 이동하는 링크만
-2. 첫 화면(1440×900, 스크롤 없음)에 보이는 것만, 라벨도 보이는 글자만
+1. 다른 페이지로 이동하는 링크만
+2. 첫 화면(1440×900, 스크롤 없음)에 보이는 것만, 이름도 보이는 글자만
 3. 현재 페이지로 가는 링크 제외
 4. 위험 동작 제외 (회원 탈퇴, 로그아웃, 접수하기 등)
-5. **상단 공통 메뉴(로고·메뉴)는 홈에서만 후보**
-   - 근거: orders에서 상단 메뉴가 후보에 있으면 `환불 신청하기` 0.119(4bit) / 0.223(bf16)으로 마이페이지를 고름.
-     빼면 0.859 / 0.928. 허용 튜닝(질문 문구 2종, 후보 형식 3종, 페르소나, 이력)으로는 최고 0.25.
-   - 후보 형식에 맥락을 붙인 v3는 0.081로 오히려 악화 → 폐기, v2 유지.
-   - 홈은 그대로라 Before/After 라벨 비교에는 영향 없음.
+5. **상단 공통 메뉴는 홈에서만 후보** — orders에서 상단 메뉴가 후보에 있으면 `환불 신청하기`를 0.223(bf16)만 고르고 마이페이지로 샌다. 빼면 0.928. 허용된 튜닝으로는 최고 0.25였다.
 
-구현: `uxm/candidates.py`, 눈으로 확인: `scripts/show_candidates.py`, 실측: `scripts/run_b5.py`
+구현 `uxm/candidates.py`, 눈으로 확인 `scripts/show_candidates.py`.
 
-## 사이트 지도 (SITE_MAP, #46)
-
-직접 입력한 목표의 경로 지표를 위해, 위 후보 규칙으로 뽑은 링크만으로 "화면 → 갈 수 있는 화면" 지도를 만든다. 쇼핑몰 HTML 링크 전체를 쓰면 모든 화면이 서로 연결돼 최단 거리가 전부 1이 되기 때문이다. 설계: 「사이트 지도 기반 경로 지표 설계」 v2.1.
-
-```
-.venv\Scripts\python.exe scripts\build_sitemap.py --check-runs   # 생성 + 저장된 LIVE Run 후보와 대조
-.venv\Scripts\python.exe scripts\build_sitemap.py --dry-run      # 파일을 쓰지 않고 결과만
-```
-
-- 지원 화면 5개를 Before·After 각각 새 브라우저(viewport 1440×900, `clean-context-v1`, `candidate-v2`)로 열어 후보를 뽑는다. 간선 = `{fromPageKey, semanticKey, to}`(지원 화면으로 가는 후보만, GO_BACK 제외).
-- 검증(하나라도 실패하면 파일을 만들지 않음): 화면 누락(열기 실패·HTTP 오류 응답·다른 화면 도착 포함), Before·After 간선 일치, home에서 모든 화면 도달 가능, preset 허용 경로 대조(`refund` 최단 2, 허용 경로 3개가 지도상 경로). `--check-runs`는 읽기 문제·불일치가 있거나 **실제로 대조한 Step**이 0개여도 실패한다(testMode 화면·재판단 후보는 건너뛴 수로 따로 표시).
-- `siteMapHash`: `pages`만(메타데이터 제외), pageKey 순·`{path, edges}`만, 간선은 `{semanticKey, to}`만 중복 제거 후 `(semanticKey, to)` 순, `json.dumps(ensure_ascii=False, sort_keys=True, separators=(",", ":"))` → UTF-8 → SHA-256, `"sha256:"` + hex.
-- 현재 지도(`sitemap-v1`): home → mypage·orders·support, mypage → home·orders·refund·support, orders → home·refund, refund → home·orders, support → orders. 저장된 LIVE Run Step 76개와 대조해 불일치 0.
-- **루프 (#49)**: Run의 `referencePathConfig.basis`가 `SITE_MAP`이면 Run에 복사된 `distances`·`shortestSteps`로 경로 지표를 계산한다(루프는 지도 파일을 읽지 않음). `extraSteps` = 정상 이동 CLICK 수 − `shortestSteps`, **`detourMoveCount`(우회 이동)** = 모델 CLICK 이동 중 목표까지 거리가 줄지 않은 수(BACK·NO_CHANGE 제외), Step `goalPathProbability` = 거리를 줄이는 CLICK 후보 확률 합(후보 하나라도 지도에 없으면 `null`, 모두 알고 줄이는 후보가 없으면 `0`), `referencePathDeviationCount`는 `null`. 지도 밖 화면으로 가면 우회 이동·추가 단계 `null`. `basis`가 없거나 `ALLOWED_PATHS`면 기존 허용 경로 계산 그대로, 기준이 없거나 형식이 틀리면 경로 지표 `null`.
-- Run에 넣을 설정은 `uxm.sitemap.site_map_reference(지도, 도착 화면, 시작 화면)`(실행 API용, 시작 화면이 지도와 다르거나 길이 없으면 `SiteMapError`). API가 저장하기 전에는 `scripts\run_c.py --site-map`으로 확인한다.
-- **다른 사이트**: `config/sites/`에 설정 파일(화면 목록, `startPage`, `pathPrefix`, `allowedHosts`, `variants` 주소, `siteMapVersion`, `out`, `presetCheck`)을 만들고 `--site 파일 --url 이름=주소`로 실행한다. 주소는 하나여도 된다(A/B가 아니면). 단, 후보 추출 규칙(`uxm/candidates.py`)이 아직 쇼핑몰(`/shop/`, 시작 화면 `/shop/home`)에 묶여 있어 그 규칙을 사이트별로 바꾸기 전에는 후보가 나오지 않는다.
-
-## 목표 도달 확률 엔진 (19번, 고도화 P1)
-
-실행 없이 사이트 구조 기준으로 "이 목표에 닿을 확률"을 본다. 지도 간선 + 화면마다 모델이 준 후보별 확률(화면당 모델 1번) → 화면 사이 이동 확률 → `maxSteps` 안 도달 확률 (`uxm/reach.py`).
-
-```
-.venv\Scripts\python.exe scripts\estimate_reach.py                         # Before/After, 환불 목표
-.venv\Scripts\python.exe scripts\estimate_reach.py --goal-page orders --persona "70대, 인터넷 쇼핑이 서툰 사용자"
-.venv\Scripts\python.exe scripts\estimate_reach.py --url C1=http://127.0.0.1:8003 --url C2=http://127.0.0.1:8002
-```
-
-- 값: `reachProbability`(maxSteps 안), `reachWithinShortestProbability`(지도상 최단 이동 수 안), `reachByStep`, `expectedStepsGivenReach`, `lostProbability`(지도 밖으로 가는 확률), `unfinishedProbability`, `mostLikelyPath`, `pageVisitProbability`(화면별로 도착 전에 그 화면에서 한 번 이상 선택하게 될 확률. 시작 화면 1, 재방문은 한 번으로 셈, 자동 개선 진단의 막힘 점수용, #99). 결과는 `results/reach/`에 화면별 원본 요청·응답과 함께 저장.
-- 외부 사이트 시나리오(#76): `--site <siteId>`면 사이트 설정(`config/sites/<siteId>.json`)의 주소·지도·탐색 규칙으로 1곳만 추정한다. 후보는 그 사이트 규칙(`SiteScope`)으로 뽑고, 쿼리가 있어야 열리는 화면은 설정의 `open` 주소로 연다. 지도 생성과 같은 규칙이라 실제 화면과 지도를 같은 기준으로 대조한다. 지도가 기록한 닿지 않는 화면(`unreachablePages`)은 모델을 부르지 않는다(cafe24 목표당 8번 → 5번, 간선 대조는 함). 모르는 `siteId`는 명령줄 오류.
-- 이동 수가 넉넉하면 두 사이트 모두 도달 확률이 1에 가까워져서, 차이는 `reachWithinShortestProbability`와 기대 단계로 본다. `--max-steps`가 지도상 최단 이동 수보다 작으면 이 값은 계산할 수 없어 `null`이고 사유는 `nullReasons`(`MAX_STEPS_BELOW_SHORTEST`, 길이 없으면 `GOAL_UNREACHABLE_ON_MAP`).
-- **구조 기준 추정치**다. 이전 화면 기록·되돌아가기·재방문 제한을 넣지 않아 실제 Run과 다를 수 있고, 실제 Run 결과를 대신하지 않는다.
-- 화면마다 모델 확률을 합 1로 정규화한다 (검증은 ±0.02 허용). `lostProbability`는 지도 간선이 없는 후보로 간 확률뿐이고 반올림 오차는 들어가지 않는다. 도달·이탈·미도달 합은 항상 1.
-- 확률 0인 이동은 따라가지 않는다. 양의 확률로 닿는 화면에 확률이 없으면 `status: INCOMPLETE`(`missingPages`). 이때 **하한인 것은 `reachProbability`뿐**이고, 기대 단계와 두 추정치의 차이는 하한이 아니다. `compare`는 `bothComplete: false`와 `note`를 붙인다. 개선 판단 근거로 쓰지 않는다.
-- 화면마다 실제 후보의 지원 화면 간선(`semanticKey`→화면, `sitemap.edges_from_candidates`와 같은 규칙)을 지도와 대조한다. 다르면 `status: MAP_MISMATCH`(`mapMismatches`: 화면별 `added`·`removed`, 목적지가 바뀐 링크는 둘 다에 나옴)이고 `compare`는 `comparable: false`. 지도 밖(지원하지 않는 화면·사이트 밖)으로 가는 후보는 원래 이탈이라 차이로 보지 않는다. `--url`로 라벨 변형 사이트를 넣을 때 구조가 같은지 이것으로 확인된다.
-
-## 확인된 모델 API (trida-stack 코드 기준)
+## 모델 API 메모
 
 - `POST /v1/decide` body: `{"request": {"state": ..., "questions": {...}}, "reasoning": false, "temperature": 1.52}`
 - `choice` 응답: `{"type","choice","confidence","probabilities"}` — `confidence`는 최고 확률이 아니라 `(max-1/k)/(1-1/k)`
-- 예/아니요는 `choice`가 아니라 **`noul`** 타입, 응답은 `{"noul": P(yes)}`
+- 예/아니요는 **`noul`** 타입, 응답은 `{"noul": P(yes)}`
 - 요청 최상위 키는 `state, questions, image, min_image_pixels, max_image_pixels`만 허용
