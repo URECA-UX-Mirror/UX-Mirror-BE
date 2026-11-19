@@ -82,8 +82,40 @@ curl -s https://<위 주소>/api/health
 |---|---|
 | 로그 | `sudo journalctl -u uxm-api -f` / `-u uxm-shops` / `-u caddy` |
 | 재시작 | `sudo systemctl restart uxm-api` |
-| 코드 갱신 | `git pull && sudo systemctl restart uxm-shops uxm-api` |
+| 코드 갱신 | `./deploy/update.sh` (또는 아래 수동 배포 workflow) |
 | 결과 | 저장소의 `results/` (서버 디스크) |
 
 - API에는 로그인이 없다. 주소를 아는 사람은 Run을 만들 수 있지만 한 번에 하나만 돈다(`409 RUN_ALREADY_ACTIVE`). 행사가 끝나면 인스턴스를 멈춘다.
 - 자동 개선 검증 Run(`api/improvement.run_verification`)을 돌리는 동안에는 FE에서 Run을 만들지 않는다 (서로 다른 프로세스라 겹칠 수 있음).
+
+## 6. 수동 배포 (GitHub Actions)
+
+처음 설치(`setup.sh`)가 끝난 뒤의 코드 갱신은 GitHub에서 버튼으로 한다. **머지할 때마다 자동으로 배포하지 않는다** — 재시작하면 진행 중인 Run이 끊기기 때문.
+
+Actions 탭 → **서버 배포 (수동)** → Run workflow → 브랜치(기본 develop) 선택.
+
+1. 그 브랜치로 전체 테스트(pytest)
+2. 통과하면 EC2에 SSH로 접속해 `deploy/update.sh <브랜치>` 실행
+   - 진행 중인 Run이 있으면 **아무것도 바꾸지 않고 실패**로 끝난다: `/api/health`의 `activeRun`·`activeOptimization`, 그리고 결과 폴더에서 최근 30분 안에 바뀐 READY·RUNNING Run(자동 개선 검증 Run처럼 API 밖에서 도는 Run)
+   - 서버 저장소에 커밋 안 된 수정이 있어도 멈춘다
+   - `git pull`(fast-forward만) → 패키지 → 서비스 파일 다시 쓰기 → 쇼핑몰·API 재시작 → `/api/health` 출력
+3. 꼭 지금 배포해야 하면 `force`를 켠다 (진행 중인 Run은 끊긴다)
+
+### 처음 한 번: 배포 키와 Secrets
+
+```bash
+ssh-keygen -t ed25519 -N "" -C uxm-deploy -f uxm-deploy
+```
+
+- `uxm-deploy.pub` 내용을 EC2의 `~/.ssh/authorized_keys`에 한 줄 추가
+- 저장소 Settings → Secrets and variables → Actions → New repository secret (저장소 관리자):
+
+| 이름 | 값 |
+|---|---|
+| `EC2_HOST` | Elastic IP 또는 도메인 |
+| `EC2_USER` | `ubuntu` |
+| `EC2_SSH_KEY` | `uxm-deploy` (개인 키) 파일 전체 |
+| `EC2_KNOWN_HOSTS` (권장) | `ssh-keyscan -H <EC2_HOST>` 출력 |
+
+- 키 파일 두 개는 Secrets에 넣은 뒤 PC에서 지운다. 저장소에는 절대 올리지 않는다.
+- 보안 그룹 22번을 "내 IP만"으로 막았으면 GitHub Actions가 접속하지 못한다. 배포할 때만 22번을 열거나, 배포는 서버에서 `./deploy/update.sh`로 직접 한다.

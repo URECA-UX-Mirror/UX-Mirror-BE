@@ -1,0 +1,90 @@
+name: 서버 배포 (수동)
+
+# Actions 탭에서 "Run workflow"를 눌렀을 때만 돈다. 머지할 때마다 자동으로 배포하지 않는다
+# (재시작하면 진행 중인 Run이 끊기므로). 테스트 통과 → EC2에 SSH로 deploy/update.sh 실행.
+#
+# 필요한 저장소 Secrets (Settings → Secrets and variables → Actions):
+#   EC2_HOST         서버 주소 (Elastic IP 또는 도메인)
+#   EC2_USER         SSH 사용자 (예: ubuntu)
+#   EC2_SSH_KEY      배포용 SSH 개인 키 전체
+#   EC2_KNOWN_HOSTS  (권장) 서버 호스트 키. 내 PC에서 `ssh-keyscan -H <EC2_HOST>`로 받은 값.
+#                    없으면 매번 keyscan으로 받는다 (중간자 공격을 막지 못함).
+# 서버 저장소 위치는 SSH 사용자의 홈 아래 UX-Mirror-BE (deploy/README.md 설치 순서대로).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '배포할 브랜치'
+        required: true
+        default: develop
+      force:
+        description: '진행 중인 Run이 있어도 배포 (그 Run은 끊김)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 테스트 의존성 설치
+        run: |
+          python -m pip install fastapi uvicorn httpx pytest python-dotenv requests pillow playwright
+          python -m playwright install --with-deps chromium
+      - name: pytest
+        run: python -m pytest -q tests
+
+  deploy:
+    needs: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: 입력·Secrets 확인
+        env:
+          REF: ${{ inputs.ref }}
+          HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.EC2_USER }}
+          KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "브랜치 이름이 올바르지 않습니다: $REF"; exit 1; }
+          missing=""
+          [ -n "$HOST" ] || missing="$missing EC2_HOST"
+          [ -n "$SSH_USER" ] || missing="$missing EC2_USER"
+          [ -n "$KEY" ] || missing="$missing EC2_SSH_KEY"
+          [ -z "$missing" ] || { echo "저장소 Secrets가 없습니다:$missing"; exit 1; }
+      - name: SSH 준비
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          KEY: ${{ secrets.EC2_SSH_KEY }}
+          KNOWN: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          if [ -n "$KNOWN" ]; then
+            printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+          else
+            echo "::warning::EC2_KNOWN_HOSTS가 없어 호스트 키를 keyscan으로 받습니다."
+            ssh-keyscan -H "$HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+      - name: 배포 (deploy/update.sh)
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.EC2_USER }}
+          REF: ${{ inputs.ref }}
+          FORCE: ${{ inputs.force && '--force' || '' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=15 "$SSH_USER@$HOST" \
+            "cd ~/UX-Mirror-BE && bash deploy/update.sh '$REF' $FORCE"
+      - name: SSH 키 정리
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
