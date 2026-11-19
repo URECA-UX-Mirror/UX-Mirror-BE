@@ -64,3 +64,10 @@ def test_writes_variant_project(tmp_path):
     bs.build_variant(bs.DEFAULT_SRC, "주문·배송", str(tmp_path / "C1"))
     assert sorted(os.listdir(tmp_path / "C1" / "pages")) == sorted(f"{k}.html" for k in bs.PAGES)
     assert (tmp_path / "C1" / "server.py").exists()
+
+
+def test_final_site_matches_adopted_label(base):
+    """after 사이트(moro-final)는 자동 개선 최종안 '주문 환불'을 v1에 적용한 결과와 같아야 한다 (#124)."""
+    for key, html in base.items():
+        with open(os.path.join(bs.SHOP, "moro-final", "pages", f"{key}.html"), encoding="utf-8", newline="") as f:
+            assert bs.relabel_nav(html, "주문 환불") == f.read(), key
