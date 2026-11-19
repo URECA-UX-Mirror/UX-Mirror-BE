@@ -1,19 +1,23 @@
 # UX MIRROR — 백엔드
 
-> **Zoro-1이 사용자 대신 사이트를 탐색하고, 사용자가 막히는 화면과 버튼을 찾는다.**
-> 사람 사용성 테스트 전에 확인할 화면과 버튼 이름 후보를 정리한다.
+> **Zoro-1이 사용자 대신 사이트를 탐색해 막히는 버튼을 찾고, 그 버튼 이름을 스스로 고친 뒤 실제로 좋아졌는지 다시 돌려 확인한다.**
+> 결과는 사람 사용성 테스트 전에 확인할 화면과 버튼 이름 후보다.
+
+**바로 가기:** [에이전트 실행 로그 (run-logs)](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) · [직접 실행해 보기](#직접-실행해-보기) · [공식 실행 기록 (run_log.md)](results/run_log.md)
 
 ```mermaid
 flowchart LR
-    U["목표 + 사용자 유형"] --> API["실행 API"]
+    U["할 일 + 고객 유형"] --> API["실행 API"]
     API --> L["에이전트 루프"]
     L <-->|"화면 후보 → 버튼별 확률"| Z(["Zoro-1"])
-    L <-->|"클릭·이동"| B["실제 브라우저<br/>(쇼핑몰 v1 / v2 / 외부 사이트)"]
+    L <-->|"클릭·이동"| B["실제 브라우저<br/>(쇼핑몰 v1 / 개선안 / 외부 사이트)"]
     L --> S[("Run 기록<br/>Step·스크린샷·원본 요청")]
-    S --> A["Issue 분석 · v1/v2 비교"]
-    S --> I["자동 개선<br/>진단 → 이름 제안 → 재평가"]
+    S --> A["Issue 분석"]
+    S --> I["자동 개선<br/>진단 → 이름 제안 → 재평가<br/>→ 최종안 사이트 → 실제 Run 검증"]
+    I --> C["v1 / 개선안 비교"]
     A --> FE["프론트 화면 · 재생"]
     I --> FE
+    C --> FE
     classDef inp fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px,color:#0D47A1
     classDef model fill:#EDE7F6,stroke:#7E57C2,stroke-width:2px,color:#311B92
     classDef sys fill:#E0F2F1,stroke:#26A69A,stroke-width:2px,color:#004D40
@@ -23,13 +27,14 @@ flowchart LR
     class Z model
     class API,L,B sys
     class S store
-    class A,I,FE ok
+    class A,I,C,FE ok
 ```
 
 ## 특징
 
-- **막히는 버튼 탐지 → 이름 수정 제안** ([자동 개선 에이전트](#자동-개선-에이전트))
+- **막히는 버튼 탐지 → 이름 수정 → 실제 Run으로 확인** ([자동 개선 에이전트](#자동-개선-에이전트), [공식 결과](#결과-자동-개선-공식))
 - **다른 목표 점수도 확인.** 다른 목표가 2%p 넘게 내려가면 탈락
+- **심사위원이 배포 서버에서 직접 실행** ([직접 실행해 보기](#직접-실행해-보기))
 - **사이트 수정 없이 실행.** 도착 판정 = 주소 + 화면 글자 ([외부 사이트 시나리오](#외부-사이트-시나리오))
 - **브라우저 실행 없이 도달 확률 추정** ([목표 도달 확률 엔진](#목표-도달-확률-엔진))
 - **결과는 사람 사용성 테스트에 올릴 후보**
@@ -47,11 +52,54 @@ flowchart LR
 - 실행 조건: 행사 GPU(L40S, bf16), temperature 1.52, prompt v2
 - 도착 판정은 모델 대신 주소 + 화면 글자로 (모델 YES/NO 오답 때문, [결정 사항](#결정-사항))
 
-## 결과: v1 vs v2
+## 결과: 자동 개선 (공식)
 
-쇼핑몰 v1·v2, 같은 목표·같은 사용자 유형. Run 8개 모두 `VALID`. 이 Run들의 기록은 #134 이전 커밋의 `run-logs/`에 있다. 지금 [run-logs/](run-logs/README.md)에는 11/20 배포 서버에서 돌린 시연 시나리오 3개(환불 헤맴 → '주문 환불'로 해결, 문의 손해 없음, 배송 잘 찾음)가 있다.
+예시 쇼핑몰 MORO MARKET v1에서 **환불(S1)을 못 찾는 문제**를 자동 개선 에이전트가 고쳤다. 실행 전에 점수·채택 규칙·회차 한도·모델 조건을 동결 파일로 사전 등록하고(`results/improvement_plan.json`, `results/improvement_plan_1119b.json`), 결과를 본 뒤 규칙을 바꾸지 않았다. 실행 기록 전체: [`results/run_log.md`](results/run_log.md) 「자동 개선 본 실행 기록」.
 
-당시 v2는 고정 사이트 `moro-after`(8002)였다. 지금은 삭제했고 같은 화면은 `moro-c2`(8006)에 있다. 지금 after Run은 자동 개선 최종안([실행 API](#실행-api) 참고).
+| 실행 | 결과 | 내용 |
+|---|---|---|
+| 1차 `imp-1119` | `NO_IMPROVEMENT` | 후보 11개 모두 탈락. "주문"이 든 이름은 문의(S4) 고객을 끌어가 S4 −12~24%p(`GUARD_LOSS_EXCEEDED`), "배송" 계열은 S1 개선이 +5%p 미만(`MAIN_GAIN_INSUFFICIENT`) |
+| 2차 `imp-1119b` (사전 등록한 1회) | `IMPROVED` | 상단 메뉴 '이용정보' → **'주문 환불'** (AI 제안, 2회차 채택) |
+
+1·2차를 모두 공개한다. 1차 뒤 같은 규칙으로 1회만 더 돌리기로 먼저 등록하고 커밋한 뒤 2차를 실행했다(이름 제안은 실행마다 달라짐).
+
+'주문 환불' 최종안 사이트(B)의 공식 점수 (최단 이동 수 안 도달 확률, 기준은 처음 v1):
+
+| 목표 | v1 '이용정보' | 최종안 '주문 환불' | 변화 |
+|---|---|---|---|
+| S1 환불 (주 목표) | 0.402 | **0.597** | **+19.6%p** |
+| S2 배송 | 0.654 | 0.671 | +1.7%p |
+| S3 쿠폰 | 0.762 | 0.927 | +16.4%p |
+| S4 문의 | 0.767 | 0.763 | −0.4%p (허용 −2%p 이내) |
+
+실제 브라우저 Run 검증 (목표당 1쌍):
+- S1 환불: v1 실패(home ↔ support 반복, `BLOCKED`) → 최종안 **성공** (home → orders → refund, 2번 이동)
+- S4 문의: v1 성공 → 최종안도 성공 (home → support, 1번 이동). 이 1쌍에서 손해가 없었다는 뜻이고, 모든 사용자·상황에서 부작용이 없다는 뜻은 아니다
+
+- 사람 후보 '주문·환불'(가운뎃점)은 S4 −14%p로 탈락했고 AI 후보 '주문 환불'(띄어쓰기)은 통과했다. 표기 차이가 원인인지는 추가 확인이 필요하다 (실제 사람 클릭률 아님).
+- 같은 흐름을 11/20 배포 서버에서 다시 돌린 시연 시나리오 3개(Run 5개, 비교 2개)는 [에이전트 실행 로그 `run-logs/`](run-logs/README.md)에 있다. Run마다 Step·스크린샷·Zoro-1 요청·응답 원본이 들어 있다.
+  - 환불: 헤매다 '주문 환불'로 해결 — [v1 Run](run-logs/run_before_20261120073628_0ba9/) / [개선안 Run](run-logs/run_after_20261120073638_384e/) / [비교](run-logs/comparisons/imp-live-20261120073424-5254-MAIN.json)
+  - 문의: 개선 후에도 손해 없음 — [v1 Run](run-logs/run_before_20261120073645_2357/) / [개선안 Run](run-logs/run_after_20261120073650_bdec/) / [비교](run-logs/comparisons/imp-live-20261120073424-5254-S4.json)
+  - 배송: 처음부터 잘 찾음 (대조군) — [v1 Run](run-logs/run_before_20261120073657_8b5c/)
+
+## 직접 실행해 보기
+
+배포 서버(EC2 + 행사 GPU)에서 자동 개선을 처음부터 돌린다. 결과는 미리 저장된 값이 아니라 그 자리에서 Zoro-1로 계산한다. 자세한 규칙: [자동 개선 실행·리포트 API](#자동-개선-실행리포트-api-130).
+
+1. 프론트에서 진단할 사이트와 할 일을 입력해 진단 Run을 돌린다 (`POST /api/runs`, `variant=before`). 고객 유형은 정해진 값이 자동으로 적용된다
+2. 진단 결과에서 자동 개선을 시작한다 (`POST /api/improvements` + `{sourceRunId}`) → `202`
+3. 상태를 본다 (`GET /api/improvements/{id}`): `LOOP` → `BUILD_FINAL_SITE` → `OFFICIAL_AND_VERIFY` → `DONE`, 행사 GPU 기준 대략 5분
+4. 리포트(`improvement`)와 검증 Run 비교(`/comparisons/<improvementId>-<goal>`)를 본다
+
+- 응답 `kind`로 구분한다: `LIVE`(방금 서버에서 시작한 실행) / `OFFICIAL`(사전 등록한 공식 결과 imp-1119·imp-1119b)
+- 한 번에 1개만 돈다. 다른 실행 중이면 `409 RUN_ALREADY_ACTIVE`
+- 고칠 수 있는 버튼은 상단 메뉴 '이용정보' 하나라, 이 버튼과 관계없는 목표는 `NO_IMPROVEMENT`로 끝날 수 있다
+
+## 참고: 11/19 E 실험 (v1 vs v2)
+
+자동 개선 전에 사람이 정한 v2('주문·환불')로 돌린 비교다. 쇼핑몰 v1·v2, 같은 목표·같은 사용자 유형. Run 8개 모두 `VALID`. 이 Run들의 기록은 #134 이전 커밋의 `run-logs/`에 있다.
+
+당시 v2는 고정 사이트 `moro-after`(8002)였다. 지금은 삭제했고 같은 화면은 `moro-c2`(8006)에 있다. 지금 after Run은 자동 개선 최종안 `moro-final`('주문 환불', [실행 API](#실행-api) 참고).
 
 ```mermaid
 flowchart LR
@@ -118,7 +166,7 @@ curl localhost:8000/api/health                    # 모델·브라우저·에이
 | 계산할 수 없는 값 | 0 대신 `null` + 사유 |
 | 공개 로그 비밀값 | 키·토큰·서버 주소가 있으면 내보내기 중단 |
 
-테스트 898개 (`pytest -q tests`, 모델 없이 실행).
+테스트 1007개 (`pytest -q tests`, 모델 없이 실행).
 
 ## 기능 지도
 
@@ -129,7 +177,7 @@ curl localhost:8000/api/health                    # 모델·브라우저·에이
 | [외부 사이트 시나리오](#외부-사이트-시나리오) | 등록한 외부 사이트(cafe24) 1곳에서 Run 1개 |
 | [UX Optimizer](#ux-optimizer) | 사람이 만든 이름 후보 C1~C4 평가 → 선정 → 실제 Run 재검증 |
 | [목표 도달 확률 엔진](#목표-도달-확률-엔진) | 실행 없이 사이트 지도 + 화면별 확률로 도달 확률 추정 |
-| [자동 개선 에이전트](#자동-개선-에이전트) (진행 중) | v1 하나로 진단 → 이름 제안 → 수정 → 재평가 → 실제 Run 검증 |
+| [자동 개선 에이전트](#자동-개선-에이전트) | v1 하나로 진단 → 이름 제안 → 수정 → 재평가 → 최종안 사이트 → 실제 Run 검증 → 리포트 (`/api/improvements`) |
 
 ## 구조
 
@@ -337,7 +385,7 @@ stateDiagram-v2
 
 ## 자동 개선 에이전트
 
-입력: 사이트 v1 + 페르소나 + 목표. 출력: 다른 목표 점수를 2%p 넘게 낮추지 않는 새 버튼 이름. (v1·v2 비교와 별도 실험)
+입력: 사이트 v1 + 페르소나 + 목표. 출력: 다른 목표 점수를 2%p 넘게 낮추지 않는 새 버튼 이름 + 그 이름으로 만든 최종안 사이트의 실제 Run 검증. 공식 결과는 [결과: 자동 개선 (공식)](#결과-자동-개선-공식).
 
 ```mermaid
 flowchart TB
@@ -378,12 +426,16 @@ flowchart TB
 | 단계 | 함수 | 위치 | 상태 |
 |---|---|---|---|
 | 진단 재료 | `reach.estimate(...)["pageVisitProbability"]` | `uxm/reach.py` | 완료 |
-| ① 진단 | `diagnose(...)` | 루프 | 진행 중 |
+| ① 진단 | `diagnose(...)` | `uxm/improve_diagnose.py` | 완료 |
 | ② 제안·걸러 내기 | `build_prompt`, `filter_labels` | `uxm/improve_policy.py` | 완료 ([연동 설명](docs/improve-policy-integration.md)) |
 | ③ 수정 A·화면 검사 | `apply_label`, `check_layout` | `uxm/label_edit.py` | 완료 |
 | ④ 채택 | `choose` | `uxm/improve_policy.py` | 완료 |
-| 루프·저장·리포트 | `scripts/improve.py` → `results/improvements/<id>/` | 루프 | 진행 중 |
+| 루프·저장 | `run_loop`, `scripts/improve.py loop` → `results/improvements/<id>/` | `uxm/improve_loop.py` | 완료 |
+| ⑤ 수정 B·공식 점수 | `scripts/build_shop.py --label`, `scripts/improve.py finalize` | `shop/moro-final` | 완료 |
 | ⑥ 실제 Run 검증 | `run_verification` | `api/improvement.py` | 완료 |
+| ⑦ 실행·리포트 API | `POST/GET /api/improvements`, `scripts/improve_live.py` | `api/improvement_jobs.py` | 완료 |
+
+탈락 사유: `GUARD_LOSS_EXCEEDED:<목표>`(지킬 목표 −2%p 초과), `MAIN_GAIN_INSUFFICIENT`(주 목표 +5%p 미만), `TIE_LOST`(1등과 1%p 이내 동률에서 밀림), 이름 걸러 내기 `EXISTING_LABEL`·`DUPLICATE_LABEL`·`LABEL_TOO_LONG`·`TRUNCATED_LABEL`, 화면 검사 `LABEL_OVERFLOW`·`LABEL_NOT_APPLIED`.
 
 <details>
 <summary>수정 A·화면 검사 사용법</summary>
@@ -405,7 +457,7 @@ result = check_layout(baseline, page, EDITABLE_KEY, label)                      
 
 ```python
 from api.improvement import run_verification
-runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["refund", s4_goal])
+runs = run_verification(frozen, "http://127.0.0.1:8010", "주문 환불", ["refund", s4_goal])
 ```
 
 - 목표마다 v1(`site-c0`, before) → 최종안(after) Run 1쌍. 같은 목표의 두 Run은 같은 `experimentKey`(`<improvementId>-<goalId>`)라 기존 비교·재생 화면을 그대로 쓴다.
@@ -499,6 +551,8 @@ python scripts/build_sitemap.py --dry-run      # 파일을 쓰지 않고 결과�
 
 ## 제출용 실행 로그
 
+**지금 제출본: [run-logs/README.md](run-logs/README.md)** (시연 시나리오 3개, Run 5개, 비교 2개, 목록 [`index.json`](run-logs/index.json))
+
 `results/runs/`는 Git에서 빠져 있으므로 고른 Run을 `run-logs/`로 복사한다.
 
 ```
@@ -560,3 +614,7 @@ UXM_FRONTEND_PATH="/path/to/UX-Mirror-FE" .venv/bin/python -m pytest -q tests/te
 - `choice` 응답: `{"type","choice","confidence","probabilities"}` — `confidence`는 최고 확률이 아니라 `(max-1/k)/(1-1/k)`
 - 예/아니요는 **`noul`** 타입, 응답은 `{"noul": P(yes)}`
 - 요청 최상위 키는 `state, questions, image, min_image_pixels, max_image_pixels`만 허용
+
+## 라이선스
+
+[Apache License 2.0](LICENSE). `vendor/trida-stack/`의 공식 코드 일부도 Apache-2.0이다.
