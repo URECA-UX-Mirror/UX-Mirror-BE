@@ -198,7 +198,7 @@ copy .env.example .env
 
 ## 서버 배포 (EC2)
 
-실행 API·브라우저·쇼핑몰(v1·v2·Optimizer 후보 C1~C4)을 서버 한 대에 올리고 행사 GPU와 연결하는 방법은 [`deploy/README.md`](deploy/README.md) (`./deploy/setup.sh`, #108).
+실행 API·브라우저·쇼핑몰(v1·자동 개선 최종안·Optimizer 후보 C1~C4)을 서버 한 대에 올리고 행사 GPU와 연결하는 방법은 [`deploy/README.md`](deploy/README.md) (`./deploy/setup.sh`, #108).
 
 ## 실행 API
 
