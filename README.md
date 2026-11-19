@@ -155,7 +155,7 @@ flowchart LR
 | `uxm/` | 핵심 로직 (API 없이 동작) | 아래 표 |
 | `api/` | 실행 API | `main.py`, `runner.py`, `optimizer.py`, `improvement.py`, `integrations.py`(모듈 연결) |
 | `scripts/` | 명령줄 도구 | `build_shop.py`, `build_sitemap.py`, `estimate_reach.py`, `export_run_logs.py` |
-| `shop/` | 테스트 쇼핑몰 | `moro-before`(v1), `moro-after`(v2), `moro-c1·c3·c4`(이름 변형). 생성 결과라 직접 수정 금지, 원본은 `stitch_moro_market/` |
+| `shop/` | 테스트 쇼핑몰 | `moro-before`(v1), `moro-after`(v2), `moro-c1~c4`(이름 변형, Optimizer 후보). 생성 결과라 직접 수정 금지, 원본은 `stitch_moro_market/` |
 | `config/` | 설정 | 목표·페르소나(`presets.json`), 사이트, 사이트 지도, Optimizer 후보 |
 | `tests/` | 테스트 | 모델 없이 실행 |
 | `vendor/trida-stack/` | 공식 코드 일부 (Apache-2.0) | 요청 인코딩·서버 |
@@ -297,10 +297,11 @@ stateDiagram-v2
 |---|---|---|---|---|---|
 | C0 | 이용정보 | `moro-before` 8001 | 0.0778 | 0.9194 | 기준 |
 | C1 | 주문·배송 | `moro-c1` 8003 | 0.3723 | 0.8969 (−2.25%p) | 제외 (경로 확률 −2%p 초과) |
-| C2 | 주문·환불 | `moro-after` 8002 | **0.7252** (+64.74%p) | **0.9680** (+4.86%p) | **추천·검증 1위** |
+| C2 | 주문·환불 | `moro-c2` 8006 | **0.7252** (+64.74%p) | **0.9680** (+4.86%p) | **추천·검증 1위** |
 | C3 | 주문·반품 | `moro-c3` 8004 | 0.6653 | 0.9499 (+3.05%p) | 2위 |
 | C4 | 주문 관리 | `moro-c4` 8005 | 0.5829 | 0.9384 (+1.90%p) | 3위 |
 
+- C2는 위 실행 당시 `moro-after`(8002)에서 평가했다. 지금은 같은 화면의 `moro-c2`(8006)로 분리돼 있다.
 - 실제 브라우저 재검증: C0 3단계 → C2 2단계 (이동 비용 −1), 최종 판단 `IMPROVEMENT_OBSERVED`.
 - 두 번째 실행도 선정·제외·최종 판단이 같았고, 확률 차이는 최대 1.47%p (C2 대상 메뉴 0.7252 / 0.7105).
 
@@ -417,7 +418,7 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["ref
 ```
 python scripts/estimate_reach.py                                   # v1/v2, 환불 목표
 python scripts/estimate_reach.py --goal-page orders --persona "70대, 인터넷 쇼핑이 서툰 사용자"
-python scripts/estimate_reach.py --url C1=http://127.0.0.1:8003 --url C2=http://127.0.0.1:8002
+python scripts/estimate_reach.py --url C1=http://127.0.0.1:8003 --url C2=http://127.0.0.1:8006
 python scripts/estimate_reach.py --site cafe24-ons                 # 외부 사이트
 ```
 
