@@ -1,9 +1,9 @@
-"""Stitch 시안(moro market) → Before/After 쇼핑몰 프로젝트 2개 생성.
+"""Stitch 시안(moro market) → Before/After 쇼핑몰 프로젝트 2개 생성. After는 Before 원본에서 상단 메뉴 이름만 바꿔 만든다.
 
     python scripts/build_shop.py [STITCH_DIR]
     python scripts/build_shop.py --label 주문·배송 --out <폴더>   # 고도화 라벨 후보 변형 (P0 사이트는 그대로)
 
-- 원본(Stitch export)은 수정하지 않는다. 두 프로젝트를 같은 패치로 생성해 차이가 메뉴 라벨 하나뿐이도록 보장한다.
+- 원본(Stitch export)은 수정하지 않는다. 원본은 Before용 하나이고, After는 같은 결과에 `relabel_nav`만 적용한다.
 - 생성 후 Before/After 페이지를 토큰 단위로 비교해 '이용정보' ↔ '주문·환불' 외 차이가 있으면 실패한다 (B3).
 
 패치 내용 (양쪽 동일):
@@ -51,7 +51,7 @@ ANCHOR_LINKS = {
 TEXT_LINKS = {
     "mypage": {"1:1 문의내역": "/shop/support"},
 }
-VARIANTS = {"before": ("moro-before", ""), "after": ("moro-after", "after_")}
+VARIANTS = {"before": "moro-before", "after": "moro-after"}   # 생성 폴더. After = Before + 상단 메뉴 이름 변경
 LABEL = {"before": "이용정보", "after": "주문·환불"}
 
 
@@ -199,7 +199,7 @@ def build_variant(src: str, label: str, out: str, force: bool = False) -> None:
     이미 만든 변형은 siteInstanceId와 연결돼 평가에 쓰이므로, 비어 있지 않은 out은 force 없이는 덮어쓰지 않는다.
     """
     out = os.path.realpath(out)   # 심볼릭 링크로 P0 폴더를 가리키는 우회 방지
-    if out in {os.path.realpath(os.path.join(SHOP, proj)) for proj, _ in VARIANTS.values()}:
+    if out in {os.path.realpath(os.path.join(SHOP, proj)) for proj in VARIANTS.values()}:
         sys.exit(f"{out}: P0 Before/After 사이트는 덮어쓰지 않는다")
     if os.path.isdir(out) and os.listdir(out) and not force:
         sys.exit(f"{out}: 이미 내용이 있다. 다시 만들려면 --force")
@@ -223,11 +223,12 @@ def main():
         build_variant(args.src, args.label, args.out, args.force)
         return
 
-    built = {v: {key: build_page(args.src, prefix, key) for key in PAGES} for v, (_, prefix) in VARIANTS.items()}
-    for v, (proj, _) in VARIANTS.items():
-        write_project(os.path.join(SHOP, proj), built[v])
+    before = {key: build_page(args.src, "", key) for key in PAGES}
+    built = {"before": before, "after": {key: relabel_nav(html, LABEL["after"]) for key, html in before.items()}}
     if not parity_ok(built["before"], built["after"], LABEL["after"]):
         sys.exit("Before/After 차이가 메뉴 라벨 하나가 아님 → 실행 금지 (B3)")
+    for v, proj in VARIANTS.items():
+        write_project(os.path.join(SHOP, proj), built[v])
 
 
 if __name__ == "__main__":
