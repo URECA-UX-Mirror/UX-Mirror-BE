@@ -3,6 +3,7 @@
 #
 #   ./deploy/setup.sh                 # 도메인 없이: <공인 IP>.sslip.io 로 HTTPS
 #   ./deploy/setup.sh api.example.com # 도메인이 이 서버를 가리키면 그 이름으로
+#   ./deploy/setup.sh "" --force      # 다시 실행할 때 진행 중인 Run이 있어도 재시작 (그 Run은 끊긴다)
 #
 # 처음 실행하면 .env를 만들고 멈춘다 → .env를 채운 뒤 다시 실행.
 set -euo pipefail
@@ -38,6 +39,9 @@ if [ "$(env_value ZORO_BACKEND)" != "http" ]; then
   exit 1
 fi
 
+# shellcheck source=deploy/lib.sh
+source deploy/lib.sh
+
 # ---- 2. HTTPS 주소
 if [ -z "$DOMAIN" ]; then
   token="$(curl -sf -m 3 -X PUT http://169.254.169.254/latest/api/token \
@@ -67,7 +71,10 @@ sudo apt-get install -y python3-venv python3-pip git curl caddy
 sudo .venv/bin/python -m playwright install-deps chromium
 .venv/bin/python -m playwright install chromium
 
-# ---- 5. 서비스 등록 (쇼핑몰 → API)
+# ---- 5. 서비스 등록 (쇼핑몰 → API). 다시 실행할 때 진행 중인 Run이 있으면 재시작하지 않는다
+if systemctl is-active --quiet uxm-api 2>/dev/null && [ "${2:-}" != "--force" ] && ! check_idle; then
+  exit 1
+fi
 for unit in uxm-shops uxm-api; do
   sed -e "s#__APP_DIR__#$APP_DIR#g" -e "s#__USER__#$RUN_USER#g" "deploy/$unit.service" \
     | sudo tee "/etc/systemd/system/$unit.service" >/dev/null
@@ -76,18 +83,20 @@ sudo systemctl daemon-reload
 sudo systemctl enable uxm-shops uxm-api >/dev/null
 sudo systemctl restart uxm-shops uxm-api
 
-# ---- 6. Caddy (HTTPS → 127.0.0.1:8000)
+# ---- 6. Caddy (HTTPS → 127.0.0.1:8000). 쓰기 잠금 파일은 처음엔 꺼진 상태로
+if [ ! -f "$LOCK_FILE" ]; then
+  printf '%s\n' "$LOCK_OFF" | sudo tee "$LOCK_FILE" >/dev/null
+fi
 sed -e "s#__DOMAIN__#$DOMAIN#g" deploy/Caddyfile | sudo tee /etc/caddy/Caddyfile >/dev/null
 sudo systemctl enable caddy >/dev/null
 sudo systemctl restart caddy
 
-# ---- 7. 확인
-echo "API가 뜨기를 기다립니다..."
-for _ in $(seq 1 30); do
-  if curl -sf -m 3 http://127.0.0.1:8000/api/health >/dev/null; then break; fi
-  sleep 1
-done
-echo "[내부] $(curl -s -m 10 http://127.0.0.1:8000/api/health || echo '응답 없음: sudo journalctl -u uxm-api -n 50')"
+# ---- 7. 확인: 실제로 Run을 돌릴 수 있는지 (API READY · 쇼핑몰 5개 · 바깥 HTTPS)
+echo "확인 중... (처음엔 인증서 발급에 몇 초 걸립니다)"
+if ! check_ready 60 "$DOMAIN"; then
+  echo "설치는 끝났지만 Run을 돌릴 수 없는 상태입니다. 위 항목을 고친 뒤 ./deploy/setup.sh를 다시 실행해 주세요." >&2
+  exit 1
+fi
 echo
-echo "완료. 바깥에서 확인: https://$DOMAIN/api/health"
-echo "인증서는 처음 접속 때 받으므로 몇 초 걸릴 수 있습니다. Vercel의 API 주소를 https://$DOMAIN 으로 바꾸고 재배포하세요."
+echo "완료: https://$DOMAIN"
+echo "Vercel 환경변수 VITE_API_BASE_URL=https://$DOMAIN, VITE_USE_MOCK=false 로 바꾸고 재배포하세요."

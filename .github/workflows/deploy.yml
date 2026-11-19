@@ -2,6 +2,7 @@ name: 서버 배포 (수동)
 
 # Actions 탭에서 "Run workflow"를 눌렀을 때만 돈다. 머지할 때마다 자동으로 배포하지 않는다
 # (재시작하면 진행 중인 Run이 끊기므로). 테스트 통과 → EC2에 SSH로 deploy/update.sh 실행.
+# 서버는 테스트한 커밋과 같을 때만 배포하고(--sha), 배포 중에는 쓰기 잠금으로 새 Run을 막는다.
 #
 # 필요한 저장소 Secrets (Settings → Secrets and variables → Actions):
 #   EC2_HOST         서버 주소 (Elastic IP 또는 도메인)
@@ -30,16 +31,24 @@ concurrency:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
+      - name: 테스트할 커밋 기록
+        id: sha
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "테스트 커밋: $(git rev-parse HEAD)"
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: 테스트 의존성 설치
+          python-version: '3.12'   # 서버(Ubuntu 24.04)와 같은 버전
+      - name: 테스트 의존성 설치 (서버와 같은 고정 버전)
         run: |
-          python -m pip install fastapi uvicorn httpx pytest python-dotenv requests pillow playwright
+          python -m pip install -r deploy/requirements-server.txt pytest
           python -m playwright install --with-deps chromium
       - name: pytest
         run: python -m pytest -q tests
@@ -47,6 +56,7 @@ jobs:
   deploy:
     needs: pytest
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: 입력·Secrets 확인
         env:
@@ -55,7 +65,7 @@ jobs:
           SSH_USER: ${{ secrets.EC2_USER }}
           KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "브랜치 이름이 올바르지 않습니다: $REF"; exit 1; }
+          [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$REF" != *..* ]] || { echo "브랜치 이름이 올바르지 않습니다: $REF"; exit 1; }
           missing=""
           [ -n "$HOST" ] || missing="$missing EC2_HOST"
           [ -n "$SSH_USER" ] || missing="$missing EC2_USER"
@@ -81,10 +91,12 @@ jobs:
           HOST: ${{ secrets.EC2_HOST }}
           SSH_USER: ${{ secrets.EC2_USER }}
           REF: ${{ inputs.ref }}
+          SHA: ${{ needs.pytest.outputs.sha }}
           FORCE: ${{ inputs.force && '--force' || '' }}
         run: |
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=15 "$SSH_USER@$HOST" \
-            "cd ~/UX-Mirror-BE && bash deploy/update.sh '$REF' $FORCE"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "테스트 커밋을 받지 못했습니다: $SHA"; exit 1; }
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 "$SSH_USER@$HOST" \
+            "cd ~/UX-Mirror-BE && bash deploy/update.sh '$REF' --sha $SHA $FORCE"
       - name: SSH 키 정리
         if: always()
         run: rm -f ~/.ssh/deploy_key
