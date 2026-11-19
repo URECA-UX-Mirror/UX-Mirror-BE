@@ -57,3 +57,21 @@
 | 20261115_160748 | B5 after/home | v2 | local/cuda-4bit | 주문·환불=0.502, 고객센터=0.114, 마이페이지=0.255, 실시간 조회 이용정보 =0.088, 24H 빠른 접수 고객=0.041 / H_click=0.799 | 기록 |
 | 20261115_160748 | B5 before/orders | v2 | local/cuda-4bit | 홈=0.136, 환불 신청하기=0.864 / H_click=0.573 | 기록 |
 | 20261115_160748 | B5 after/orders | v2 | local/cuda-4bit | 홈=0.136, 환불 신청하기=0.864 / H_click=0.573 | 기록 |
+
+## E 실행 기록 (final-plan-1119, #93)
+
+E-1 전 확인 (2026-11-19 15:20, 실행 커밋 `230fd67`, 모델 서버 `brev-l40s-bf16` — 행사 GPU L40S 원본 bf16, `/api/health` modelVersion `trillionlabs/Zoro-1`):
+- `git diff --name-only ac153e6 230fd67` → 계획 파일 외에 #87·#88 파일(`.gitignore`, `README.md`, `scripts/check_site_instances.py`, `uxm/optimizer_policy.py`, 테스트 3개). 정책 모듈은 Optimizer에서만 불러오고 Explorer 루프는 쓰지 않아 E 결과에 영향 없음 → 팀 확인 후 E-1 시작
+- E 전 MORO 회귀 `regress-gpu-230fd67`: `run_before_20261119152012_73ab` / `run_after_20261119152031_8536` 둘 다 SUCCESS·VALID, 비교 조건 일치
+- 실행 방법: 화면 대신 실행 API(`POST /api/runs`)로 같은 조건(계획의 목표 문장·사용자 유형·성공 조건·maxSteps 8, siteId 없음)을 보내 실행 (FE 수정 중, 팀 확인)
+
+| finalExecutionPlanId | pairIndex | experimentKey | variant | actualOrder | startedAt | runId | executionCommit | modelEndpointId |
+|---|---|---|---|---|---|---|---|---|
+| final-plan-1119 | 1 | e-s1-1119 | before | 1 | 2026-11-19T15:24:27.609+09:00 | run_before_20261119152427_7646 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s1-1119 | after | 2 | 2026-11-19T15:24:45.500+09:00 | run_after_20261119152445_52ce | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s2-1119 | before | 1 | 2026-11-19T15:27:16.693+09:00 | run_before_20261119152716_6342 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s2-1119 | after | 2 | 2026-11-19T15:27:34.448+09:00 | run_after_20261119152734_aab5 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s3-1119 | before | 1 | 2026-11-19T15:27:52.122+09:00 | run_before_20261119152752_d372 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s3-1119 | after | 2 | 2026-11-19T15:28:04.968+09:00 | run_after_20261119152804_2323 | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s4-1119 | before | 1 | 2026-11-19T15:28:24.850+09:00 | run_before_20261119152824_99ae | 230fd67 | brev-l40s-bf16 |
+| final-plan-1119 | 1 | e-s4-1119 | after | 2 | 2026-11-19T15:28:42.652+09:00 | run_after_20261119152842_443f | 230fd67 | brev-l40s-bf16 |
