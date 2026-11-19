@@ -28,3 +28,6 @@ results/reach/
 
 # C0~C4 사이트 점검 결과 (#85)
 results/site_checks/
+
+# 자동 개선 실행 결과 (#106) — 기준 고정 파일 results/improvement_plan.json은 커밋한다
+results/improvements/
