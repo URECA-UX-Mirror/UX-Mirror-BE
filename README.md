@@ -3,6 +3,8 @@
 > **Zoro-1이 사용자 대신 사이트를 탐색해 막히는 버튼을 찾고, 그 버튼 이름을 스스로 고친 뒤 실제로 좋아졌는지 다시 돌려 확인한다.**
 > 결과는 사람 사용성 테스트 전에 확인할 화면과 버튼 이름 후보다.
 
+**바로 가기:** [에이전트 실행 로그 (run-logs)](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) · [직접 실행해 보기](#직접-실행해-보기) · [공식 실행 기록 (run_log.md)](results/run_log.md)
+
 ```mermaid
 flowchart LR
     U["할 일 + 고객 유형"] --> API["실행 API"]
@@ -75,7 +77,10 @@ flowchart LR
 - S4 문의: v1 성공 → 최종안도 성공 (home → support, 1번 이동). 이 1쌍에서 손해가 없었다는 뜻이고, 모든 사용자·상황에서 부작용이 없다는 뜻은 아니다
 
 - 사람 후보 '주문·환불'(가운뎃점)은 S4 −14%p로 탈락했고 AI 후보 '주문 환불'(띄어쓰기)은 통과했다. 표기 차이가 원인인지는 추가 확인이 필요하다 (실제 사람 클릭률 아님).
-- 같은 흐름을 11/20 배포 서버에서 다시 돌린 시연 Run 3개는 [`run-logs/`](run-logs/README.md)에 있다 (환불: 헤매다 '주문 환불'로 해결 / 문의: 손해 없음 / 배송: 처음부터 잘 찾음).
+- 같은 흐름을 11/20 배포 서버에서 다시 돌린 시연 시나리오 3개(Run 5개, 비교 2개)는 [에이전트 실행 로그 `run-logs/`](run-logs/README.md)에 있다. Run마다 Step·스크린샷·Zoro-1 요청·응답 원본이 들어 있다.
+  - 환불: 헤매다 '주문 환불'로 해결 — [v1 Run](run-logs/run_before_20261120073628_0ba9/) / [개선안 Run](run-logs/run_after_20261120073638_384e/) / [비교](run-logs/comparisons/imp-live-20261120073424-5254-MAIN.json)
+  - 문의: 개선 후에도 손해 없음 — [v1 Run](run-logs/run_before_20261120073645_2357/) / [개선안 Run](run-logs/run_after_20261120073650_bdec/) / [비교](run-logs/comparisons/imp-live-20261120073424-5254-S4.json)
+  - 배송: 처음부터 잘 찾음 (대조군) — [v1 Run](run-logs/run_before_20261120073657_8b5c/)
 
 ## 직접 실행해 보기
 
@@ -546,6 +551,8 @@ python scripts/build_sitemap.py --dry-run      # 파일을 쓰지 않고 결과�
 
 ## 제출용 실행 로그
 
+**지금 제출본: [run-logs/README.md](run-logs/README.md)** (시연 시나리오 3개, Run 5개, 비교 2개, 목록 [`index.json`](run-logs/index.json))
+
 `results/runs/`는 Git에서 빠져 있으므로 고른 Run을 `run-logs/`로 복사한다.
 
 ```
@@ -607,3 +614,7 @@ UXM_FRONTEND_PATH="/path/to/UX-Mirror-FE" .venv/bin/python -m pytest -q tests/te
 - `choice` 응답: `{"type","choice","confidence","probabilities"}` — `confidence`는 최고 확률이 아니라 `(max-1/k)/(1-1/k)`
 - 예/아니요는 **`noul`** 타입, 응답은 `{"noul": P(yes)}`
 - 요청 최상위 키는 `state, questions, image, min_image_pixels, max_image_pixels`만 허용
+
+## 라이선스
+
+[Apache License 2.0](LICENSE). `vendor/trida-stack/`의 공식 코드 일부도 Apache-2.0이다.
