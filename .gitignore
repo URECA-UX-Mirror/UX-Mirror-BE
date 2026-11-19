@@ -25,3 +25,6 @@ results/optimizations/
 
 # 목표 도달 확률 추정 결과 (#61)
 results/reach/
+
+# C0~C4 사이트 점검 결과 (#85)
+results/site_checks/
