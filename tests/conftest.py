@@ -47,3 +47,4 @@ def after_site_configured(monkeypatch):
     설정이 없는 경우는 해당 테스트에서 None으로 바꿔 확인한다."""
     from api import runner
     monkeypatch.setitem(runner.SHOP_URLS, "after", f"http://127.0.0.1:{SHOP_PORTS['after']}")
+    monkeypatch.setattr(runner, "SHOP_AFTER_LABEL", "주문·환불")   # 테스트 after 사이트(moro-c2)의 이름

@@ -104,9 +104,11 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
                     req.startPath, goal["verification"], P0_VIEWPORT)
             except ValueError as e:
                 raise _invalid(str(e)) from e
-        if not runner_module.SHOP_URLS.get(req.variant):   # after는 서버 설정(SHOP_AFTER_URL)이 있을 때만
+        # after는 서버 설정(SHOP_AFTER_URL + 이름 SHOP_AFTER_LABEL)이 다 있을 때만. 이름이 없으면 이름 없는
+        # 다른 after 사이트끼리 afterSite가 같아져 같은 키에서 섞일 수 있다
+        if not runner_module.SHOP_URLS.get(req.variant) or (req.variant == "after" and not runner_module.SHOP_AFTER_LABEL):
             raise ApiError(503, "SITE_NOT_CONFIGURED",
-                           "개선안(after) 사이트가 설정되지 않았습니다. 서버의 SHOP_AFTER_URL을 확인해 주세요.")
+                           "개선안(after) 사이트가 설정되지 않았습니다. 서버의 SHOP_AFTER_URL·SHOP_AFTER_LABEL을 확인해 주세요.")
         runner.ensure_ready()
         if goal["goalId"] is None:   # 직접 입력한 성공 조건은 실제 화면에서 먼저 확인한다 (preset은 로드 때 검사)
             if runner.active_run_id is not None:   # 브라우저를 띄우기 전에 바로 알려 준다 (create에서도 다시 확인)

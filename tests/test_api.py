@@ -965,3 +965,13 @@ def test_after_runs_from_different_sites_do_not_mix(make_client, monkeypatch):
     monkeypatch.setattr(runner, "SHOP_AFTER_LABEL", "주문 환불")
     r = client.post("/api/runs", json=body(experimentKey="exp_new", variant="after"))
     assert r.status_code == 201   # 새 실험 키는 된다
+
+
+def test_after_run_needs_site_label(make_client, monkeypatch):
+    """after 주소만 있고 이름(SHOP_AFTER_LABEL)이 없으면 만들지 않는다 — 이름 없는 사이트끼리 섞이지 않게 (#128 리뷰)."""
+    from api import runner
+    monkeypatch.setattr(runner, "SHOP_AFTER_LABEL", None)
+    client, _, _ = make_client()
+    r = client.post("/api/runs", json=body(variant="after"))
+    assert r.status_code == 503 and r.json()["error"]["code"] == "SITE_NOT_CONFIGURED"
+    assert client.post("/api/runs", json=body(variant="before")).status_code == 201   # before는 상관없음

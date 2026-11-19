@@ -243,7 +243,7 @@ flowchart LR
 - 목표는 `goalId` 또는 `goal` + `verification{path, text, exact?, scope?}`, 사용자 유형은 `personaId` 또는 `persona`. 직접 입력 문장이 비었거나 200자 초과·누출 금지 문자열이면 `422`.
 - 직접 입력한 목표는 사이트 지도 기준(`referencePathConfig.basis = SITE_MAP`)으로 경로 지표를 낸다. 지도를 못 쓰면 `null`, 시작 화면에서 길이 없으면 `422`.
 - 같은 `experimentKey`의 두 Run은 목표·사용자 유형·`verification`이 같아야 한다.
-- after(개선안) 사이트는 서버 설정 `SHOP_AFTER_URL`로만 정한다(고정 v2 없음, 클라이언트는 주소를 넘기지 않음). 설정이 없으면 after Run은 `503 SITE_NOT_CONFIGURED`.
+- after(개선안) 사이트는 서버 설정 `SHOP_AFTER_URL`로만 정한다(고정 v2 없음, 클라이언트는 주소를 넘기지 않음). 주소(`SHOP_AFTER_URL`)나 이름(`SHOP_AFTER_LABEL`)이 없으면 after Run은 `503 SITE_NOT_CONFIGURED`.
   - after Run에는 주소 대신 사이트 이름 `afterSite: {label}`(서버 설정 `SHOP_AFTER_LABEL`, 예: "주문 환불")이 남는다. 같은 실험 키에 다른 after 사이트의 Run(11/19 E처럼 `afterSite`가 없는 예전 고정 v2 포함)이 있으면 after Run을 만들지 않고 `422`. E 실험 키(`e-s1-1119`~`e-s4-1119`)로는 after를 다시 만들 수 없으니 새 실험 키를 쓴다.
 - 실행 전 검사: 직접 입력한 성공 조건은 설정된 사이트(v1·개선안)에서 도착 화면을 열어 확인한다. 없는 화면·다른 화면·글자 없음은 `422`, 10초 안에 못 열면 `503 BROWSER_ERROR`.
 - preset 목표마다 시작 화면이 정해져 있다(`refund` = `/shop/home`). 다르면 `422`.
