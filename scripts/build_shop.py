@@ -1,10 +1,10 @@
-"""Stitch 시안(moro market) → Before/After 쇼핑몰 프로젝트 2개 생성. After는 Before 원본에서 상단 메뉴 이름만 바꿔 만든다.
+"""Stitch 시안(moro market) → v1 쇼핑몰(moro-before) 생성. 이름 변형 사이트는 --label로 v1에서 만든다.
 
     python scripts/build_shop.py [STITCH_DIR]
     python scripts/build_shop.py --label 주문·배송 --out <폴더>   # 고도화 라벨 후보 변형 (P0 사이트는 그대로)
 
-- 원본(Stitch export)은 수정하지 않는다. 원본은 Before용 하나이고, After는 같은 결과에 `relabel_nav`만 적용한다.
-- 생성 후 Before/After 페이지를 토큰 단위로 비교해 '이용정보' ↔ '주문·환불' 외 차이가 있으면 실패한다 (B3).
+- 원본(Stitch export)은 수정하지 않는다. 변형(Optimizer 후보 C1~C4, 자동 개선 최종안)은 v1 결과에 `relabel_nav`만 적용한다.
+- 변형은 v1과 토큰 단위로 비교해 상단 메뉴 이름 외 차이가 있으면 만들지 않는다 (`parity_ok`).
 
 패치 내용 (양쪽 동일):
   1. data-path가 있는 <a>의 href="#"를 실제 주소로 (/shop/home 등). best/new는 페이지가 없어 '#' 유지
@@ -26,7 +26,7 @@ import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHOP = os.path.join(ROOT, "shop")                       # 생성 결과: shop/moro-before, shop/moro-after
+SHOP = os.path.join(ROOT, "shop")                       # 생성 결과: shop/moro-before (변형은 shop/moro-c1~c4 등)
 DEFAULT_SRC = os.path.join(SHOP, "stitch_moro_market")  # Stitch 시안 원본 (저장소에 포함)
 
 # 시나리오 pageKey → (Stitch 폴더, <title>)
@@ -51,8 +51,8 @@ ANCHOR_LINKS = {
 TEXT_LINKS = {
     "mypage": {"1:1 문의내역": "/shop/support"},
 }
-VARIANTS = {"before": "moro-before", "after": "moro-after"}   # 생성 폴더. After = Before + 상단 메뉴 이름 변경
-LABEL = {"before": "이용정보", "after": "주문·환불"}
+VARIANTS = {"before": "moro-before"}   # 기본 생성 폴더 (덮어쓰기 금지 대상)
+LABEL = {"before": "이용정보"}
 
 
 def link_data_paths(html: str) -> str:
@@ -223,12 +223,7 @@ def main():
         build_variant(args.src, args.label, args.out, args.force)
         return
 
-    before = {key: build_page(args.src, "", key) for key in PAGES}
-    built = {"before": before, "after": {key: relabel_nav(html, LABEL["after"]) for key, html in before.items()}}
-    if not parity_ok(built["before"], built["after"], LABEL["after"]):
-        sys.exit("Before/After 차이가 메뉴 라벨 하나가 아님 → 실행 금지 (B3)")
-    for v, proj in VARIANTS.items():
-        write_project(os.path.join(SHOP, proj), built[v])
+    write_project(os.path.join(SHOP, VARIANTS["before"]), {key: build_page(args.src, "", key) for key in PAGES})
 
 
 if __name__ == "__main__":

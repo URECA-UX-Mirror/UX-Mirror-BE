@@ -231,7 +231,7 @@ SITE = {"name": "t", "pages": {"start": "/app/start", "goal": "/app/goal"}, "sta
 
 def test_shop_config_comes_from_site_file():
     assert SHOP.name == "moro-market" and SHOP.start_page == "home" and SHOP.path_prefix == "/shop/"
-    assert set(SHOP.variants) == {"before", "after"} and SHOP.preset_check is True
+    assert set(SHOP.variants) == {"before"} and SHOP.preset_check is True   # 고정 v2 사이트 없음 (#124)
     assert SHOP.out == "config/sitemaps/sitemap-shop-v1.json" and SHOP.site_map_version == "sitemap-v1"
 
 

@@ -104,6 +104,9 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
                     req.startPath, goal["verification"], P0_VIEWPORT)
             except ValueError as e:
                 raise _invalid(str(e)) from e
+        if not runner_module.SHOP_URLS.get(req.variant):   # after는 서버 설정(SHOP_AFTER_URL)이 있을 때만
+            raise ApiError(503, "SITE_NOT_CONFIGURED",
+                           "개선안(after) 사이트가 설정되지 않았습니다. 서버의 SHOP_AFTER_URL을 확인해 주세요.")
         runner.ensure_ready()
         if goal["goalId"] is None:   # 직접 입력한 성공 조건은 실제 화면에서 먼저 확인한다 (preset은 로드 때 검사)
             if runner.active_run_id is not None:   # 브라우저를 띄우기 전에 바로 알려 준다 (create에서도 다시 확인)
@@ -111,7 +114,8 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             busy = optimizer.busy_reason()
             if busy:
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", busy, retryable=True)
-            integrations.goal_preflight()(goal["verification"], runner_module.SHOP_URLS)
+            integrations.goal_preflight()(goal["verification"],
+                                          {v: u for v, u in runner_module.SHOP_URLS.items() if u})
         run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
         runner.create(run, goal)
         return {k: run[k] for k in ("runId", "experimentKey", "variant", "status", "createdAt")} | {

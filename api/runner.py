@@ -16,9 +16,11 @@ from api.timeutil import now_iso
 
 log = logging.getLogger("uxm.api.runner")
 
+# 버전 비교 Run의 사이트. after는 고정 v2 사이트 없이 서버 설정으로만 정한다 (예: 자동 개선 최종안 8010).
+# 클라이언트는 주소를 넘기지 않는다. 설정이 없으면 after Run을 만들지 않는다 (api/main.py).
 SHOP_URLS = {
     "before": os.getenv("SHOP_BEFORE_URL", "http://127.0.0.1:8001"),
-    "after": os.getenv("SHOP_AFTER_URL", "http://127.0.0.1:8002"),
+    "after": os.getenv("SHOP_AFTER_URL") or None,
 }
 
 # run_agent 결과에서 Run에 반영하는 필드. 나머지(설정·버전 값)는 생성 때 값을 그대로 둔다.
@@ -205,7 +207,10 @@ class Runner:
         # 자동 개선 검증 Run(#101)도 Optimization 검증 Run처럼 등록 주소를 siteInstanceId로 찾는다
         ctx = run.get("optimizationContext") or run.get("improvementContext")
         if not ctx:
-            return SHOP_URLS[run["variant"]]
+            base = SHOP_URLS.get(run["variant"])
+            if not base:
+                raise _RunFailure("BROWSER_ERROR", "BROWSER_ERROR", "after 사이트가 설정되지 않았습니다 (SHOP_AFTER_URL).")
+            return base
         base = self.site_base_url(ctx["siteInstanceId"]) if self.site_base_url else None
         if not base:
             raise _RunFailure("BROWSER_ERROR", "BROWSER_ERROR", "등록되지 않은 사이트 인스턴스입니다.")

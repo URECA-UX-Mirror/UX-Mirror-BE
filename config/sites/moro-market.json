@@ -11,8 +11,7 @@
   "pathPrefix": "/shop/",
   "allowedHosts": [],
   "variants": {
-    "before": "http://127.0.0.1:8001",
-    "after": "http://127.0.0.1:8002"
+    "before": "http://127.0.0.1:8001"
   },
   "siteMapVersion": "sitemap-v1",
   "out": "config/sitemaps/sitemap-shop-v1.json",

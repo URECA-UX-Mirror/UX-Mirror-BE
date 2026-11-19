@@ -144,3 +144,15 @@ def test_unresponsive_shop_times_out_as_503(silent_server, monkeypatch):
     assert (e.status, e.code, e.retryable) == (503, "BROWSER_ERROR", True)
     assert e.message == "Before 도착 화면을 읽지 못했습니다"   # Before에서 멈추고 After는 열지 않는다
     assert elapsed < 15   # Playwright 기본 30초를 기다리지 않는다
+
+
+def test_only_configured_sites_are_checked(shops):
+    """after 사이트가 설정되지 않으면(#124) v1만 확인한다."""
+    calls = []
+
+    def opener(url, **kw):
+        calls.append(url)
+        return open_browser(url, **kw)
+    check_goal_screens(v("/shop/refund", "환불 / 반품 신청"), {"before": shops["before"], "after": None},
+                       (opener, close_browser))
+    assert calls == [shops["before"] + "/shop/refund"]

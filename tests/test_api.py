@@ -471,7 +471,8 @@ def test_refund_goal_starts_from_home(make_client):
     client, integ, app = make_client()
     run = run_and_wait(client, app, variant="after")   # startPath 생략 → /shop/home
     assert run["startPath"] == "/shop/home"
-    assert integ.received_settings["startUrl"].endswith(":8002/shop/home")
+    from api import runner
+    assert integ.received_settings["startUrl"] == runner.SHOP_URLS["after"] + "/shop/home"   # 설정된 after 사이트
     assert all(p[0] == "home" for p in run["referencePathConfig"]["allowedPaths"])
     run = run_and_wait(client, app, experimentKey="exp_002", startPath="/shop/home/")
     assert run["startPath"] == "/shop/home"
@@ -915,3 +916,21 @@ def test_final_run_follows_chain():
     ]
     assert final_run(runs)["runId"] == "c"
     assert final_run([]) is None
+
+
+# ---- 고정 v2 사이트 제거 (#124): after 사이트는 서버 설정(SHOP_AFTER_URL)으로만
+def test_after_run_needs_configured_site(make_client, monkeypatch):
+    from api import runner
+    monkeypatch.setitem(runner.SHOP_URLS, "after", None)
+    client, _, _ = make_client()
+    r = client.post("/api/runs", json=body(variant="after"))
+    assert r.status_code == 503
+    assert r.json()["error"]["code"] == "SITE_NOT_CONFIGURED"
+    assert client.get("/api/runs").json()["items"] == []   # Run을 만들지 않았다
+
+
+def test_before_run_works_without_after_site(make_client, monkeypatch):
+    from api import runner
+    monkeypatch.setitem(runner.SHOP_URLS, "after", None)
+    client, _, app = make_client()
+    assert run_and_wait(client, app, variant="before")["status"] == "SUCCESS"
