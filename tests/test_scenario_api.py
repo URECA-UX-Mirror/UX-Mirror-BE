@@ -179,7 +179,9 @@ def test_sites_lists_scenario_sites_without_internal_values(client):
     assert site["siteMap"] == {"available": True, "siteMapVersion": "sitemap-cafe24-ons-v1",
                                "unreachablePages": ["qna", "guide", "company"]}
     text = str(site)
-    assert "cafe24.com" not in text and "meta" not in site and "board_no" not in text   # 주소·내부 값 노출 안 함
+    # 사이트 주소는 FE가 입력 링크로 사이트를 찾도록 내려 준다(#95). 내부 버전 값·여는 주소의 쿼리는 여전히 없음
+    assert site["siteUrl"] == BASE and site["allowedHosts"] == ["ecudemo360127.cafe24.com"]
+    assert "meta" not in site and "board_no" not in text and "cafe24-ons-live" not in text
 
 
 # ---------------------------------------------------------------- 사전 검사 1곳 (가짜 브라우저)
@@ -284,3 +286,90 @@ def test_unreachable_pages_come_from_site_map_record(client, monkeypatch):
     assert site["siteMap"]["unreachablePages"] == ["event"]
     reasons = {p["pageKey"]: p["goalUnavailableReason"] for p in site["pages"]}
     assert reasons["event"] == "UNREACHABLE_ON_SITE_MAP" and reasons["qna"] is None
+
+
+
+@pytest.mark.parametrize("variant_url, hosts, expected", [
+    ("https://ecudemo360127.cafe24.com", ["ecudemo360127.cafe24.com"], "https://ecudemo360127.cafe24.com"),
+    ("https://ecudemo360127.cafe24.com/some/path?x=1", ["ecudemo360127.cafe24.com"], "https://ecudemo360127.cafe24.com"),
+    ("https://Shop.Example.com:8443", ["shop.example.com"], "https://shop.example.com:8443"),
+    ("https://shop.example.com", ["other.example.com"], None),        # allowedHosts에 없는 호스트
+    ("http://127.0.0.1:8001", ["127.0.0.1"], None),                    # 내 컴퓨터
+    ("http://localhost:8002", ["localhost"], None),
+    ("http://10.0.0.5:30001", ["10.0.0.5"], None),                     # 사설망 (내부 서버)
+    ("http://192.168.0.10", ["192.168.0.10"], None),
+    ("https://user:pw@shop.example.com", ["shop.example.com"], None),  # 인증 정보가 든 주소
+    ("ftp://shop.example.com", ["shop.example.com"], None),
+])
+def test_site_url_is_only_a_public_address(variant_url, hosts, expected):
+    """siteUrl은 공개 주소일 때만 내려 준다. 내부 서버·내 컴퓨터를 사이트로 등록해도 응답에 주소가 나가지 않는다 (#95)."""
+    import dataclasses
+    from api.sites import public_site_url
+    scope = resolve_site(SITE)
+    fake = type("Scope", (), {"base_url": variant_url,
+                              "config": dataclasses.replace(scope.config, allowed_hosts=tuple(hosts))})()
+    assert public_site_url(fake) == expected
+
+
+def test_site_url_fields_do_not_change_run_rules(client):
+    """주소 필드는 찾기용일 뿐, 실행은 여전히 등록된 siteId로만 한다 (POST /api/runs는 주소를 받지 않음)."""
+    c, _, _ = client
+    r = c.post("/api/runs", json=scenario(siteUrl=BASE))
+    assert r.status_code == 422 and r.json()["error"]["code"] == "CONTRACT_VALIDATION_ERROR"
+
+
+def _fake_scope(variant_url, hosts):
+    import dataclasses
+    scope = resolve_site(SITE)
+    return type("Scope", (), {"base_url": variant_url,
+                              "config": dataclasses.replace(scope.config, allowed_hosts=tuple(hosts))})()
+
+
+@pytest.mark.parametrize("hosts, expected", [
+    (["10.0.0.5"], []),                                            # 리뷰 재현: 내부 IP가 allowedHosts로 나가면 안 됨
+    (["ecudemo360127.cafe24.com", "127.0.0.1", "localhost"], ["ecudemo360127.cafe24.com"]),
+    (["192.168.0.10", "shop.example.com", "::1", "fe80::1"], ["shop.example.com"]),
+    (["Shop.Example.com", "2001:4860:4860::8888"], ["shop.example.com", "2001:4860:4860::8888"]),
+])
+def test_allowed_hosts_only_lists_public_hosts(hosts, expected):
+    """allowedHosts에도 siteUrl과 같은 공개 호스트 판정을 건다 (#97 리뷰). 내부 IP·내 컴퓨터는 응답에서 뺀다."""
+    from api.sites import public_allowed_hosts
+    assert public_allowed_hosts(_fake_scope("https://shop.example.com", hosts)) == expected
+
+
+def test_internal_site_leaks_neither_url_nor_host():
+    from api.sites import public_site_url, public_allowed_hosts
+    scope = _fake_scope("http://10.0.0.5:30001", ["10.0.0.5"])
+    assert public_site_url(scope) is None and public_allowed_hosts(scope) == []
+
+
+@pytest.mark.parametrize("host", [
+    "gpu-box.local", "intranet", "myserver.internal", "nas.lan", "printer.home.arpa", "box.localdomain",
+    "GPU-BOX.LOCAL", "myserver.internal.",
+])
+def test_internal_host_names_are_not_public(host):
+    """내부용 도메인 이름(점 없는 이름, .local·.internal·.lan·.home.arpa·.localdomain)도 응답에 내보내지 않는다 (#97 재리뷰)."""
+    from api.sites import public_site_url, public_allowed_hosts
+    scope = _fake_scope(f"http://{host}:30001", [host])
+    assert public_site_url(scope) is None and public_allowed_hosts(scope) == []
+
+
+@pytest.mark.parametrize("host", ["ecudemo360127.cafe24.com", "shop.example.com", "local.example.com", "internal.shop.co.kr"])
+def test_public_domain_names_stay_public(host):
+    """이름 중간에 local·internal이 들어가도 끝이 공개 도메인이면 그대로 내보낸다."""
+    from api.sites import public_allowed_hosts
+    assert public_allowed_hosts(_fake_scope(f"https://{host}", [host])) == [host]
+
+
+@pytest.mark.parametrize("variant_url, hosts, expected", [
+    ("https://shop.example.com:443", ["shop.example.com"], "https://shop.example.com"),     # 기본 포트는 뺀다
+    ("http://shop.example.com:80/x", ["shop.example.com"], "http://shop.example.com"),
+    ("http://shop.example.com:8080", ["shop.example.com"], "http://shop.example.com:8080"),
+    ("https://[2001:4860:4860::8888]:8443", ["2001:4860:4860::8888"], "https://[2001:4860:4860::8888]:8443"),
+    ("https://[2001:4860:4860::8888]", ["2001:4860:4860::8888"], "https://[2001:4860:4860::8888]"),
+    ("http://[::1]:8001", ["::1"], None),
+])
+def test_site_url_uses_standard_notation(variant_url, hosts, expected):
+    """IPv6는 대괄호로 감싸고, 기본 포트(https 443, http 80)는 표기하지 않는다 (#97 리뷰 선택)."""
+    from api.sites import public_site_url
+    assert public_site_url(_fake_scope(variant_url, hosts)) == expected

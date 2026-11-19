@@ -6,10 +6,14 @@
 - 요청은 `siteId`만 받는다. 임의 주소는 받지 않는다 (등록된 설정만 실행).
 - MORO MARKET(`config/sites/moro-market.json`)은 버전 비교용이라 시나리오 사이트 목록에 넣지 않는다.
   `siteId`가 없으면 지금까지처럼 MORO MARKET 버전 비교 Run이다.
-- 사이트 주소(`variants`)·내부 버전 값(`meta`)은 응답에 넣지 않는다.
+- 내부 버전 값(`meta`)은 응답에 넣지 않는다. 사이트 주소는 FE가 사용자가 입력한 링크로 등록 사이트를 찾을 수
+  있게 `siteUrl`·`allowedHosts`로 내려 준다(#95). 공개 주소일 때만 내려 주고(`public_site_url`), 실행은 여전히
+  등록된 `siteId`로만 한다. Optimizer Site Instance의 내부 주소와 환경변수 값은 여기서 다루지 않는다.
 """
+import ipaddress
 import logging
 import os
+from urllib.parse import urlsplit
 
 from api.errors import ApiError
 from uxm import sitemap
@@ -78,6 +82,61 @@ def unreachable_pages(scope: SiteScope, site_map: dict | None) -> list[str] | No
     return [k for k in scope.config.pages if k in recorded or (k != scope.config.start_page and k not in site_map["pages"])]
 
 
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+# 내부망에서만 쓰는 이름의 끝부분. 이 이름으로 등록한 서버도 응답에 내보내지 않는다.
+INTERNAL_NAME_SUFFIXES = ("localhost", "local", "internal", "lan", "intranet", "home.arpa", "localdomain")
+
+
+def _is_public_host(host: str) -> bool:
+    """응답에 내보내도 되는 호스트인지: 내 컴퓨터(`localhost`·루프백)·사설망·링크 로컬 등 공인 주소가 아닌 IP는 제외.
+
+    도메인 이름은 점이 없는 이름(`intranet`)과 내부용 끝부분(`.local`·`.internal`·`.lan`·`.home.arpa` 등)을 제외한다.
+    `siteUrl`과 `allowedHosts`가 같은 판정을 쓴다 (#97 리뷰).
+    """
+    host = (host or "").strip().strip("[]").lower().rstrip(".")
+    if not host:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        pass
+    if "." not in host:
+        return False
+    return not any(host == s or host.endswith("." + s) for s in INTERNAL_NAME_SUFFIXES)
+
+
+def public_allowed_hosts(scope: SiteScope) -> list[str]:
+    """응답에 내려 줄 허용 도메인. 공개 호스트만 (내부 IP가 이 필드로 새지 않게)."""
+    out = []
+    for h in scope.config.allowed_hosts:
+        h = h.strip().strip("[]").lower()
+        if _is_public_host(h) and h not in out:
+            out.append(h)
+    return out
+
+
+def public_site_url(scope: SiteScope) -> str | None:
+    """응답에 내려 줄 사이트 주소. 공개 주소만: http(s), 호스트가 `allowedHosts`에 있고, 공개 호스트여야 한다.
+
+    조건이 안 맞으면 None (예: 내부 서버를 사이트로 등록한 경우에도 그 주소가 응답에 나가지 않게).
+    경로·쿼리·인증 정보는 떼고 `scheme://host[:port]`만 돌려준다. IPv6는 대괄호로 감싸고 기본 포트(80·443)는 뺀다.
+    """
+    try:
+        u = urlsplit(scope.base_url)
+        host = (u.hostname or "").lower()
+        port = u.port
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or not host or u.username or u.password:
+        return None
+    if host not in public_allowed_hosts(scope) or not _is_public_host(host):
+        return None
+    shown = f"[{host}]" if ":" in host else host
+    return f"{u.scheme}://{shown}" + (f":{port}" if port and port != DEFAULT_PORTS[u.scheme] else "")
+
+
 def public_site(scope: SiteScope) -> dict:
     """`GET /api/sites` 항목.
 
@@ -87,6 +146,7 @@ def public_site(scope: SiteScope) -> dict:
     `goalUnavailableReason`: 고를 수 없는 이유 (`START_PAGE` / `NO_GOAL_TEXT` / `UNREACHABLE_ON_SITE_MAP`), 고를 수 있으면 null.
     `UNREACHABLE_ON_SITE_MAP`은 "시작 화면에 보이는 링크로는 닿지 않는 화면"이라는 사이트 지도 진단 결과다.
     `siteMap.unreachablePages`: 지도가 기록한 닿지 않는 화면 목록 (지도가 없으면 null).
+    `siteUrl`·`allowedHosts`: 사용자가 입력한 링크로 이 사이트를 찾는 용도(#95). 둘 다 공개 호스트만 (siteUrl은 아니면 null).
     """
     config = scope.config
     site_map = site_map_of(scope)
@@ -99,6 +159,7 @@ def public_site(scope: SiteScope) -> dict:
         pages.append({"pageKey": key, "path": path, "label": config.page_labels.get(key, key), "goalText": goal_text,
                       "goalSelectable": reason is None, "goalUnavailableReason": reason})
     return {"siteId": config.name, "name": config.display_name, "mode": SCENARIO_MODE,
+            "siteUrl": public_site_url(scope), "allowedHosts": public_allowed_hosts(scope),
             "startPage": config.start_page, "pages": pages,
             "siteMap": {"available": site_map is not None,
                         "siteMapVersion": site_map["siteMapVersion"] if site_map else None,
