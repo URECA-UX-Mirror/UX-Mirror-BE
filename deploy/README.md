@@ -1,11 +1,11 @@
 # 백엔드 서버 배포 (EC2, #108)
 
-서버 한 대에 실행 API·브라우저(Chromium)·쇼핑몰(v1·v2·Optimizer 후보)을 같이 띄우고, 모델은 행사 GPU 서버를 쓴다.
+서버 한 대에 실행 API·브라우저(Chromium)·쇼핑몰(v1·자동 개선 최종안·Optimizer 후보)을 같이 띄우고, 모델은 행사 GPU 서버를 쓴다.
 
 ```
 Vercel FE (https) ──→ EC2: Caddy(443, HTTPS 자동) → uvicorn api.main:app (127.0.0.1:8000, 프로세스 1개)
                               ├ Chromium (Playwright, 화면 없이)
-                              └ 쇼핑몰 v1·v2·C1~C4 (127.0.0.1:8001~8006, 밖에 안 열림)
+                              └ 쇼핑몰 v1·최종안·C1~C4 (127.0.0.1:8001·8003~8006·8010, 밖에 안 열림)
                          API ──→ GPU 서버 serve_decide.py /v1/decide  (.env의 ZORO_BASE_URL)
 ```
 

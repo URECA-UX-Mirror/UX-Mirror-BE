@@ -2,7 +2,7 @@
 # 함수 정의만 있어서 source 하는 순간 다 읽힌다 (뒤에 git pull로 파일이 바뀌어도 영향 없음).
 
 API_URL="${UXM_API_URL:-http://127.0.0.1:8000}"
-SHOP_PORTS="${UXM_SHOP_PORTS:-8001 8002 8003 8004 8005 8006}"
+SHOP_PORTS="${UXM_SHOP_PORTS:-8001 8010 8003 8004 8005 8006}"
 CADDYFILE="${UXM_CADDYFILE:-/etc/caddy/Caddyfile}"
 LOCK_FILE="${UXM_CADDY_LOCK:-/etc/caddy/uxm-write-lock.caddy}"
 CADDY_RELOAD="${UXM_CADDY_RELOAD:-sudo systemctl reload caddy}"
