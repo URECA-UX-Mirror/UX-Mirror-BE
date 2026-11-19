@@ -60,17 +60,51 @@ def scrub(text: str) -> str:
     return _URL_RE.sub("<주소>", str(text))[:300]
 
 
-def make_plan(template: dict, improvement_id: str) -> dict:
-    """동결 계획을 이번 실행 id로 바꾼 복사본. 목표·점수·채택 규칙·모델 조건은 그대로 둔다."""
+MAIN_KEY = "MAIN"
+GUARD_VERIFY_KEY = "S4"   # 실제로 다시 확인하는 다른 고객 목표 (문의). 입력 화면이 문의면 남은 첫 번째
+
+
+def goal_pool(template: dict) -> list[dict]:
+    """동결 계획의 기본 고객 목표 4개 (S1 환불·S2 배송·S3 쿠폰·S4 문의)."""
+    return [template["mainGoal"], *template["guardGoals"]]
+
+
+def goal_pages(template: dict) -> dict:
+    """도착 화면 pageKey → 그 화면의 기본 목표 (확인 글자·이름을 여기서 가져온다)."""
+    return {g["goalPage"]: g for g in goal_pool(template)}
+
+
+def make_plan(template: dict, improvement_id: str, user_input: dict | None = None) -> dict:
+    """동결 계획을 이번 실행 id로 바꾼 복사본. 입력이 있으면 주 목표·고객 유형만 그 값으로 바꾼다.
+
+    user_input = {goal, persona, goalPage}. 주 목표 = 입력 문장 + 그 도착 화면의 확인 글자, 지킬 목표 = 도착 화면이 다른
+    기본 목표 3개. 점수 기준·채택 규칙·회차 한도·모델 조건은 그대로 둔다 (측정 기준).
+    """
     plan = copy.deepcopy(template)
     if plan.get("status") != "FROZEN":
         raise ValueError("기준 계획이 동결(FROZEN)되지 않았습니다.")
     based_on = plan.get("improvementId")
     plan["improvementId"] = improvement_id
-    if isinstance(plan.get("verification"), dict) and isinstance(plan["verification"].get("frozen"), dict):
-        plan["verification"]["frozen"]["improvementId"] = improvement_id
-    plan["live"] = {"basedOnPlan": based_on, "startedBy": "API", "startedAt": now_iso(),
-                    "note": "심사·시연용 실행. 기준(목표·점수·채택 규칙·모델 조건)은 동결본과 같다."}
+    frozen = plan.get("verification", {}).get("frozen") if isinstance(plan.get("verification"), dict) else None
+    if isinstance(frozen, dict):
+        frozen["improvementId"] = improvement_id
+    if user_input:
+        pages = goal_pages(template)
+        base = pages.get(user_input["goalPage"])
+        if base is None:
+            raise ValueError(f"도착 화면은 {', '.join(pages)} 중 하나여야 합니다.")
+        plan["mainGoal"] = {"goalKey": MAIN_KEY, "goal": user_input["goal"], "goalPage": base["goalPage"],
+                            "name": base["name"], "verification": copy.deepcopy(base["verification"])}
+        plan["guardGoals"] = [copy.deepcopy(g) for g in goal_pool(template) if g["goalPage"] != base["goalPage"]]
+        plan["persona"] = user_input["persona"]
+        guard_keys = [g["goalKey"] for g in plan["guardGoals"]]
+        check = GUARD_VERIFY_KEY if GUARD_VERIFY_KEY in guard_keys else guard_keys[0]
+        plan["verification"]["goals"] = [MAIN_KEY, check]
+        plan["verification"]["optionalGoals"] = [k for k in guard_keys if k != check]
+        if isinstance(frozen, dict):
+            frozen["persona"], frozen["personaId"] = user_input["persona"], None
+    plan["live"] = {"basedOnPlan": based_on, "startedBy": "API", "startedAt": now_iso(), "input": user_input,
+                    "note": "심사·시연용 실행. 점수 기준·채택 규칙·모델 조건은 동결본과 같다."}
     return plan
 
 
@@ -130,8 +164,13 @@ def run_job(improvement_id: str, results_dir: str, *, template_path: str = TEMPL
     server = None
     try:
         write_status(folder, status)
+        user_input = None
+        input_path = os.path.join(folder, "input.json")
+        if os.path.exists(input_path):
+            with open(input_path, encoding="utf-8") as f:
+                user_input = json.load(f)
         with open(template_path, encoding="utf-8") as f:
-            plan = make_plan(json.load(f), improvement_id)
+            plan = make_plan(json.load(f), improvement_id, user_input)
         plan_path = os.path.join(folder, "plan.json")
         with open(plan_path, "w", encoding="utf-8") as f:
             json.dump(plan, f, ensure_ascii=False, indent=2)
@@ -161,8 +200,8 @@ def run_job(improvement_id: str, results_dir: str, *, template_path: str = TEMPL
                 server.wait(10)
             except subprocess.TimeoutExpired:
                 server.kill()
+        lock.release()            # 잠금을 먼저 푼다: '끝남'을 본 사용자가 바로 다음 진단을 시작해도 409가 나지 않게
         write_status(folder, status)
-        lock.release()
     return status
 
 

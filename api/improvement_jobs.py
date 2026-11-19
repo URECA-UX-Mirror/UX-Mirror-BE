@@ -16,11 +16,13 @@ import threading
 import time
 
 from api.errors import ApiError
+from api.input_rules import sentence_problem
 from api.run_lock import RunLock
 from api.store import is_safe_id
 from api.timeutil import now_iso, now_stamp
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATE_PLAN = os.path.join(ROOT, "results", "improvement_plan_1119b.json")
 DRIVER = [sys.executable, os.path.join(ROOT, "scripts", "improve_live.py")]
 JOBS_DIR = "improvement_jobs"
 ACTIVE = ("QUEUED", "RUNNING")
@@ -51,17 +53,69 @@ class ImprovementJobs:
             return "자동 개선이 진행 중입니다."
         return None
 
+    def _running(self, imp_id: str, proc) -> bool:
+        """진행 중: 프로세스가 살아 있고 상태가 아직 끝나지 않음 (끝남을 쓴 뒤 프로세스가 닫히는 잠깐은 진행 중이 아님)."""
+        if proc.poll() is not None:
+            return False
+        status = _read(os.path.join(self._job_dir(imp_id), "status.json")) or {}
+        return status.get("status", "QUEUED") in ACTIVE
+
     def _active_id(self) -> str | None:
         with self._lock:
             for imp_id, proc in list(self._procs.items()):
-                if proc.poll() is None:
+                if self._running(imp_id, proc):
                     return imp_id
-                self._procs.pop(imp_id, None)
+                if proc.poll() is not None:
+                    self._procs.pop(imp_id, None)
         return None
 
-    def start(self) -> dict:
+    def goal_pages(self) -> dict:
+        """도착 화면으로 고를 수 있는 화면: 동결 계획의 기본 목표 4개 (pageKey → {name, path})."""
+        plan = _read(TEMPLATE_PLAN) or {}
+        pool = [plan.get("mainGoal") or {}, *(plan.get("guardGoals") or [])]
+        return {g["goalPage"]: {"name": g.get("name"), "path": g["verification"]["path"]}
+                for g in pool if g.get("goalPage") and g.get("verification")}
+
+    def resolve_input(self, body: dict | None) -> dict | None:
+        """요청 → 실행 입력 {goal, persona, goalPage} (없으면 None = 동결 계획 그대로).
+
+        `sourceRunId`: 그 진단 Run의 고객이 하려는 일·고객 유형·도착 화면을 그대로 쓴다 (진단 결과의 "AI에게 고쳐 달라고 하기").
+        직접 입력: goal·persona·goalPage 셋 다. 문장은 진단과 같은 규칙으로 검사한다 (`api/input_rules`).
+        """
+        body = body or {}
+        pages = self.goal_pages()
+        if body.get("sourceRunId"):
+            if any(body.get(k) for k in ("goal", "persona", "goalPage")):
+                raise _invalid("sourceRunId와 직접 입력(goal·persona·goalPage)은 같이 보낼 수 없습니다.")
+            run_id = body["sourceRunId"]
+            if not isinstance(run_id, str) or not self.runner.store.exists(run_id):
+                raise ApiError(404, "RUN_NOT_FOUND", "진단 실행을 찾을 수 없습니다.")
+            run = self.runner.store.load_run(run_id)
+            if run.get("siteId"):
+                raise _invalid("AI 개선은 MORO MARKET 진단에서만 할 수 있어요 (다른 사이트는 메뉴를 바꾼 화면을 만들 수 없습니다).")
+            path = (run.get("verification") or {}).get("path")
+            page = next((k for k, v in pages.items() if v["path"] == path), None)
+            if page is None:
+                raise _invalid("이 진단의 도착 화면으로는 AI 개선을 할 수 없습니다.")
+            user_input = {"goal": run.get("goal"), "persona": run.get("persona"), "goalPage": page, "sourceRunId": run_id}
+        elif any(body.get(k) for k in ("goal", "persona", "goalPage")):
+            user_input = {"goal": body.get("goal"), "persona": body.get("persona"), "goalPage": body.get("goalPage")}
+            if user_input["goalPage"] not in pages:
+                raise _invalid(f"도착 화면은 {', '.join(pages)} 중 하나여야 합니다.")
+        else:
+            return None
+        for key, field in (("goal", "고객이 하려는 일"), ("persona", "고객 유형")):
+            text = user_input[key]
+            problem = sentence_problem(text, field)
+            if problem:
+                raise _invalid(problem)
+            user_input[key] = text.strip()
+        return user_input
+
+    def start(self, body: dict | None = None) -> dict:
+        user_input = self.resolve_input(body)
         with self._lock, self.runner.creation_lock:
-            if any(p.poll() is None for p in self._procs.values()):
+            if any(self._running(i, p) for i, p in self._procs.items()):
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "자동 개선이 이미 진행 중입니다.", retryable=True)
             if self.runner.active_run_id is not None or self.run_lock.holder() is not None:
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
@@ -74,6 +128,8 @@ class ImprovementJobs:
             status = {"improvementId": imp_id, "status": "QUEUED", "phase": "QUEUED", "phases": [],
                       "createdAt": now_iso(), "startedAt": None, "finishedAt": None, "error": None}
             _write(os.path.join(folder, "status.json"), status)
+            if user_input:
+                _write(os.path.join(folder, "input.json"), user_input)
             env = {**os.environ, "UXM_RESULTS_DIR": self.results_dir}
             with open(os.path.join(folder, "log.txt"), "w", encoding="utf-8") as log:
                 proc = subprocess.Popen(
@@ -109,6 +165,7 @@ class ImprovementJobs:
                           error={"code": "IMPROVEMENT_INTERRUPTED", "message": "실행 프로세스가 끝까지 가지 못하고 멈췄습니다."})
             _write(os.path.join(self._job_dir(imp_id), "status.json"), status)
         out = {k: status.get(k) for k in PUBLIC_STATUS_FIELDS}
+        out["input"] = _read(os.path.join(self._job_dir(imp_id), "input.json"))   # 어떤 입력으로 돌렸는지 (없으면 기본 계획)
         # 루프가 끝나면 리포트가 생긴다. 공식 점수·검증 중(RUNNING)에는 루프 결과까지만 들어 있다
         out["improvement"] = result
         return out
@@ -138,6 +195,10 @@ class ImprovementJobs:
             v["summary"] = {k: s.get(k) for k in ("result", "beforeLabel", "afterLabel", "main")} if s else None
             items.append(v)
         return sorted(items, key=lambda v: v.get("createdAt") or "", reverse=True)
+
+
+def _invalid(message: str) -> ApiError:
+    return ApiError(422, "CONTRACT_VALIDATION_ERROR", message)
 
 
 def _read(path: str) -> dict | None:

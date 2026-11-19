@@ -418,14 +418,18 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["ref
 
 ### 자동 개선 실행·리포트 API (#130)
 
-심사위원·사용자가 FE에서 직접 시작하고, 진행 상황과 리포트를 서버에서 본다. 클라이언트는 아무 값도 넘기지 않는다 (목표·사용자 유형·채택 규칙·모델 조건은 서버의 동결 계획 `results/improvement_plan_1119b.json` 그대로, id만 새로).
+심사위원·사용자가 FE에서 직접 시작하고, 진행 상황과 리포트를 서버에서 본다. **고객이 하려는 일·고객 유형·도착 화면을 입력으로 받아** 그때그때 계획을 만든다. 점수 기준·채택 규칙·회차 한도·모델 조건은 동결 계획 `results/improvement_plan_1119b.json` 그대로다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| POST | `/api/improvements` | 1회 시작 → `202 {improvementId, status, phase, ...}`. 다른 Run·Optimization·자동 개선이 진행 중이면 `409 RUN_ALREADY_ACTIVE` |
+| POST | `/api/improvements` | 본문 `{sourceRunId}`(진단 Run의 할 일·고객 유형·도착 화면을 그대로) 또는 `{goal, persona, goalPage}`(`refund`·`orders`·`mypage`·`support`). 본문 없으면 동결 계획 그대로. → `202 {improvementId, status, phase, input, ...}`. 다른 실행 중이면 `409 RUN_ALREADY_ACTIVE`, 입력 오류 `422`, 없는 Run `404` |
 | GET | `/api/improvements/{id}` | `{improvementId, status, phase, phases[], createdAt, startedAt, finishedAt, error, improvement}` |
 | GET | `/api/improvements` | `{items: [... + summary{result, beforeLabel, afterLabel, main}]}` 최신순. 결과 폴더에 이미 있는 결과(예: `imp-1119b`)도 포함 |
 
+- 입력으로 바뀌는 것: 주 목표 = 입력 문장 + 그 도착 화면의 확인 글자(동결 계획의 같은 화면 목표에서), 지킬 목표 = 도착 화면이 다른 기본 목표 3개, 고객 유형(확률 수집·실제 Run 둘 다). 실제 Run으로 다시 확인하는 목표 = 주 목표 + 문의(S4, 도착 화면이 문의면 남은 첫 목표).
+- 문장 검사(`api/input_rules.py`, 진단 `POST /api/runs`도 같음): 공백 빼고 4자 이상, 한글·영문 글자 2자 이상, 한 글자 60% 넘게 반복 금지, 모델 입력 금지어. `.`·`ㅋㅋㅋㅋ`·`123`은 `422`.
+- 다른 사이트(시나리오) 진단에서는 AI 개선을 할 수 없다(메뉴를 바꾼 화면을 만들 수 없음) → `422`. 고칠 수 있는 버튼은 상단 메뉴 "이용정보" 하나라, 그 버튼과 관계없는 목표는 `NO_IMPROVEMENT`로 끝날 수 있다.
+- 검증 Run에는 직접 입력 진단과 같은 사이트 지도 경로 기준(`SITE_MAP`)을 넣는다 → 비교 화면의 목표 경로 확률이 계산된다 (예전 imp-1119b 검증 Run은 기준이 없어 비어 있음).
 - `status`: `QUEUED` → `RUNNING` → `COMPLETED` / `FAILED` / `INTERRUPTED`(실행 프로세스가 중간에 멈춤). `phase`: `LOOP` → `BUILD_FINAL_SITE` → `OFFICIAL_AND_VERIFY` → `DONE` (채택 이름이 없으면 `LOOP` → `DONE`).
 - `improvement`: 리포트 `improvement.json` (FE 정적 파일과 같은 `improvement-v1` 형식). 루프가 끝나면 생기고, 공식 점수·검증 중에는 루프 결과까지만 들어 있다. 검증 Run 비교는 `verification.pairs[].comparisonPath`(`/comparisons/<improvementId>-<goal>`).
 - 실행은 별도 프로세스(`scripts/improve_live.py`): 루프(`improve.py loop`) → 채택 이름으로 최종안 사이트를 그 자리에서 만들어 서버 안 빈 포트에 띄움 → 공식 점수 + 실제 Run 검증(`improve.py finalize`) → 사이트 내림. 처음부터 끝까지 Run 잠금을 잡아 그동안 다른 Run·Optimization·배포는 막힌다. `/api/health`의 `activeRunOwner`에 `{kind: "IMPROVEMENT", improvementId}`가 보인다.

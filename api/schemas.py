@@ -55,3 +55,13 @@ class CreateRunRequest(BaseModel):
     promptVersion: str | None = None
     # 외부 사이트 시나리오 테스트 (#74). 등록된 사이트 설정(config/sites/<siteId>.json)만. 없으면 MORO MARKET 버전 비교
     siteId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class ImprovementRequest(BaseModel):
+    """`POST /api/improvements` (#130). 진단 Run에서 이어가기(sourceRunId) 또는 직접 입력(goal·persona·goalPage). 없으면 기본 계획."""
+    model_config = ConfigDict(extra="forbid")
+
+    sourceRunId: str | None = Field(default=None, min_length=1, max_length=64)
+    goal: str | None = Field(default=None, max_length=MAX_GOAL_LENGTH)
+    persona: str | None = Field(default=None, max_length=MAX_PERSONA_LENGTH)
+    goalPage: str | None = Field(default=None, min_length=1, max_length=32)

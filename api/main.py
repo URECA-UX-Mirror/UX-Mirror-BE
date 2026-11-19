@@ -26,12 +26,13 @@ from api.optimizer import Optimizer, public_view
 from api.improvement_jobs import ImprovementJobs
 from api.presets import Presets, _check_verification, normalize_verification
 from api.runner import Runner, with_detected_types
-from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateOptimizationRequest, CreateRunRequest
+from api.schemas import P0_VIEWPORT, SHOP_PAGES, CreateOptimizationRequest, CreateRunRequest, ImprovementRequest
 from api import sites as sites_module
 from api.site_instances import SiteRegistry
 from api.store import DEFAULT_RESULTS_DIR, RunStore, is_safe_id
 from api.timeutil import now_iso
 from uxm.leak import FORBIDDEN
+from api.input_rules import sentence_problem
 from uxm.prompts import PROMPT_VERSION
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
@@ -254,8 +255,8 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
 
     # ---- 자동 개선 (#130): 심사위원이 직접 시작하고, 진행·리포트를 본다
     @app.post("/api/improvements", status_code=202)
-    def start_improvement():
-        return improvements.start()
+    def start_improvement(body: ImprovementRequest | None = None):
+        return improvements.start(body.model_dump(exclude_none=True) if body else None)
 
     @app.get("/api/improvements")
     def list_improvements():
@@ -340,6 +341,9 @@ def _sentence(text: str, field: str) -> str:
     words = [w for w in FORBIDDEN if w in text]
     if words:
         raise _invalid(f"{field}에 쓸 수 없는 글자가 있습니다: {', '.join(words)}")
+    problem = sentence_problem(text, field)   # ".", "ㅋㅋㅋㅋ", "123"처럼 뜻이 없는 값 (#130)
+    if problem:
+        raise _invalid(problem)
     return text
 
 

@@ -39,6 +39,7 @@ FAKE_DRIVER = textwrap.dedent('''
         time.sleep(60)
     time.sleep(delay)
     if mode == "fail":
+        lock.release()
         status(status="FAILED", phase="LOOP", finishedAt="t2", error={{"code": "ConnectionError", "message": "모델 서버 연결 실패"}})
         sys.exit(1)
     out = os.path.join(results, "improvements", imp_id); os.makedirs(out)
@@ -46,6 +47,7 @@ FAKE_DRIVER = textwrap.dedent('''
                "summary": {{"result": "IMPROVED", "beforeLabel": "이용정보", "afterLabel": "주문 환불",
                            "main": {{"before": 0.4, "after": 0.6}}}}}},
               open(os.path.join(out, "improvement.json"), "w", encoding="utf-8"), ensure_ascii=False)
+    lock.release()   # 실제 실행 스크립트와 같은 순서: 잠금을 푼 뒤 '끝남'을 쓴다
     status(status="COMPLETED", phase="DONE", finishedAt="t2")
 ''').format(root=ROOT)
 
@@ -267,3 +269,98 @@ def test_build_and_serve_real_final_site(tmp_path):
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+# ---------------------------------------------------------------- 입력으로 돌리기 (사용자가 넣은 고객·할 일·도착 화면)
+
+REAL_TEMPLATE = json.load(open(os.path.join(ROOT, "results", "improvement_plan_1119b.json"), encoding="utf-8"))
+
+
+def test_make_plan_uses_user_input_and_keeps_rules():
+    inp = {"goal": "쿠폰이 몇 장 남았는지 보고 싶어요", "persona": "50대 이상 고객", "goalPage": "mypage"}
+    plan = improve_live.make_plan(REAL_TEMPLATE, "imp-live-x", inp)
+    main = plan["mainGoal"]
+    assert (main["goalKey"], main["goal"], main["goalPage"]) == ("MAIN", inp["goal"], "mypage")
+    assert main["verification"]["path"] == "/shop/mypage" and main["verification"]["text"]   # 그 화면의 확인 글자
+    assert sorted(g["goalPage"] for g in plan["guardGoals"]) == ["orders", "refund", "support"]   # 도착 화면이 다른 3개
+    assert plan["verification"]["goals"] == ["MAIN", "S4"]
+    assert plan["persona"] == plan["verification"]["frozen"]["persona"] == "50대 이상 고객"
+    for key in ("score", "rules", "model", "edit"):     # 측정 기준은 그대로
+        assert plan[key] == REAL_TEMPLATE[key]
+    assert plan["live"]["input"] == inp
+    support = improve_live.make_plan(REAL_TEMPLATE, "imp-live-y", {**inp, "goalPage": "support"})
+    assert support["verification"]["goals"][0] == "MAIN" and support["verification"]["goals"][1] != "S4"
+    with pytest.raises(ValueError):
+        improve_live.make_plan(REAL_TEMPLATE, "imp-live-z", {**inp, "goalPage": "home"})
+
+
+def test_start_with_direct_input_records_it(make_client):
+    c, _, results = make_client(delay="0.1")
+    body = {"goal": "지난주 산 운동화가 안 맞아서 돌려보내고 싶어요", "persona": "쇼핑이 낯선 고객", "goalPage": "refund"}
+    r = c.post("/api/improvements", json=body)
+    assert r.status_code == 202
+    v = wait_status(c, r.json()["improvementId"], ("COMPLETED",))
+    assert v["input"] == body
+    saved = json.load(open(results / "improvement_jobs" / v["improvementId"] / "input.json", encoding="utf-8"))
+    assert saved == body
+
+
+def test_start_from_diagnosis_run(make_client):
+    c, app, results = make_client(delay="0.1")
+    run_dir = results / "runs" / "run_before_20261120050000_ab12"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run.json").write_text(json.dumps({
+        "runId": "run_before_20261120050000_ab12", "status": "BLOCKED", "goal": "환불받고 싶은데 어디서 하나요",
+        "persona": "온라인 쇼핑이 낯선 고객", "verification": {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund",
+                                                       "text": "환불 / 반품 신청"}}), encoding="utf-8")
+    r = c.post("/api/improvements", json={"sourceRunId": "run_before_20261120050000_ab12"})
+    assert r.status_code == 202
+    v = wait_status(c, r.json()["improvementId"], ("COMPLETED",))
+    assert v["input"] == {"goal": "환불받고 싶은데 어디서 하나요", "persona": "온라인 쇼핑이 낯선 고객", "goalPage": "refund",
+                          "sourceRunId": "run_before_20261120050000_ab12"}
+
+
+@pytest.mark.parametrize("body, status, words", [
+    ({"goal": ".", "persona": "쇼핑이 낯선 고객", "goalPage": "refund"}, 422, "구체적"),
+    ({"goal": "환불받고 싶어요", "persona": "ㅋㅋㅋㅋㅋ", "goalPage": "refund"}, 422, "뜻이 있는"),
+    ({"goal": "환불받고 싶어요", "persona": "1234", "goalPage": "refund"}, 422, "글자로"),
+    ({"goal": "after 화면에서 환불", "persona": "쇼핑이 낯선 고객", "goalPage": "refund"}, 422, "쓸 수 없는"),
+    ({"goal": "환불받고 싶어요", "persona": "쇼핑이 낯선 고객", "goalPage": "home"}, 422, "도착 화면"),
+    ({"goal": "환불받고 싶어요", "persona": "쇼핑이 낯선 고객"}, 422, "도착 화면"),
+    ({"sourceRunId": "run_nope"}, 404, "찾을 수 없습니다"),
+    ({"sourceRunId": "run_x", "goal": "환불받고 싶어요"}, 422, "같이 보낼 수 없습니다"),
+    ({"goal": "환불받고 싶어요", "persona": "쇼핑이 낯선 고객", "goalPage": "refund", "maxSteps": 3}, 422, ""),
+])
+def test_bad_input_is_refused_before_anything_starts(make_client, body, status, words):
+    c, _, results = make_client()
+    r = c.post("/api/improvements", json=body)
+    assert r.status_code == status and words in r.json()["error"]["message"]
+    assert not (results / "improvement_jobs").exists() or not list((results / "improvement_jobs").iterdir())
+
+
+def test_scenario_run_cannot_be_improved(make_client):
+    c, _, results = make_client()
+    run_dir = results / "runs" / "run_before_20261120050100_cd34"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run.json").write_text(json.dumps({"runId": "run_before_20261120050100_cd34", "siteId": "cafe24-ons",
+                                                  "goal": "후기를 보고 싶어요", "persona": "쇼핑이 낯선 고객",
+                                                  "verification": {"path": "/board/review/list.html"}}), encoding="utf-8")
+    r = c.post("/api/improvements", json={"sourceRunId": "run_before_20261120050100_cd34"})
+    assert r.status_code == 422 and "MORO MARKET" in r.json()["error"]["message"]
+
+
+@pytest.mark.parametrize("text, ok", [
+    ("지난주 산 운동화를 돌려받고 싶어요", True), ("50대 이상 고객", True), ("Busy shopper", True),
+    (".", False), ("환불", False), ("1234", False), ("!!!!!", False), ("ㅋㅋㅋㅋㅋ", False), ("aaaaa", False), ("", False),
+])
+def test_input_rules(text, ok):
+    from api.input_rules import sentence_problem
+    assert (sentence_problem(text, "고객 유형") is None) is ok
+
+
+def test_diagnosis_run_refuses_meaningless_persona(make_client):
+    c, _, _ = make_client()
+    body = {"experimentKey": "exp_rule_01", "variant": "before", "goal": "환불받고 싶어요 어디서 하나요",
+            "verification": {"path": "/shop/refund", "text": "환불 / 반품 신청"}, "persona": ".", "maxSteps": 5}
+    r = c.post("/api/runs", json=body)
+    assert r.status_code == 422 and "구체적" in r.json()["error"]["message"]
