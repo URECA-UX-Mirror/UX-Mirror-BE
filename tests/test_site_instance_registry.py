@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 from build_shop import PAGES, token_diff  # noqa: E402
 
-SITE_DIRS = {"C0": "moro-before", "C1": "moro-c1", "C2": "moro-after", "C3": "moro-c3", "C4": "moro-c4"}
+SITE_DIRS = {"C0": "moro-before", "C1": "moro-c1", "C2": "moro-c2", "C3": "moro-c3", "C4": "moro-c4"}
 
 
 def _load(name):

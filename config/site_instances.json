@@ -3,7 +3,7 @@
   "instances": [
     {"siteInstanceId": "site-c0", "candidateId": "C0", "label": "이용정보", "baseUrlEnv": "SHOP_BEFORE_URL", "baseUrl": "http://127.0.0.1:8001"},
     {"siteInstanceId": "site-c1", "candidateId": "C1", "label": "주문·배송", "baseUrlEnv": "SHOP_C1_URL", "baseUrl": "http://127.0.0.1:8003"},
-    {"siteInstanceId": "site-c2", "candidateId": "C2", "label": "주문·환불", "baseUrlEnv": "SHOP_AFTER_URL", "baseUrl": "http://127.0.0.1:8002"},
+    {"siteInstanceId": "site-c2", "candidateId": "C2", "label": "주문·환불", "baseUrlEnv": "SHOP_C2_URL", "baseUrl": "http://127.0.0.1:8006"},
     {"siteInstanceId": "site-c3", "candidateId": "C3", "label": "주문·반품", "baseUrlEnv": "SHOP_C3_URL", "baseUrl": "http://127.0.0.1:8004"},
     {"siteInstanceId": "site-c4", "candidateId": "C4", "label": "주문 관리", "baseUrlEnv": "SHOP_C4_URL", "baseUrl": "http://127.0.0.1:8005"}
   ]
