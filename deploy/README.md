@@ -44,7 +44,7 @@ git clone https://github.com/UX-Mirror/UX-Mirror-BE.git && cd UX-Mirror-BE
 
 두 번째 실행이 끝나면 `https://<공인 IP 점→대시>.sslip.io/api/health` 주소가 출력된다. 도메인이 있으면 `./deploy/setup.sh <도메인>`.
 
-`setup.sh`가 하는 일: 패키지·Caddy 설치 → `.venv`에 `deploy/requirements-server.txt`(torch 없음) → Chromium → `uxm-shops`·`uxm-api` 서비스 등록·시작 → Caddy 설정(쓰기 잠금 꺼짐) → **실제로 Run을 돌릴 수 있는지 확인**: `/api/health`가 `READY`, 쇼핑몰 6개 응답, 바깥 HTTPS 주소 응답. 하나라도 안 되면 무엇이 안 되는지 출력하고 실패로 끝난다 (GPU가 꺼져 있으면 `model` 준비 안 됨).
+`setup.sh`가 하는 일: 패키지·Caddy 설치 → `.venv`에 `deploy/requirements-server.txt`(torch 없음) → Chromium → `uxm-shops`·`uxm-api` 서비스 등록·시작 → Caddy 설정(쓰기 잠금 꺼짐) → **실제로 Run을 돌릴 수 있는지 확인**: `/api/health`가 `READY`, 쇼핑몰 6개 응답, `.env`의 after 사이트(`SHOP_AFTER_URL`·`SHOP_AFTER_LABEL`) 주소에 그 이름이 보이는지, 바깥 HTTPS 주소 응답. 하나라도 안 되면 무엇이 안 되는지 출력하고 실패로 끝난다 (GPU가 꺼져 있으면 `model` 준비 안 됨).
 
 다시 실행해도 된다. 이미 설치된 서버에서는 **아무것도 설치하기 전에** `update.sh`와 같이 쓰기 잠금 → 진행 중인 Run 확인(있으면 멈춤) → 패키지 설치 → 재시작 직전에 한 번 더 확인 → 재시작·확인 → 원래 잠금 상태로 되돌린다 (`./deploy/setup.sh "" --force`면 진행 중인 Run을 무시). 처음 설치는 돌고 있는 Run이 없으므로 잠금 없이 진행한다.
 

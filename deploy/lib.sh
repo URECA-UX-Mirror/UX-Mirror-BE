@@ -26,6 +26,11 @@ _write_root_file() {   # 내용 → 파일 (쓸 수 없으면 sudo)
   fi
 }
 
+env_value() {   # API가 읽는 저장소 .env의 값 (마지막 줄 기준, 따옴표 제거). 없으면 빈 값
+  [ -f .env ] || return 0
+  { grep -E "^$1=" .env || true; } | tail -n1 | cut -d= -f2- | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//'
+}
+
 site_domain() {   # Caddyfile 첫 사이트 주소 (UXM_SITE_DOMAIN이 정해져 있으면 그 값, 빈 값이면 바깥 확인 생략)
   if [ -n "${UXM_SITE_DOMAIN+x}" ]; then echo "$UXM_SITE_DOMAIN"; return 0; fi
   [ -f "$CADDYFILE" ] || return 0
@@ -144,7 +149,7 @@ check_idle() {   # 진행 중이면 이유를 출력하고 1
 }
 
 # 실제로 Run을 돌릴 수 있는 상태인지. 안 되는 항목을 모두 출력하고 하나라도 있으면 1.
-#   API status READY(모델·브라우저·루프) + 쇼핑몰 6개 + (도메인이 있으면) 바깥 HTTPS
+#   API status READY(모델·브라우저·루프) + 쇼핑몰 6개 + after 사이트 설정 + (도메인이 있으면) 바깥 HTTPS
 check_ready() {
   local wait_s="${1:-60}" domain="${2:-}" health="" detail="" problems=() i code port shops_ok
   for i in $(seq 1 "$wait_s"); do
@@ -173,6 +178,15 @@ print(d.get("status"), " ".join(bad))' || echo "UNKNOWN 응답 형식")"
     code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$port/shop/home" || true)"
     [ "$code" = 200 ] || problems+=("쇼핑몰 $port 응답 $code (sudo journalctl -u uxm-shops -n 50)")
   done
+  # after(개선안) 사이트: API가 읽는 .env의 주소·이름이 있고, 그 주소의 상단 메뉴에 그 이름이 보이는지.
+  # 옛 주소(8002)가 남았거나 이름이 빠지면 READY여도 after Run이 실패·503이 된다
+  local after_url after_label
+  after_url="$(env_value SHOP_AFTER_URL)"; after_label="$(env_value SHOP_AFTER_LABEL)"
+  if [ -z "$after_url" ] || [ -z "$after_label" ]; then
+    problems+=(".env에 SHOP_AFTER_URL·SHOP_AFTER_LABEL이 없음 (없으면 after Run이 503 SITE_NOT_CONFIGURED)")
+  elif ! curl -sf -m 5 "${after_url%/}/shop/home" | grep -qF ">$after_label</a>"; then
+    problems+=("after 사이트 $after_url 에서 상단 메뉴 '$after_label'을 찾지 못함 (주소·이름 확인, sudo journalctl -u uxm-shops -n 50)")
+  fi
   if [ -n "$domain" ]; then
     code=""
     for i in $(seq 1 30); do   # 처음 설치 때는 인증서 발급에 몇 초 걸린다
@@ -186,5 +200,5 @@ print(d.get("status"), " ".join(bad))' || echo "UNKNOWN 응답 형식")"
     printf '  ✗ %s\n' "${problems[@]}" >&2
     return 1
   fi
-  echo "  ✓ API READY · 쇼핑몰 ${SHOP_PORTS// /·} 응답${domain:+ · https://$domain}"
+  echo "  ✓ API READY · 쇼핑몰 ${SHOP_PORTS// /·} 응답 · after '$(env_value SHOP_AFTER_LABEL)'${domain:+ · https://$domain}"
 }

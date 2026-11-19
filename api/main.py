@@ -116,8 +116,8 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             busy = optimizer.busy_reason()
             if busy:
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", busy, retryable=True)
-            integrations.goal_preflight()(goal["verification"],
-                                          {v: u for v, u in runner_module.SHOP_URLS.items() if u})
+            # 이번에 실행할 사이트만 확인한다. 다른 쪽 사이트 상태(예: after 장애)가 v1 실행을 막지 않게
+            integrations.goal_preflight()(goal["verification"], {req.variant: runner_module.SHOP_URLS[req.variant]})
         run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
         if req.variant == "after":   # 어느 after 사이트였는지 (주소 대신 이름). 같은 키 안에서 섞이지 않게 runner가 확인
             run["afterSite"] = {"label": runner_module.SHOP_AFTER_LABEL}

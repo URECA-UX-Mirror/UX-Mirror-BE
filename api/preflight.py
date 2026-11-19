@@ -26,7 +26,7 @@ def _invalid(message: str) -> ApiError:
 
 
 def check_goal_screens(verification: dict, base_urls: dict, browser, scope=None) -> None:
-    """설정된 쇼핑몰(`base_urls` = {"before": url, "after": url}, after는 설정됐을 때만)에서 성공 조건을 확인한다.
+    """`base_urls`(실행할 쇼핑몰, 예: {"before": url})에서 성공 조건을 확인한다.
     문제가 있으면 ApiError.
 
     browser: `(open_browser, close_browser)` (`Integrations.browser()`).

@@ -114,6 +114,7 @@ class FakeIntegrations(Integrations):
         """실제 화면 검사는 tests/test_preflight.py에서. 여기서는 호출만 기록하고 preflight_error가 있으면 던진다."""
         def check(verification, base_urls):
             self.preflight_calls.append(verification)
+            self.preflight_sites = sorted(base_urls)
             if self.preflight_error is not None:
                 raise self.preflight_error
         return check
@@ -975,3 +976,13 @@ def test_after_run_needs_site_label(make_client, monkeypatch):
     r = client.post("/api/runs", json=body(variant="after"))
     assert r.status_code == 503 and r.json()["error"]["code"] == "SITE_NOT_CONFIGURED"
     assert client.post("/api/runs", json=body(variant="before")).status_code == 201   # before는 상관없음
+
+
+def test_preflight_checks_only_the_requested_site(make_client):
+    """v1 실행 전 검사는 v1 사이트만 연다. after 사이트 장애가 v1 실행을 막지 않게 (#128 리뷰)."""
+    client, integ, app = make_client()
+    assert client.post("/api/runs", json=direct()).status_code == 201
+    assert integ.preflight_sites == ["before"]
+    app.state.runner.wait(5)
+    assert client.post("/api/runs", json=direct(variant="after")).status_code == 201
+    assert integ.preflight_sites == ["after"]
