@@ -14,11 +14,13 @@
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
 import urllib.request
 from datetime import datetime
+from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -49,15 +51,48 @@ LAYOUT_JS = """(href) => {
 }"""
 
 
-def start_servers(registry: SiteRegistry, candidate_ids) -> list:
-    procs = []
-    for cid in candidate_ids:
-        inst = next(i for i in registry.instances.values() if i["candidateId"] == cid)
-        port = inst["baseUrl"].rsplit(":", 1)[1]
-        procs.append(subprocess.Popen([sys.executable, os.path.join(ROOT, "shop", SITE_FOLDERS[cid], "server.py"),
-                                       "--port", port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    time.sleep(1.5)
-    return procs
+def port_in_use(host: str, port: int) -> bool:
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
+def start_servers(targets, procs: list, ready_timeout_s: float = 5.0) -> dict:
+    """targets: [(candidateId, server.py 경로, host, port)]. 띄운 프로세스는 `procs`에 바로 넣는다
+    (중간에 예외가 나도 호출한 쪽 finally에서 정리되게). 반환: 기동하지 못한 후보 → 사유.
+
+    이미 다른 프로세스가 쓰는 포트는 띄우지 않고 실패로 남긴다. 그대로 두면 기존 서버를 검사하게 된다.
+    """
+    failed, started = {}, []
+    for cid, server_py, host, port in targets:
+        if port_in_use(host, port):
+            failed[cid] = f"PORT_IN_USE: {port}"
+            continue
+        p = subprocess.Popen([sys.executable, server_py, "--port", str(port)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        procs.append(p)
+        started.append((cid, p, host, port))
+    deadline = time.monotonic() + ready_timeout_s
+    for cid, p, host, port in started:
+        while p.poll() is None and not port_in_use(host, port) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if p.poll() is not None:
+            err = (p.stderr.read() or b"").decode(errors="replace").strip().splitlines()
+            failed[cid] = f"SERVER_START_FAILED: exit {p.returncode}" + (f" ({err[-1]})" if err else "")
+        elif not port_in_use(host, port):
+            failed[cid] = f"SERVER_NOT_READY: {ready_timeout_s}s"
+    return failed
+
+
+def stop_servers(procs: list) -> None:
+    for p in procs:
+        p.terminate()
+    for p in procs:
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
 
 
 def layout_and_screenshot(base_url: str, start_path: str, href: str, png_path: str) -> dict | None:
@@ -97,9 +132,19 @@ def main() -> int:
     out_dir = os.path.join(ROOT, "results", "site_checks", datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(out_dir, exist_ok=True)
 
-    procs = start_servers(registry, [c["candidateId"] for c in cfg["candidates"]]) if args.serve else []
+    procs, start_failed = [], {}
     results, base_snap, base_png = {}, None, None
     try:
+        if args.serve:
+            targets = []
+            for cand in cfg["candidates"]:
+                inst = registry.for_candidate(cand["candidateId"], cand["label"])
+                if inst is None or cand["candidateId"] not in SITE_FOLDERS:
+                    continue  # 아래 후보 검사에서 SITE_INSTANCE_MISSING으로 남긴다
+                url = urlsplit(inst["baseUrl"])
+                targets.append((cand["candidateId"], os.path.join(ROOT, "shop", SITE_FOLDERS[cand["candidateId"]], "server.py"),
+                                url.hostname, url.port))
+            start_failed = start_servers(targets, procs)
         for cand in cfg["candidates"]:
             cid, label = cand["candidateId"], cand["label"]
             inst = registry.for_candidate(cid, label)
@@ -107,6 +152,9 @@ def main() -> int:
             results[cid] = row
             if inst is None:
                 row["problems"].append("SITE_INSTANCE_MISSING")
+                continue
+            if cid in start_failed:
+                row["problems"].append(start_failed[cid])
                 continue
             try:
                 urllib.request.urlopen(inst["baseUrl"] + target["startPath"], timeout=5).read()
@@ -143,8 +191,7 @@ def main() -> int:
                 if box and not inside(box, layout["rect"]):
                     row["problems"].append("CHANGED_OUTSIDE_TARGET_MENU")
     finally:
-        for p in procs:
-            p.terminate()
+        stop_servers(procs)
 
     with open(os.path.join(out_dir, "result.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=1)
