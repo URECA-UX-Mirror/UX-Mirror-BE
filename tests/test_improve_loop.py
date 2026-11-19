@@ -269,3 +269,14 @@ def test_official_scores_collects_every_goal_on_b_site_without_browser():
     assert set(scores) == {"S1", "S4"} and all(0 < v <= 1 for v in scores.values())
     assert [p for _, _, p in calls] == ["all", "all"] and layout == {"valid": True, "reasons": []}
     assert [r["kind"] for r in raw] == ["finalize_collect", "finalize_collect"]
+
+
+def test_finalize_rerun_does_not_keep_previous_verification():
+    """#110 추가 리뷰: 이전 finalize의 COMPLETED 검증이 다음 finalize(예: --skip-verify)에 남지 않는다."""
+    from uxm.improve_loop import restore_loop_summary, verification_not_run
+    imp = _improved()
+    assert imp["verification"]["status"] == "NOT_RUN" and imp["verification"]["reason"] == "NOT_FINALIZED"
+    imp["verification"] = {"status": "COMPLETED", "error": None, "method": "run_verification", "pairs": [{"goalKey": "S1"}]}
+    restore_loop_summary(imp)                                  # finalize 시작 때 되돌림
+    assert imp["verification"] == verification_not_run("NOT_FINALIZED")
+    assert verification_not_run("SKIPPED_BY_OPTION")["reason"] == "SKIPPED_BY_OPTION"

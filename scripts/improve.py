@@ -215,10 +215,12 @@ def cmd_finalize(args) -> str:
 
     # B 판정: 채택이면 공식 점수로 요약, 탈락이면 최종 요약을 NO_IMPROVEMENT로 (루프 결과는 이력으로 보존)
     confirmed = improve_loop.apply_official(imp, plan, scores, layout, improve_policy)
+    # 검증 결과는 매번 이번 실행 기준으로 새로 쓴다 (이전 finalize의 검증 결과를 남기지 않는다, #110 추가 리뷰)
     if not confirmed:   # 공식 평가에서 탈락한 이름은 실제 Run으로 검증하지 않는다
-        imp["verification"] = {"status": "NOT_RUN", "error": None, "reason": "OFFICIAL_REJECTED",
-                               "method": "run_verification", "pairs": []}
-    elif not args.skip_verify:
+        imp["verification"] = improve_loop.verification_not_run("OFFICIAL_REJECTED")
+    elif args.skip_verify:
+        imp["verification"] = improve_loop.verification_not_run("SKIPPED_BY_OPTION")
+    else:
         imp["verification"] = verify(plan, args.final_url, label)
     _save_finalize(folder, imp, raw)
     s = imp["summary"]

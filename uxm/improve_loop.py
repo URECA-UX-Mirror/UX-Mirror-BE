@@ -113,8 +113,8 @@ def run_loop(plan: dict, site_map: dict, deps: Deps) -> dict:
 
     final_label = current["label"]
     official = deps.official(final_label) if (deps.official and final_label) else None
-    verification = deps.verify(final_label) if (deps.verify and final_label) else {
-        "status": "NOT_RUN", "error": None, "method": "run_verification", "pairs": []}
+    verification = deps.verify(final_label) if (deps.verify and final_label) else verification_not_run(
+        "NOT_FINALIZED" if final_label else "NO_IMPROVEMENT")
     result = _build_result(ctx, created, v1_label, current, rounds, stop, official, verification)
     return {"improvement": result, "raw": ctx.raw}
 
@@ -482,6 +482,16 @@ def restore_loop_summary(imp: dict) -> None:
             g.update(after=a, delta=round_score(a - g["before"]))
         s["scoreSource"] = "LOOP_A"
     imp["official"] = None
+    imp["verification"] = verification_not_run("NOT_FINALIZED")   # 이전 finalize의 검증 결과도 남기지 않는다
+
+
+def verification_not_run(reason: str) -> dict:
+    """실제 Run 검증을 하지 않았을 때의 `verification` (FE: "검증 미진행", 재생 링크 없음).
+
+    reason: NOT_FINALIZED(루프만 끝남) / NO_IMPROVEMENT(채택 이름 없음) / OFFICIAL_REJECTED(B 탈락) /
+    SKIPPED_BY_OPTION(`finalize --skip-verify`).
+    """
+    return {"status": "NOT_RUN", "error": None, "reason": reason, "method": "run_verification", "pairs": []}
 
 
 def report_md(imp: dict) -> str:
