@@ -511,7 +511,8 @@ def test_verify_runs_baseline_then_candidate_and_reports(make):
                                        "personaId": "novice-shopper"})
     assert r.status_code == 201
     app.state.runner.wait(5)
-    assert integ.start_urls[-1].endswith(":8002/shop/home")
+    from api import runner
+    assert integ.start_urls[-1] == runner.SHOP_URLS["after"] + "/shop/home"   # 설정된 after 사이트 (#124)
 
 
 def test_verifying_blocks_outside_runs_between_baseline_and_candidate(make):

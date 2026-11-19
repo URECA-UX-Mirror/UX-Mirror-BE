@@ -4,7 +4,7 @@
     python scripts/show_candidates.py --pause 6    # 화면당 6초
     python scripts/show_candidates.py --headless   # 창 없이 스크린샷만
 
-쇼핑몰 서버 두 개(8001, 8002)가 켜져 있어야 한다.
+쇼핑몰 서버 두 개(v1 8001, "주문·환불" 사이트 C2 moro-c2 8006)가 켜져 있어야 한다.
 결과: results/json/candidates/candidates_<stamp>/*.json (후보 목록·도착 판정)
       results/screenshots/candidates/candidates_<stamp>/*.png (후보 번호 박스)
 """
@@ -19,7 +19,7 @@ sys.path.insert(0, ROOT)
 from uxm.candidates import VIEWPORT, draw_overlay, extract  # noqa: E402
 from uxm.goal import verify_goal  # noqa: E402
 
-SHOPS = {"before": "http://127.0.0.1:8001", "after": "http://127.0.0.1:8002"}
+SHOPS = {"before": "http://127.0.0.1:8001", "after": "http://127.0.0.1:8006"}   # after = C2(주문·환불)
 PAGES = ("home", "mypage", "support", "orders", "refund")
 
 

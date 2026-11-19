@@ -17,10 +17,15 @@ from api.timeutil import now_iso
 
 log = logging.getLogger("uxm.api.runner")
 
+# 버전 비교 Run의 사이트. after는 고정 v2 사이트 없이 서버 설정으로만 정한다 (예: 자동 개선 최종안 8010).
+# 클라이언트는 주소를 넘기지 않는다. 설정이 없으면 after Run을 만들지 않는다 (api/main.py).
 SHOP_URLS = {
     "before": os.getenv("SHOP_BEFORE_URL", "http://127.0.0.1:8001"),
-    "after": os.getenv("SHOP_AFTER_URL", "http://127.0.0.1:8002"),
+    "after": os.getenv("SHOP_AFTER_URL") or None,
 }
+# after 사이트의 이름(예: 자동 개선 최종안 "주문 환불"). 주소는 Run에 남기지 않으므로 이 이름을 afterSite로 남겨
+# 같은 실험 키에서 다른 after 사이트의 Run끼리 짝지어지지 않게 한다.
+SHOP_AFTER_LABEL = os.getenv("SHOP_AFTER_LABEL") or None
 
 # run_agent 결과에서 Run에 반영하는 필드. 나머지(설정·버전 값)는 생성 때 값을 그대로 둔다.
 # validity·invalidReason은 받지 않는다. 종료 시 finalize()가 terminationReason·error.code로 정한다.
@@ -85,6 +90,10 @@ class Runner:
                 raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
                                f"같은 experimentKey의 첫 실행과 입력이 다릅니다: {', '.join(diff)}")
             same = [r for r in runs if r.get("variant") == run["variant"]]
+            if "afterSite" in run and any(r.get("afterSite") != run["afterSite"] for r in same):
+                # 이전 after Run이 다른 사이트(또는 afterSite가 없는 예전 고정 v2)에서 돌았다 → 섞으면 비교가 틀어진다
+                raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
+                               "같은 experimentKey의 이전 after 실행과 after 사이트가 다릅니다. 새 실험 키로 실행해 주세요.")
             if any(r.get("status") in ("READY", "RUNNING") or r.get("validity") == "VALID" for r in same):
                 raise ApiError(409, "EXPERIMENT_RUN_EXISTS",
                                "같은 experimentKey와 variant에 유효하거나 진행 중인 실행이 이미 있습니다.")
@@ -223,7 +232,10 @@ class Runner:
         # 자동 개선 검증 Run(#101)도 Optimization 검증 Run처럼 등록 주소를 siteInstanceId로 찾는다
         ctx = run.get("optimizationContext") or run.get("improvementContext")
         if not ctx:
-            return SHOP_URLS[run["variant"]]
+            base = SHOP_URLS.get(run["variant"])
+            if not base:
+                raise _RunFailure("BROWSER_ERROR", "BROWSER_ERROR", "after 사이트가 설정되지 않았습니다 (SHOP_AFTER_URL).")
+            return base
         base = self.site_base_url(ctx["siteInstanceId"]) if self.site_base_url else None
         if not base:
             raise _RunFailure("BROWSER_ERROR", "BROWSER_ERROR", "등록되지 않은 사이트 인스턴스입니다.")

@@ -26,7 +26,8 @@ def _invalid(message: str) -> ApiError:
 
 
 def check_goal_screens(verification: dict, base_urls: dict, browser, scope=None) -> None:
-    """두 쇼핑몰(`base_urls` = {"before": url, "after": url})에서 성공 조건을 확인한다. 문제가 있으면 ApiError.
+    """`base_urls`(실행할 쇼핑몰, 예: {"before": url})에서 성공 조건을 확인한다.
+    문제가 있으면 ApiError.
 
     browser: `(open_browser, close_browser)` (`Integrations.browser()`).
     scope: 외부 사이트 시나리오(#74, `uxm/site_scope.SiteScope`). 그 사이트에 등록된 화면인지 보고 1곳만 확인한다.
@@ -38,7 +39,7 @@ def check_goal_screens(verification: dict, base_urls: dict, browser, scope=None)
         if page_key not in SHOP_PAGES:
             raise _invalid(f"도착 화면({path})은 쇼핑몰에 없는 화면입니다. "
                            f"/shop/{{{','.join(SHOP_PAGES)}}} 중 하나여야 합니다.")
-        targets = [(v, LABELS[v], base_urls[v].rstrip("/") + path) for v in ("before", "after")]
+        targets = [(v, LABELS[v], base_urls[v].rstrip("/") + path) for v in ("before", "after") if base_urls.get(v)]
     else:
         from api.sites import check_page, page_url
         targets = [("scenario", "", page_url(scope, check_page(scope, path, "도착 화면")))]

@@ -8,7 +8,7 @@
 
 - [ ] 팀이 발표에 사용할 목표, 사용자 유형, 성공 조건, 시작 화면과 최대 탐색 횟수를 확정한다.
 - [ ] 환불 preset(`ALLOWED_PATHS`) 또는 직접 입력 목표(`SITE_MAP`) 중 E 실행 방식을 확정한다. 지도 기준을 쓰기로 했으면 생성된 Run의 `referencePathConfig.basis`에 `SITE_MAP`이 실제로 저장됐는지 확인한다.
-- [ ] `SHOP_BEFORE_URL`과 `SHOP_AFTER_URL`의 홈 화면을 각각 열어 올바른 쇼핑몰이 서빙되는지 확인한다. 현재 데모의 상단 주문 메뉴는 Before(`moro-before`)가 `이용정보`, After(`moro-after`)가 `주문·환불`이다. 환경 변수 주소와 실제 화면이 일치하지 않으면 실행 전에 바로잡는다.
+- [ ] `SHOP_BEFORE_URL`과 `SHOP_AFTER_URL`의 홈 화면을 각각 열어 올바른 쇼핑몰이 서빙되는지 확인한다. 현재 데모의 상단 주문 메뉴는 Before(`moro-before`)가 `이용정보`, After(`SHOP_AFTER_URL`, 기본 `moro-final` 8010)가 자동 개선 최종안 `주문 환불`이다. 11/19 E 실행 당시 After는 고정 사이트 `moro-after`(`주문·환불`, 지금은 삭제)였다. 지금 after Run에는 사이트 이름(`afterSite.label`, `SHOP_AFTER_LABEL`)이 남고, 같은 실험 키에 다른 after 사이트의 Run이 있으면 만들지 않는다(E 키는 새 키로). 환경 변수 주소와 실제 화면이 일치하지 않으면 실행 전에 바로잡는다.
 - [ ] 행사 GPU 서버를 쓰도록 `ZORO_BACKEND=http`와 `ZORO_BASE_URL`이 실제 행사 서버를 가리키는지 확인한다. `ZORO_ENDPOINT_ID`는 기본 예시 `local`을 그대로 두지 말고 행사 서버를 식별할 값으로 설정한다. 식별자에는 비밀 주소나 인증 정보를 넣지 않는다.
 - [ ] 사용할 Before/After 쇼핑몰, 백엔드·프론트 커밋, 모델 버전·endpoint 식별자, temperature와 `GOAL_JUDGMENT_MODE`를 기록한다. 서버가 고정하는 promptVersion과 viewport는 Run에 저장된 값을 기록한다. Before/After에는 같은 실행 조건을 적용한다.
 - [ ] 행사 모델 서버와 쇼핑몰·프론트·백엔드를 실행하고 `GET /api/health`의 `status=READY`, `model.endpointId`가 설정한 행사 식별자와 같은지 확인한다. `READY`와 endpointId는 연결 설정 확인이며 실제 행사 모델 추론의 증거는 아니다. 실제 사용 서버와 Run의 모델 식별자도 대조한다.

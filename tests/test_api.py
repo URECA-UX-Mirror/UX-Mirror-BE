@@ -114,6 +114,7 @@ class FakeIntegrations(Integrations):
         """실제 화면 검사는 tests/test_preflight.py에서. 여기서는 호출만 기록하고 preflight_error가 있으면 던진다."""
         def check(verification, base_urls):
             self.preflight_calls.append(verification)
+            self.preflight_sites = sorted(base_urls)
             if self.preflight_error is not None:
                 raise self.preflight_error
         return check
@@ -471,7 +472,8 @@ def test_refund_goal_starts_from_home(make_client):
     client, integ, app = make_client()
     run = run_and_wait(client, app, variant="after")   # startPath 생략 → /shop/home
     assert run["startPath"] == "/shop/home"
-    assert integ.received_settings["startUrl"].endswith(":8002/shop/home")
+    from api import runner
+    assert integ.received_settings["startUrl"] == runner.SHOP_URLS["after"] + "/shop/home"   # 설정된 after 사이트
     assert all(p[0] == "home" for p in run["referencePathConfig"]["allowedPaths"])
     run = run_and_wait(client, app, experimentKey="exp_002", startPath="/shop/home/")
     assert run["startPath"] == "/shop/home"
@@ -915,3 +917,72 @@ def test_final_run_follows_chain():
     ]
     assert final_run(runs)["runId"] == "c"
     assert final_run([]) is None
+
+
+# ---- 고정 v2 사이트 제거 (#124): after 사이트는 서버 설정(SHOP_AFTER_URL)으로만
+def test_after_run_needs_configured_site(make_client, monkeypatch):
+    from api import runner
+    monkeypatch.setitem(runner.SHOP_URLS, "after", None)
+    client, _, _ = make_client()
+    r = client.post("/api/runs", json=body(variant="after"))
+    assert r.status_code == 503
+    assert r.json()["error"]["code"] == "SITE_NOT_CONFIGURED"
+    assert client.get("/api/runs").json()["items"] == []   # Run을 만들지 않았다
+
+
+def test_before_run_works_without_after_site(make_client, monkeypatch):
+    from api import runner
+    monkeypatch.setitem(runner.SHOP_URLS, "after", None)
+    client, _, app = make_client()
+    assert run_and_wait(client, app, variant="before")["status"] == "SUCCESS"
+
+
+def test_after_run_records_after_site_label(make_client, monkeypatch):
+    """Run에는 after 주소 대신 사이트 이름을 남긴다 (#128 리뷰)."""
+    from api import runner
+    monkeypatch.setattr(runner, "SHOP_AFTER_LABEL", "주문 환불")
+    client, _, app = make_client()
+    run = run_and_wait(client, app, variant="after")
+    assert run["afterSite"] == {"label": "주문 환불"}
+    assert "afterSite" not in run_and_wait(client, app, variant="before")
+
+
+def test_after_runs_from_different_sites_do_not_mix(make_client, monkeypatch):
+    """E처럼 예전 after(afterSite 없음)나 다른 after 사이트의 Run이 있는 키에는 after를 다시 만들지 않는다 (#128 리뷰)."""
+    from api import runner
+    integ = FakeIntegrations(issues=[])
+    client, _, app = make_client(integ)
+    run_and_wait(client, app)
+    integ.open_fails = True
+    broken = run_and_wait(client, app, variant="after")   # INVALID라 원래는 다시 만들 수 있다
+    store = app.state.runner.store
+    legacy = store.load_run(broken["runId"])
+    legacy.pop("afterSite")                                # 예전 고정 v2 after Run처럼
+    store.save_run(legacy)
+    integ.open_fails = False
+    r = client.post("/api/runs", json=body(variant="after"))
+    assert r.status_code == 422 and "after 사이트가 다릅니다" in r.json()["error"]["message"]
+
+    monkeypatch.setattr(runner, "SHOP_AFTER_LABEL", "주문 환불")
+    r = client.post("/api/runs", json=body(experimentKey="exp_new", variant="after"))
+    assert r.status_code == 201   # 새 실험 키는 된다
+
+
+def test_after_run_needs_site_label(make_client, monkeypatch):
+    """after 주소만 있고 이름(SHOP_AFTER_LABEL)이 없으면 만들지 않는다 — 이름 없는 사이트끼리 섞이지 않게 (#128 리뷰)."""
+    from api import runner
+    monkeypatch.setattr(runner, "SHOP_AFTER_LABEL", None)
+    client, _, _ = make_client()
+    r = client.post("/api/runs", json=body(variant="after"))
+    assert r.status_code == 503 and r.json()["error"]["code"] == "SITE_NOT_CONFIGURED"
+    assert client.post("/api/runs", json=body(variant="before")).status_code == 201   # before는 상관없음
+
+
+def test_preflight_checks_only_the_requested_site(make_client):
+    """v1 실행 전 검사는 v1 사이트만 연다. after 사이트 장애가 v1 실행을 막지 않게 (#128 리뷰)."""
+    client, integ, app = make_client()
+    assert client.post("/api/runs", json=direct()).status_code == 201
+    assert integ.preflight_sites == ["before"]
+    app.state.runner.wait(5)
+    assert client.post("/api/runs", json=direct(variant="after")).status_code == 201
+    assert integ.preflight_sites == ["after"]

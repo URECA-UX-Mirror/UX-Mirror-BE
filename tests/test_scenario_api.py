@@ -96,7 +96,8 @@ def test_version_compare_run_is_unchanged(client):
     app.state.runner.wait(5)
     run = c.get(f"/api/runs/{r.json()['runId']}").json()
     assert "siteId" not in run and "mode" not in run and run["siteVersion"] == "shop-v1"
-    assert integ.received_settings["startUrl"].endswith(":8002/shop/home")
+    from api import runner
+    assert integ.received_settings["startUrl"] == runner.SHOP_URLS["after"] + "/shop/home"   # 설정된 after 사이트 (#124)
     item = c.get("/api/runs", params={"experimentKey": "moro"}).json()["items"][0]
     assert item["siteId"] is None and item["mode"] is None
 
