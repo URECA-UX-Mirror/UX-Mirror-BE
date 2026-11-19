@@ -11,6 +11,9 @@ source deploy/lib.sh
 case "${1:-status}" in
   on)  set_lock on  && echo "쓰기 잠금: on (POST는 503)" ;;
   off) set_lock off && echo "쓰기 잠금: off" ;;
-  status) echo "쓰기 잠금: $(lock_state)" ;;
+  status)
+    state="$(lock_state)"
+    echo "쓰기 잠금: $state (파일: $(lock_file_state))"
+    [ "$state" != unknown ] || { echo "실제 요청으로 확인하지 못했습니다. Caddy 상태를 확인해 주세요." >&2; exit 1; } ;;
   *) echo "사용법: $0 on|off|status" >&2; exit 1 ;;
 esac

@@ -71,9 +71,37 @@ sudo apt-get install -y python3-venv python3-pip git curl caddy
 sudo .venv/bin/python -m playwright install-deps chromium
 .venv/bin/python -m playwright install chromium
 
-# ---- 5. 서비스 등록 (쇼핑몰 → API). 다시 실행할 때 진행 중인 Run이 있으면 재시작하지 않는다
-if systemctl is-active --quiet uxm-api 2>/dev/null && [ "${2:-}" != "--force" ] && ! check_idle; then
-  exit 1
+# ---- 5. 서비스 등록 (쇼핑몰 → API)
+# 이미 설치된 서버에서 다시 실행하면 update.sh와 같은 순서: 쓰기 잠금 → 진행 중인 Run 확인 → 재시작·확인 → 원래 잠금 상태로.
+# 처음 설치(API가 아직 없음)는 돌고 있는 Run이 없으므로 바로 진행한다.
+SETUP_LOCKED=""
+restore_lock() {
+  local rc=$?
+  if [ -n "$SETUP_LOCKED" ]; then
+    if set_lock off >/dev/null; then echo "쓰기 잠금 해제"
+    else echo "[주의] 쓰기 잠금을 풀지 못했습니다: ./deploy/write_lock.sh off" >&2; rc=1; fi
+  fi
+  exit "$rc"
+}
+trap restore_lock EXIT
+if systemctl is-active --quiet uxm-api 2>/dev/null; then
+  if caddy_has_lock; then
+    case "$(lock_state)" in
+      off) SETUP_LOCKED=1
+           set_lock on || { echo "쓰기 잠금을 켜지 못해 멈춥니다." >&2; exit 1; }
+           echo "쓰기 잠금 on (다시 설치하는 동안 새 Run 차단)"
+           sleep 5 ;;
+      on)  echo "쓰기 잠금이 이미 켜져 있어 그대로 둡니다." ;;
+      *)   echo "쓰기 잠금 상태를 실제 요청으로 확인할 수 없어 멈춥니다 (sudo systemctl status caddy)." >&2; exit 1 ;;
+    esac
+  else
+    echo "[주의] 이전 설치라 쓰기 잠금 없이 진행합니다 (이번 실행으로 잠금이 설치됩니다)."
+  fi
+  if [ "${2:-}" != "--force" ]; then
+    check_idle || exit 1
+  else
+    echo "[주의] --force: 진행 중인 Run이 있어도 재시작합니다."
+  fi
 fi
 for unit in uxm-shops uxm-api; do
   sed -e "s#__APP_DIR__#$APP_DIR#g" -e "s#__USER__#$RUN_USER#g" "deploy/$unit.service" \
@@ -96,6 +124,11 @@ echo "확인 중... (처음엔 인증서 발급에 몇 초 걸립니다)"
 if ! check_ready 60 "$DOMAIN"; then
   echo "설치는 끝났지만 Run을 돌릴 수 없는 상태입니다. 위 항목을 고친 뒤 ./deploy/setup.sh를 다시 실행해 주세요." >&2
   exit 1
+fi
+if [ -n "$SETUP_LOCKED" ]; then
+  set_lock off || { SETUP_LOCKED=""; echo "설치는 끝났지만 쓰기 잠금을 풀지 못했습니다: ./deploy/write_lock.sh off" >&2; exit 1; }
+  SETUP_LOCKED=""
+  echo "쓰기 잠금 해제"
 fi
 echo
 echo "완료: https://$DOMAIN"

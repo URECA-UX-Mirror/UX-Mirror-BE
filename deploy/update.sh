@@ -58,14 +58,18 @@ main() {
   DEPLOY_LOCKED=""; DEPLOY_BEFORE=""; DEPLOY_SWITCHED=""; DEPLOY_RESTARTED=""; DEPLOY_REF="$ref"
   DEPLOY_ORIG_BRANCH="$(git symbolic-ref -q --short HEAD || true)"
   trap on_exit EXIT
-  if [ "$(lock_state)" = off ]; then
-    DEPLOY_LOCKED=1
-    set_lock on || { echo "쓰기 잠금을 켜지 못해 멈춥니다." >&2; exit 1; }
-    echo "쓰기 잠금 on (배포 중 새 Run 차단)"
-    sleep 5   # 잠금 직전에 들어와 실행 전 확인 중인 요청이 Run을 만들 시간
-  else
-    echo "쓰기 잠금이 이미 켜져 있어 그대로 둡니다."
-  fi
+  case "$(lock_state)" in
+    off)
+      DEPLOY_LOCKED=1
+      set_lock on || { echo "쓰기 잠금을 켜지 못해 멈춥니다." >&2; exit 1; }
+      echo "쓰기 잠금 on (배포 중 새 Run 차단)"
+      sleep 5 ;;   # 잠금 직전에 들어와 실행 전 확인 중인 요청이 Run을 만들 시간
+    on)
+      echo "쓰기 잠금이 이미 켜져 있어 그대로 둡니다." ;;
+    *)
+      echo "쓰기 잠금 상태를 실제 요청으로 확인할 수 없어 멈춥니다. Caddy 상태를 먼저 확인해 주세요 (sudo systemctl status caddy)." >&2
+      exit 1 ;;
+  esac
 
   # ---- 2. 진행 중인 Run
   if [ -z "$force" ]; then

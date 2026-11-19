@@ -37,8 +37,10 @@ caddy_has_lock() {   # 지금 Caddy 설정이 잠금 파일을 읽는지 (이전
 }
 
 # Caddy로 실제 POST를 보내 잠금 상태를 본다 (파일 내용이 아니라 실제 동작).
-# POST /api/health는 API에 없는 메서드라 아무것도 만들지 않는다: 잠김 503 / 풀림 405.
-# 출력: on / off / unknown
+# POST /api/health는 API에 없는 메서드라 아무것도 만들지 않는다.
+#   on      503 — 잠금 중에는 Caddy가 API로 넘기지 않고 직접 답한다 (API가 꺼져 있어도 확인됨)
+#   off     405(API가 답함) / 502·504(API로 넘겼지만 API가 꺼짐) — 요청이 API까지 갔다 = 잠금 없음
+#   unknown 그 밖 (Caddy가 응답하지 않음 등) — 잠금 상태를 알 수 없다
 lock_probe() {
   local domain code url
   domain="$(site_domain)"
@@ -50,19 +52,21 @@ lock_probe() {
   fi
   case "${code:-}" in
     503) echo on ;;
-    405) echo off ;;
+    405|502|504) echo off ;;
     *) echo unknown ;;
   esac
 }
 
-lock_state() {   # 실제로 확인되면 그 값, 아니면 파일 내용
-  local probed
-  probed="$(lock_probe)"
-  if [ "$probed" != unknown ]; then echo "$probed"; return; fi
+lock_state() {   # 실제 동작 기준: on / off / unknown (파일 내용으로 대신하지 않는다)
+  lock_probe
+}
+
+lock_file_state() {   # 잠금 파일에 적힌 값 (표시용. 실제 적용 여부는 lock_state)
   if [ -f "$LOCK_FILE" ] && grep -q '^respond @uxm_write' "$LOCK_FILE"; then echo on; else echo off; fi
 }
 
-# on|off → 파일 쓰기 → Caddy 다시 읽기 → 실제로 그렇게 됐는지 확인. 안 되면 0이 아님
+# on|off → 파일 쓰기 → Caddy 다시 읽기 → 실제 요청으로 그렇게 된 것을 확인했을 때만 0.
+# 확인하지 못하면(unknown) 실패로 본다.
 set_lock() {
   local want="$1" i got=""
   if [ "$want" = on ]; then _write_root_file "$LOCK_FILE" "$LOCK_ON"; else _write_root_file "$LOCK_FILE" "$LOCK_OFF"; fi
@@ -71,13 +75,12 @@ set_lock() {
     sleep 1
     got="$(lock_probe)"
     [ "$got" = "$want" ] && return 0
-    [ "$got" = unknown ] && break
   done
   if [ "$got" = unknown ]; then
-    echo "[주의] 잠금 상태를 실제 요청으로 확인하지 못했습니다 (Caddy·API가 꺼져 있을 수 있음)." >&2
-    return 0
+    echo "쓰기 잠금이 $want인지 실제 요청으로 확인하지 못했습니다. Caddy 상태를 먼저 확인해 주세요 (sudo systemctl status caddy)." >&2
+  else
+    echo "쓰기 잠금을 $want(으)로 바꿨지만 실제 응답은 $got 입니다." >&2
   fi
-  echo "쓰기 잠금을 $want(으)로 바꿨지만 실제 응답은 $got 입니다." >&2
   return 1
 }
 
