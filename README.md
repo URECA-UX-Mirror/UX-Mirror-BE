@@ -105,9 +105,10 @@ curl localhost:8000/api/health                    # 모델·브라우저·에이
 
 | 상황 | 동작 |
 |---|---|
-| 브라우저·페이지 로드 실패 | 멈추지 않고 결과로 기록, 해당 Run은 `INVALID`로 비교 제외 |
+| 브라우저·페이지 로드 실패 | 그 Run은 `ERROR`·`INVALID`로 끝나고 비교에서 제외, 서버는 다음 요청을 받음 |
 | 같은 화면 반복·단계 초과 | 멈추고 Issue로 기록 |
-| 모델 시간 초과·서버 재시작 | 해당 후보만 실패 처리, 늦은 호출이 끝날 때까지 새 실행 차단 |
+| 모델 시간 초과 | Run: `TIMEOUT`(`VALID`)으로 종료. Optimizer: 그 후보만 `MODEL_TIMEOUT`, 늦은 호출이 끝날 때까지 새 실행 차단 |
+| 서버 재시작 | 진행 중이던 Run은 `INVALID`(`BROWSER_CRASH`), Optimization은 전체 `FAILED`(`OPTIMIZATION_INTERRUPTED`). v1·v2 실행 사이에는 재시작하지 않는다 |
 | 동시 실행 요청 | 한 번에 1개 (`409`) |
 | 잘못된 입력·없는 도착 화면 | 실행 전 확인 후 거절 (`422`/`503`) |
 | 외부 사이트 위험 버튼 | 주문·삭제·로그아웃·장바구니 변경 제외, 등록 화면만 이동 |
@@ -286,18 +287,18 @@ stateDiagram-v2
     class FAILED bad
 ```
 
-행사 GPU 실행 결과 (환불 목표, 같은 조건으로 2회 실행):
+행사 GPU 실행 결과 (환불 목표, 같은 조건으로 2회 실행). 기록: `results/optimizations/opt_20261119151216_78dd/`(표), `opt_20261119153742_9a81/`(2회차). 저장소에는 포함하지 않음.
 
 | 후보 | 이름 | 사이트 | 대상 메뉴 확률 | 정답 경로 확률 | 결과 |
 |---|---|---|---|---|---|
-| C0 | 이용정보 | `moro-before` 8001 | 0.078 | 0.919 | 기준 |
-| C1 | 주문·배송 | `moro-c1` 8003 | 0.372 | 0.897 (−2.3%p) | 제외 (경로 확률 −2%p 초과) |
-| C2 | 주문·환불 | `moro-after` 8002 | **0.725** (+64.7%p) | **0.968** (+4.9%p) | **추천·검증 1위** |
-| C3 | 주문·반품 | `moro-c3` 8004 | 0.665 | 0.950 (+3.1%p) | 2위 |
-| C4 | 주문 관리 | `moro-c4` 8005 | 0.583 | 0.938 (+1.9%p) | 3위 |
+| C0 | 이용정보 | `moro-before` 8001 | 0.0778 | 0.9194 | 기준 |
+| C1 | 주문·배송 | `moro-c1` 8003 | 0.3723 | 0.8969 (−2.25%p) | 제외 (경로 확률 −2%p 초과) |
+| C2 | 주문·환불 | `moro-after` 8002 | **0.7252** (+64.74%p) | **0.9680** (+4.86%p) | **추천·검증 1위** |
+| C3 | 주문·반품 | `moro-c3` 8004 | 0.6653 | 0.9499 (+3.05%p) | 2위 |
+| C4 | 주문 관리 | `moro-c4` 8005 | 0.5829 | 0.9384 (+1.90%p) | 3위 |
 
 - 실제 브라우저 재검증: C0 3단계 → C2 2단계 (이동 비용 −1), 최종 판단 `IMPROVEMENT_OBSERVED`.
-- 두 번째 실행도 선정·제외·최종 판단이 같았고, 확률 차이는 최대 1.5%p (C2 대상 메뉴 0.725 / 0.711).
+- 두 번째 실행도 선정·제외·최종 판단이 같았고, 확률 차이는 최대 1.47%p (C2 대상 메뉴 0.7252 / 0.7105).
 
 | Method | Path | 설명 |
 |---|---|---|
@@ -306,7 +307,7 @@ stateDiagram-v2
 | POST | `/api/optimizations/{id}/verify` | 기준(C0)과 선정 후보를 차례로 실제 Run |
 | GET | `/api/optimizations/{id}/report` | 완료된 보고서 |
 
-선정 규칙: 정답 경로 확률이 기준보다 2%p 넘게 떨어지면 제외 → 남은 후보를 대상 메뉴 확률로 순위(1등과 1%p 이내는 의미 명확성 → 이름 길이 → 순서) → 대상 메뉴 확률이 기준보다 +5%p 이상이면 추천.
+선정 규칙: 정답 경로 확률이 기준보다 2%p 넘게 떨어지면 제외 → 남은 후보를 대상 메뉴 확률로 순위(1등과 1%p 이내를 한 그룹으로 묶어 의미 명확성 → 이름 길이 → 순서로 정렬, 남은 후보도 같은 방식으로 반복) → 대상 메뉴 확률이 기준보다 +5%p 이상이면 추천.
 
 <details>
 <summary>세부 규칙</summary>
@@ -316,7 +317,11 @@ stateDiagram-v2
 - 결과: `targetOptionProbability`, `goalPathProbability`, `probabilities`(semanticKey 기준), 원본 요청·응답. 계산할 수 없는 지표는 `null` + `metricNullReasons`.
 - 모델 시간 초과는 그 후보만 `MODEL_TIMEOUT`. 늦은 호출이 끝날 때까지 다른 실행을 막는다(`/api/health`의 `activeOptimization`).
 - 검증 Run은 기존 Runner로 만들고(`experimentKey = optimizationId`, 기준 before / 후보 after), 만들기 전에 화면을 다시 찍어 평가 때와 같은지 확인한다(다르면 `SITE_INSTANCE_CHANGED`). 결과는 `variant`가 아니라 `optimizationContext.siteInstanceId`·`label`로 본다.
-- 실패 코드: `BASELINE_INVALID`, `BASELINE_NOT_EVALUATED`, `MODEL_TIMEOUT`, `SITE_INSTANCE_CHANGED`, `SITE_RECHECK_FAILED`, `RUN_TIMEOUT`, `OPTIMIZATION_INTERRUPTED`, `OPTIMIZATION_FAILED`.
+- 실패 코드(`error.code`): `BASELINE_INVALID`, `BASELINE_NOT_EVALUATED`, `MODEL_TIMEOUT`, `SITE_INSTANCE_CHANGED`, `SITE_RECHECK_FAILED`, `RUN_TIMEOUT`, `OPTIMIZATION_INTERRUPTED`(서버 재시작), `OPTIMIZATION_FAILED`.
+- API 오류: `404 OPTIMIZATION_NOT_FOUND`, `409 OPTIMIZATION_NOT_READY`·`OPTIMIZATION_ALREADY_PROCESSED`·`RUN_ALREADY_ACTIVE`, `422 INVALID_SITE_INSTANCE`·`EXPERIMENT_CONDITION_MISMATCH`, `503 MODEL_UNAVAILABLE`·`OPTIMIZER_POLICY_UNAVAILABLE`(정책 모듈 없음).
+- 선정 결과: `selection.excludedCandidates`(`candidateId`, `reasonCodes`), `selectionReasonCode`. 검증 판단: `verification.finalDecision`·`reasonCode`·`navigationCostDelta`. 이유 코드·근거 형식은 FE 연동 때 함께 확인한다.
+- 동률 순위 `semanticClarityRank`(C2 1, C3 2, C4 3, C1 4, 작을수록 우선)는 `config/optimization.json`에 고정. 기준과 `goalPathBasis`가 다른 후보는 제외.
+- 늦은 모델 호출이 남아 있으면 `/api/health`의 `activeOptimization.status`가 `MODEL_CALL_PENDING`.
 - 저장: `results/optimizations/<optimizationId>/`.
 
 </details>
@@ -422,6 +427,7 @@ python scripts/estimate_reach.py --site cafe24-ons                 # 외부 사�
 
 - **구조 기준 추정치**다. 되돌아가기·재방문 제한이 없어 실제 Run과 다를 수 있다.
 - 실제 화면 후보와 지도가 다르면 `MAP_MISMATCH`(비교 불가), 확률이 빠진 화면이 있으면 `INCOMPLETE`(개선 판단에 쓰지 않음). 결과는 `results/reach/`.
+- 계산할 수 없는 값은 `null`이고 사유는 `nullReasons`(`MAX_STEPS_BELOW_SHORTEST`: `--max-steps`가 최단 이동 수보다 작음, `GOAL_UNREACHABLE_ON_MAP`: 지도상 길 없음).
 
 ## 사이트 지도
 
@@ -489,7 +495,7 @@ UXM_FRONTEND_PATH="/path/to/UX-Mirror-FE" .venv/bin/python -m pytest -q tests/te
 | `ZORO_BACKEND=local`, `ZORO_DEVICE=cuda-4bit` | 개발용 (GTX 1660 6GB, nf4). 확률이 원본과 다를 수 있어 형식 확인용 |
 | `ZORO_BACKEND=local`, `ZORO_DEVICE=cpu` | 원본 bf16 확인 (RAM 9GB+, 느림) |
 
-`ZORO_TEMPERATURE=1.52`(모델 카드 보정값)를 요청마다 보낸다. v1·v2 동일 필수. 서버: `python serve_decide.py <Zoro-1 경로> --port 30001` (SGLang ≥0.5.22, Linux).
+`ZORO_TEMPERATURE=1.52`(모델 카드 보정값)를 요청마다 보낸다. v1·v2 동일 필수. 서버: `python vendor/trida-stack/inference/zoro-1/serve_decide.py <Zoro-1 경로> --port 30001` (SGLang ≥0.5.22, Linux).
 
 ## 결정 사항
 
