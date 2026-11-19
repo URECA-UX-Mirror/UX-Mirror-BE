@@ -2,6 +2,11 @@
 __pycache__/
 .pytest_cache/
 .env
+# 접속 키·인증서 (EC2 .pem 등). 저장소 폴더에 두어도 커밋되지 않게
+*.pem
+*.key
+id_rsa*
+id_ed25519*
 results/screenshots/
 # STS / Eclipse 설정
 .project
