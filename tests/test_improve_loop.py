@@ -177,3 +177,95 @@ def test_loop_with_real_policy_module():
     filtered = {f["label"]: f["rejectedReason"] for f in r1["proposal"]["filtered"]}
     assert filtered["주문내역"] is None and filtered["너무너무긴이름이다"] == "LABEL_TOO_LONG"
     assert imp["summary"]["afterLabel"] == "주문내역"
+
+
+# ---- #110 리뷰 반영: 공식 B 판정, 동결 조건, 같은 ID 재실행
+
+def _improved():
+    from uxm import improve_policy
+    it = iter(["주문내역"])
+    deps = Deps(fake_collect([]), lambda prompt: next(it, ""), improve_policy, clock=lambda: "t")
+    return run_loop(copy.deepcopy(PLAN), SITE_MAP, deps)["improvement"]
+
+
+def test_official_b_confirmed_replaces_summary_scores():
+    from uxm import improve_policy
+    from uxm.improve_loop import apply_official
+    imp = _improved()
+    before = imp["summary"]["main"]["before"]
+    ok = apply_official(imp, PLAN, {"S1": before + 0.30, "S4": imp["summary"]["guards"][0]["before"]},
+                        {"valid": True, "reasons": []}, improve_policy)
+    s = imp["summary"]
+    assert ok and imp["official"]["decision"] == "CONFIRMED" and s["result"] == "IMPROVED"
+    assert s["scoreSource"] == "OFFICIAL_B" and s["main"]["after"] == round(before + 0.30, 6)
+    assert imp["official"]["site"]["buildCheck"] is None            # 여기서 하지 않은 검사는 완료로 적지 않음
+
+
+def test_official_b_rejected_turns_summary_into_no_improvement_and_keeps_loop_history():
+    from uxm import improve_policy
+    from uxm.improve_loop import apply_official
+    imp = _improved()
+    v1_s4 = imp["summary"]["guards"][0]["before"]
+    ok = apply_official(imp, PLAN, {"S1": 0.9, "S4": v1_s4 - 0.10}, {"valid": True, "reasons": []}, improve_policy)
+    s = imp["summary"]
+    assert not ok and imp["official"]["decision"] == "REJECTED"
+    assert (s["result"], s["afterLabel"], s["scoreSource"], s["main"]["after"]) == ("NO_IMPROVEMENT", None, None, None)
+    assert s["officialRejected"] == {"label": "주문내역", "reason": "GUARD_LOSS_EXCEEDED:S4"}
+    assert s["loopResult"]["afterLabel"] == "주문내역" and s["loopResult"]["main"]["after"] is not None
+    assert "공식 평가에서 탈락" in report_md(imp)
+    # 화면 검사 실패도 탈락
+    imp = _improved()
+    assert not apply_official(imp, PLAN, {"S1": 0.9, "S4": 0.9}, {"valid": False, "reasons": ["LABEL_OVERFLOW"]},
+                              improve_policy)
+
+
+def test_frozen_conditions_must_match_current_environment():
+    from uxm.improve_loop import check_frozen_conditions
+    plan = {"model": {"modelVersion": "trillionlabs/Zoro-1", "modelEndpointId": "brev-l40s-bf16", "promptVersion": "v2"},
+            "verification": {"frozen": {"modelMetadata": {"temperature": 1.52, "goalJudgmentMode": "DOM_ONLY"}}},
+            "referencePath": {"siteMapVersion": SITE_MAP["siteMapVersion"], "siteMapHash": SITE_MAP["siteMapHash"]}}
+    now = {"modelVersion": "trillionlabs/Zoro-1", "modelEndpointId": "brev-l40s-bf16", "temperature": 1.52,
+           "promptVersion": "v2", "goalJudgmentMode": "DOM_ONLY"}
+    assert check_frozen_conditions(plan, now, SITE_MAP) == []
+    diffs = check_frozen_conditions(plan, {**now, "modelEndpointId": "local", "temperature": 1.0}, SITE_MAP)
+    assert len(diffs) == 2 and diffs[0].startswith("modelEndpointId") and diffs[1].startswith("temperature")
+    assert check_frozen_conditions({**plan, "referencePath": {}}, now, SITE_MAP)   # 동결 값이 없어도 다른 것으로 본다
+
+
+def test_same_improvement_id_is_refused_unless_overwrite(tmp_path):
+    out, _, _ = _run(["주문내역"])
+    folder = save_result(out, str(tmp_path))
+    stale = os.path.join(folder, "raw", "999_old.json")
+    open(stale, "w").close()
+    try:
+        save_result(out, str(tmp_path))
+        raise AssertionError("FileExistsError가 나야 함")
+    except FileExistsError:
+        pass
+    save_result(out, str(tmp_path), overwrite=True)
+    assert not os.path.exists(stale) and os.path.exists(os.path.join(folder, "improvement.json"))   # 이전 원본 안 섞임
+    assert not os.path.exists(folder + ".tmp")
+
+
+def test_finalize_rerun_restores_loop_summary_before_judging_again():
+    """finalize를 다시 돌리면 이전 B 판정 전의 루프(A) 요약에서 다시 시작한다."""
+    from uxm import improve_policy
+    from uxm.improve_loop import apply_official, restore_loop_summary
+    imp = _improved()
+    loop_summary = copy.deepcopy(imp["summary"])
+    v1_s4 = imp["summary"]["guards"][0]["before"]
+    apply_official(imp, PLAN, {"S1": 0.9, "S4": v1_s4 - 0.10}, None, improve_policy)   # 1차 finalize: 탈락
+    restore_loop_summary(imp)
+    assert imp["summary"] == loop_summary and imp["official"] is None
+    apply_official(imp, PLAN, {"S1": 0.9, "S4": v1_s4}, None, improve_policy)          # 2차 finalize: 채택
+    restore_loop_summary(imp)
+    assert imp["summary"] == loop_summary
+
+
+def test_official_scores_collects_every_goal_on_b_site_without_browser():
+    from uxm.improve_loop import official_scores
+    calls = []
+    scores, layout, raw = official_scores(fake_collect(calls), copy.deepcopy(PLAN), SITE_MAP, "주문내역")
+    assert set(scores) == {"S1", "S4"} and all(0 < v <= 1 for v in scores.values())
+    assert [p for _, _, p in calls] == ["all", "all"] and layout == {"valid": True, "reasons": []}
+    assert [r["kind"] for r in raw] == ["finalize_collect", "finalize_collect"]

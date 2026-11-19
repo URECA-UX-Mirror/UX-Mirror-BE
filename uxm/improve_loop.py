@@ -17,6 +17,7 @@
 """
 import json
 import os
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -37,18 +38,18 @@ class Deps:
         self.clock = clock or (lambda: datetime.now(KST).isoformat(timespec="seconds"))
 
 
-def _goals(plan: dict) -> list[dict]:
+def goals_of(plan: dict) -> list[dict]:
     return [plan["mainGoal"], *plan["guardGoals"]]
 
 
-def _score(site_map, probs, start, goal_page, max_steps) -> tuple[float | None, dict]:
+def score_of(site_map, probs, start, goal_page, max_steps) -> tuple[float | None, dict]:
     est = reach.estimate(site_map, probs, start, goal_page, max_steps)
     if est.get("status") != "COMPLETE":
         return None, est
     return est.get(SCORE), est
 
 
-def _round_score(x):
+def round_score(x):
     return None if x is None else round(x, 6)
 
 
@@ -76,7 +77,7 @@ def run_loop(plan: dict, site_map: dict, deps: Deps) -> dict:
     """회차 루프를 돌리고 `{"improvement": improvement.json 내용, "raw": 원본 목록}`을 돌려준다. 저장·FE 전달은 호출자."""
     rules = plan["rules"]
     ctx = _Ctx(plan=plan, site_map=site_map, deps=deps, start=plan.get("startPage", "home"),
-               max_steps=plan["score"].get("maxSteps", 8), goals=_goals(plan), main_key=plan["mainGoal"]["goalKey"],
+               max_steps=plan["score"].get("maxSteps", 8), goals=goals_of(plan), main_key=plan["mainGoal"]["goalKey"],
                guard_keys=[g["goalKey"] for g in plan["guardGoals"]],
                editable=tuple(plan["edit"]["editableSemanticKeys"]))
     created = deps.clock()
@@ -124,7 +125,7 @@ def _collect_v1(ctx: _Ctx) -> dict:
     for g in ctx.goals:
         got = ctx.deps.collect(g, None, "all")
         ctx.raw.append({"kind": "collect", "goalKey": g["goalKey"], "label": None, "records": got.get("records", [])})
-        score, est = _score(ctx.site_map, got["probs"], ctx.start, g["goalPage"], ctx.max_steps)
+        score, est = score_of(ctx.site_map, got["probs"], ctx.start, g["goalPage"], ctx.max_steps)
         v1[g["goalKey"]] = {"probs": got["probs"], "labels": got.get("labels", {}), "score": score, "est": est}
     bad = [k for k, v in v1.items() if v["score"] is None]
     if bad:
@@ -153,8 +154,8 @@ def _run_round(ctx: _Ctx, rnd: int, current: dict, v1_label, tried: set, history
     diag = diagnose(ctx.site_map, main_probs, ctx.start, main_goal["goalPage"], est, labels=labels,
                     editable_keys=ctx.editable)
     record = {"round": rnd, "diagnosis": diag,
-              "baseline": {"label": current["label"] or v1_label, "mainScore": _round_score(current["main"]),
-                           "guardScores": {k: _round_score(v) for k, v in current["guards"].items()}}}
+              "baseline": {"label": current["label"] or v1_label, "mainScore": round_score(current["main"]),
+                           "guardScores": {k: round_score(v) for k, v in current["guards"].items()}}}
     if diag["reason"]:
         record.update(proposal=None, candidates=[], adopted=None)
         return record, None, [], {}
@@ -174,7 +175,7 @@ def _run_round(ctx: _Ctx, rnd: int, current: dict, v1_label, tried: set, history
 
     # 채택 (#103: mainScore = 현재 기준, guardScores = 최초 v1)
     baseline = {"mainScore": current["main"], "guardScores": dict(ctx.v1_guards)}
-    chosen = ctx.deps.policy.choose(baseline, [_policy_view(c) for c in cands], _policy_rules(ctx.plan["rules"]))
+    chosen = ctx.deps.policy.choose(baseline, [_policy_view(c) for c in cands], policy_rules(ctx.plan["rules"]))
     _apply_decisions(cands, chosen, ctx.plan["rules"])
     record.update(proposal={"filtered": attempts[-1]["filtered"], "attempts": len(attempts)},
                   candidates=cands, adopted=chosen["adopted"])
@@ -222,8 +223,8 @@ def _evaluate_candidates(ctx: _Ctx, rnd: int, pool: list, tried: set) -> tuple[l
         elif any(v is None for v in scores.values()):
             c.update(evaluationStatus="FAILED", reason="EVALUATION_FAILED:ESTIMATE_NOT_COMPLETE")
         else:
-            c.update(mainScore=_round_score(scores[ctx.main_key]),
-                     guardScores={k: _round_score(scores[k]) for k in ctx.guard_keys})
+            c.update(mainScore=round_score(scores[ctx.main_key]),
+                     guardScores={k: round_score(scores[k]) for k in ctx.guard_keys})
             evaluated[cid] = probs
     return cands, evaluated
 
@@ -240,7 +241,7 @@ def _evaluate_one(ctx: _Ctx, rnd: int, cid: str, label: str):
             if not layout.get("valid"):
                 return {}, layout, {}
         merged = {**ctx.v1[g["goalKey"]]["probs"], **got["probs"]}
-        score, _ = _score(ctx.site_map, merged, ctx.start, g["goalPage"], ctx.max_steps)
+        score, _ = score_of(ctx.site_map, merged, ctx.start, g["goalPage"], ctx.max_steps)
         scores[g["goalKey"]], probs_by_goal[g["goalKey"]] = score, merged
     return scores, layout, probs_by_goal
 
@@ -260,7 +261,7 @@ def _policy_view(c: dict) -> dict:
     return {k: c[k] for k in ("candidateId", "label", "source", "order", "mainScore", "guardScores", "evaluationStatus")}
 
 
-def _policy_rules(rules: dict) -> dict:
+def policy_rules(rules: dict) -> dict:
     """`choose`에 넘길 규칙 (#105 키 이름). 없는 키는 오류 — 조용히 기본값을 쓰지 않게 한다."""
     return {"minMainGain": rules["minMainGain"], "maxGuardLoss": rules["maxGuardLoss"], "tieTolerance": rules["tieTolerance"]}
 
@@ -309,9 +310,9 @@ def _build_result(ctx: _Ctx, created, v1_label, current, rounds, stop, official,
     improved = current["label"] is not None
 
     def pair(key, before, after):
-        return {"goalKey": key, "name": names[key]["name"], "before": _round_score(before),
-                "after": _round_score(after) if improved else None,
-                "delta": _round_score(after - before) if improved else None}
+        return {"goalKey": key, "name": names[key]["name"], "before": round_score(before),
+                "after": round_score(after) if improved else None,
+                "delta": round_score(after - before) if improved else None}
 
     target = next((r["diagnosis"]["targetButton"] for r in rounds if r["diagnosis"].get("targetButton")), None)
     return {
@@ -344,19 +345,143 @@ def _build_result(ctx: _Ctx, created, v1_label, current, rounds, stop, official,
     }
 
 
-def save_result(out: dict, results_dir: str) -> str:
-    """`results/improvements/<improvementId>/`에 improvement.json·raw/·report.md 저장. 폴더 경로를 돌려준다."""
+def save_result(out: dict, results_dir: str, *, overwrite: bool = False) -> str:
+    """`results/improvements/<improvementId>/`에 improvement.json·raw/·report.md 저장. 폴더 경로를 돌려준다.
+
+    같은 improvementId 결과가 이미 있으면 FileExistsError (다른 실행의 원본이 섞이지 않게, #110 리뷰 3).
+    overwrite=True면 옆 임시 폴더에 다 쓴 뒤 기존 폴더를 통째로 바꾼다 (이전 실행 원본은 남지 않는다).
+    """
     imp = out["improvement"]
     folder = os.path.join(results_dir, "improvements", imp["improvementId"])
-    os.makedirs(os.path.join(folder, "raw"), exist_ok=True)
-    with open(os.path.join(folder, "improvement.json"), "w", encoding="utf-8") as f:
-        json.dump(imp, f, ensure_ascii=False, indent=2)
+    if os.path.exists(folder) and not overwrite:
+        raise FileExistsError(f"이미 결과가 있습니다: {folder} (다시 돌리려면 overwrite)")
+    tmp = folder + ".tmp"
+    if os.path.exists(tmp):
+        shutil.rmtree(tmp)
+    os.makedirs(os.path.join(tmp, "raw"))
+    write_json(os.path.join(tmp, "improvement.json"), imp)
     for i, item in enumerate(out["raw"], 1):
-        with open(os.path.join(folder, "raw", f"{i:03d}_{item['kind']}.json"), "w", encoding="utf-8") as f:
-            json.dump(item, f, ensure_ascii=False, indent=2)
-    with open(os.path.join(folder, "report.md"), "w", encoding="utf-8") as f:
+        write_json(os.path.join(tmp, "raw", f"{i:03d}_{item['kind']}.json"), item)
+    with open(os.path.join(tmp, "report.md"), "w", encoding="utf-8") as f:
         f.write(report_md(imp))
+    if os.path.exists(folder):
+        shutil.rmtree(folder)
+    os.replace(tmp, folder)
     return folder
+
+
+def write_json(path: str, data) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------- 실행 전 조건 확인·최종안 B 판정
+
+FROZEN_MODEL_FIELDS = ("modelVersion", "modelEndpointId", "temperature", "promptVersion", "goalJudgmentMode")
+
+
+def check_frozen_conditions(plan: dict, now_model: dict, site_map: dict) -> list[str]:
+    """동결한 실험 조건과 지금 실행 환경이 다른 항목 (비어 있으면 같음, #110 리뷰 2).
+
+    plan의 `model`과 `verification.frozen.modelMetadata`를 합쳐 모델 버전·endpoint 식별자·온도·프롬프트 버전·
+    판단 모드를, `referencePath`로 사이트 지도 버전·해시를 비교한다. 동결 값이 빠져 있어도 다른 것으로 본다.
+    now_model: 지금 설정 ({modelVersion, modelEndpointId, temperature, promptVersion, goalJudgmentMode}).
+    """
+    frozen = {**(plan.get("model") or {}), **((plan.get("verification") or {}).get("frozen") or {}).get("modelMetadata", {})}
+    diffs = [f"{k}: 동결 {frozen.get(k)!r} / 지금 {now_model.get(k)!r}"
+             for k in FROZEN_MODEL_FIELDS if frozen.get(k) is None or frozen.get(k) != now_model.get(k)]
+    ref = plan.get("referencePath") or {}
+    for k in ("siteMapVersion", "siteMapHash"):
+        if ref.get(k) is None or ref.get(k) != site_map.get(k):
+            diffs.append(f"{k}: 동결 {ref.get(k)!r} / 지금 {site_map.get(k)!r}")
+    return diffs
+
+
+def official_scores(collect, plan: dict, site_map: dict, label: str) -> tuple[dict, dict | None, list]:
+    """최종안 B 사이트에서 목표마다 모든 화면 확률을 모아 점수를 낸다. 반환 (점수, 화면 검사, 원본).
+
+    collect: B 사이트를 가리키는 수집 함수 (글자를 바꾸지 않는 실제 사이트). 점수를 못 내면 그 목표는 None.
+    """
+    start, max_steps = plan.get("startPage", "home"), plan["score"].get("maxSteps", 8)
+    scores, layout, raw = {}, None, []
+    for g in goals_of(plan):
+        got = collect(g, label, "all")
+        raw.append({"kind": "finalize_collect", "goalKey": g["goalKey"], "label": label, "layout": got.get("layout"),
+                    "records": got.get("records", [])})
+        layout = got.get("layout") or layout
+        scores[g["goalKey"]] = score_of(site_map, got["probs"], start, g["goalPage"], max_steps)[0] if got["probs"] else None
+    return scores, layout, raw
+
+
+def apply_official(imp: dict, plan: dict, scores: dict, layout: dict | None, policy) -> bool:
+    """최종안 B 공식 점수로 다시 판정하고 결과(imp)를 고친다. 채택되면 True (#110 리뷰 1).
+
+    기준은 주·지킬 모두 최초 v1 (#103). B에서 채택되면 요약 점수를 공식 점수로 바꾸고(scoreSource=OFFICIAL_B),
+    탈락하면 최종 요약을 NO_IMPROVEMENT로 바꾼다 — 루프(A) 결과는 `summary.loopResult`에 이력으로, 탈락 사유는
+    `summary.officialRejected`에 남긴다. 프론트의 최종 요약은 항상 B 판정과 같다.
+    """
+    s = imp["summary"]
+    label = s["afterLabel"]
+    main_key = plan["mainGoal"]["goalKey"]
+    guard_keys = [g["goalKey"] for g in plan["guardGoals"]]
+    valid = (layout or {}).get("valid", True) and all(scores.get(k) is not None for k in [main_key, *guard_keys])
+    cand = {"candidateId": "OFFICIAL-B", "label": label, "source": s.get("afterSource") or "AI", "order": 0,
+            "mainScore": scores.get(main_key), "guardScores": {k: scores.get(k) for k in guard_keys},
+            "evaluationStatus": "COMPLETED" if valid else "FAILED"}
+    v1 = {"mainScore": s["main"]["before"], "guardScores": {g["goalKey"]: g["before"] for g in s["guards"]}}
+    chosen = policy.choose(v1, [cand], policy_rules(plan["rules"]))
+    adopted = chosen["adopted"] == "OFFICIAL-B"
+    adopted_a = next((c for r in imp["rounds"] for c in r.get("candidates", [])
+                      if c["decision"] == "ADOPTED" and c["label"] == label), None)
+    imp["official"] = {
+        "method": "B", "label": label, "decision": "CONFIRMED" if adopted else "REJECTED",
+        # B 사이트의 "이름 외 차이 없음"은 생성기(build_shop.py --label)가 만들 때 검사한다. 여기서는 화면 검사만 (#110 리뷰 4)
+        "site": {"siteLabel": f"moro-improve-{label}", "buildCheck": None,
+                 "buildCheckNote": "이름 외 차이 검사는 B 생성(build_shop.py --label) 때 수행, 이 단계는 화면 검사(layout)만"},
+        "layout": layout,
+        "scores": {"mainScore": round_score(scores.get(main_key)),
+                   "guardScores": {k: round_score(scores.get(k)) for k in guard_keys}},
+        "scoresA": None if adopted_a is None else {"mainScore": adopted_a["mainScore"], "guardScores": adopted_a["guardScores"]},
+        "choose": chosen,
+    }
+    if adopted:
+        s["main"].update(after=round_score(scores[main_key]), delta=round_score(scores[main_key] - s["main"]["before"]))
+        for g in s["guards"]:
+            g.update(after=round_score(scores[g["goalKey"]]), delta=round_score(scores[g["goalKey"]] - g["before"]))
+        s["scoreSource"] = "OFFICIAL_B"
+        return True
+    rej = (chosen.get("rejected") or [{}])[0]
+    reason = rej.get("reason") or "EVALUATION_FAILED"
+    if rej.get("guardGoals"):
+        reason += ":" + ",".join(rej["guardGoals"])
+    s["loopResult"] = {"afterLabel": label, "afterSource": s.get("afterSource"), "scoreSource": s.get("scoreSource"),
+                       "main": dict(s["main"]), "guards": [dict(g) for g in s["guards"]]}
+    s["officialRejected"] = {"label": label, "reason": reason}
+    s.update(result="NO_IMPROVEMENT", afterLabel=None, afterSource=None, scoreSource=None)
+    s["main"].update(after=None, delta=None)
+    for g in s["guards"]:
+        g.update(after=None, delta=None)
+    return False
+
+
+def restore_loop_summary(imp: dict) -> None:
+    """`apply_official` 전으로 되돌린다. 이전 판정이 요약을 바꿔 두었으면 루프(A) 요약으로 (finalize를 다시 돌려도 같은 출발점)."""
+    s = imp["summary"]
+    loop = s.pop("loopResult", None)
+    s.pop("officialRejected", None)
+    if loop:   # 이전 B 탈락
+        s.update(result="IMPROVED", afterLabel=loop["afterLabel"], afterSource=loop["afterSource"],
+                 scoreSource=loop["scoreSource"], main=loop["main"], guards=loop["guards"])
+    elif s.get("scoreSource") == "OFFICIAL_B":   # 이전 B 채택: 요약 점수를 루프(A) 점수로
+        adopted = next(c for r in imp["rounds"] for c in r.get("candidates", [])
+                       if c["decision"] == "ADOPTED" and c["label"] == s["afterLabel"])
+        s["main"].update(after=adopted["mainScore"],
+                         delta=round_score(adopted["mainScore"] - s["main"]["before"]))
+        for g in s["guards"]:
+            a = adopted["guardScores"][g["goalKey"]]
+            g.update(after=a, delta=round_score(a - g["before"]))
+        s["scoreSource"] = "LOOP_A"
+    imp["official"] = None
 
 
 def report_md(imp: dict) -> str:
@@ -372,6 +497,12 @@ def report_md(imp: dict) -> str:
         lines.append("  지킬 목표는 허용 감소 범위(−2%p) 이내 유지")
     else:
         lines.append(f"[결론] 개선안 없음 — 기존 '{s['beforeLabel']}' 유지")
+        rej = s.get("officialRejected")
+        if rej:
+            lines.append(f"  루프(A)에서 채택한 '{rej['label']}'는 최종안 B 공식 평가에서 탈락: {rej['reason']}")
+    official = imp.get("official")
+    if official:
+        lines.append(f"[공식 평가 B] {official['decision']}  주 {official['scores']['mainScore']}  지킬 {official['scores']['guardScores']}")
     lines += ["", "[과정]"]
     for r in imp["rounds"]:
         cands = r.get("candidates") or []
