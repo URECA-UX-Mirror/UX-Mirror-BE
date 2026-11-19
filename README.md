@@ -19,6 +19,7 @@ uxm/
 scripts/run_a.py # A 실행기 → results/json/a/, results/run_log.md
 scripts/run_b5.py        # B3+B5 실제 화면 확률 → results/json/b5/, results/screenshots/b5/
 scripts/show_candidates.py  # 후보·도착 판정 확인 (모델 없음) → results/json/candidates/, results/screenshots/candidates/
+scripts/check_site_instances.py  # Optimizer 후보 사이트 C0~C4 점검 (모델 없음, --serve로 서버 5개 기동): 유효성·겹침·잘림·라벨 외 화면 변화 → results/site_checks/
 results/README.md        # 남겨둔 결과별 의미
 scripts/build_shop.py  # shop/stitch_moro_market → shop/moro-before(8001), shop/moro-after(8002) 생성 + 라벨 1개 차이 검사
 scripts/build_sitemap.py  # 쇼핑몰 화면 5개(Before·After)에서 후보를 뽑아 사이트 지도 생성·검증 → config/sitemaps/ (쇼핑몰 서버 필요)
@@ -120,7 +121,7 @@ copy .env.example .env
 
 - 상태: `CREATED → EVALUATING → EVALUATED → VERIFYING → COMPLETED`, 실패 시 `FAILED`(`error.failedPhase`·`lastStatus` 보존). 프론트는 1초 폴링, 종료 상태에서 멈춘다.
 - 후보 풀·대상 메뉴·정책 버전: `config/optimization.json` (C0 `이용정보` 기준, C1~C4). 동률일 때 쓰는 의미 명확성 순위 `semanticClarityRank`(C2 1, C3 2, C4 3, C1 4, 작을수록 우선)도 여기 고정하고 평가마다 넘긴다. 생성 시 모델·프롬프트·목표·사이트 조건과 함께 `frozenConditions`·`modelMetadata`에 동결한다. 요청으로 바꿀 수 없다.
-- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 후보 5개가 모두 등록돼 있다: C0 8001(`moro-before`), C1 8003(`moro-c1`), C2 8002(`moro-after`), C3 8004(`moro-c3`), C4 8005(`moro-c4`). Optimizer를 돌리기 전에 서버 5개를 띄운다. 꺼진 후보는 그 후보만 `FAILED`(`BROWSER_ERROR`)로 남는다. 등록되지 않은 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
+- Site Instance: `config/site_instances.json`에 등록된 사이트만 쓴다 (`baseUrlEnv` 환경변수가 있으면 우선). 후보 5개가 모두 등록돼 있다: C0 8001(`moro-before`), C1 8003(`moro-c1`), C2 8002(`moro-after`), C3 8004(`moro-c3`), C4 8005(`moro-c4`). Optimizer를 돌리기 전에 서버 5개를 띄운다 (`scripts/check_site_instances.py`로 모델 없이 점검). 꺼진 후보는 그 후보만 `FAILED`(`BROWSER_ERROR`)로 남는다. 등록되지 않은 후보는 `SKIPPED`/`INVALID_CANDIDATE`(`SITE_INSTANCE_MISSING`)로 남고 다른 후보로 바꾸지 않는다. `baseUrl`은 응답과 모델 요청에 넣지 않는다.
 - 평가: 후보 화면을 실제로 열어 스냅샷(`raw/snapshot_<C>.json`) → 유효성 검사 → Zoro-1 Direct 1회. 실패 시 재시도하지 않는다.
   - 기준(C0) 자체: 대상 semanticKey가 있고 라벨이 `originalLabel`, 목적지가 설정과 같은지 먼저 본다. 다르면 모델을 부르지 않고 `FAILED`(`BASELINE_INVALID`).
   - 후보: C0 대비 후보 수·순서·화면 제목·목적지·영역(region)·다른 라벨·bbox ±2px·누출. 모든 스냅샷은 semanticKey 누락(`SEMANTIC_KEY_MISSING`)·중복(`SEMANTIC_KEY_DUPLICATE`)도 확인한다 (확률을 키로 묶을 때 덮어쓰기 방지).
