@@ -137,6 +137,20 @@ copy .env.example .env
 - 오류: `404 OPTIMIZATION_NOT_FOUND`, `409 OPTIMIZATION_NOT_READY`·`OPTIMIZATION_ALREADY_PROCESSED`·`RUN_ALREADY_ACTIVE`, `422 INVALID_SITE_INSTANCE`·`EXPERIMENT_CONDITION_MISMATCH`, `503 MODEL_UNAVAILABLE`·`OPTIMIZER_POLICY_UNAVAILABLE`.
 - 저장: `results/optimizations/<optimizationId>/optimization.json` + `raw/`.
 
+## 제출용 실행 로그 (#83)
+
+해커톤 Track 1 제출물 "시나리오 3가지의 에이전트 실행 로그"를 저장소에 올린다. `results/runs/`는 Git에서 빠져 있으므로 고른 Run을 `run-logs/`로 복사한다.
+
+```
+.venv\Scripts\python scripts\export_run_logs.py <runId1> <runId2> <runId3>
+.venv\Scripts\python scripts\export_run_logs.py --results-dir D:\gpu_results <runId> ...   # GPU 서버 결과 폴더
+```
+
+- Run 폴더의 `run.json`·`steps.jsonl`·`events.jsonl`·`issues.json`·`screenshots/`·`raw/`와 같은 실험 키의 비교 결과를 복사한다. 원본은 그대로 둔다 (`docs/final-run-evaluation.md` 4장).
+- 인증 정보(Bearer·키·비밀번호, `.env`의 키·토큰·서버 주소 값)나 로컬 사용자 경로가 섞여 있으면 아무것도 쓰지 않고 멈춘다.
+- `run-logs/README.md`에 Run별 목표·결과·지나간 화면·단계·찾은 Issue·모델을 정리한다. `resultOrigin`이 LIVE가 아니거나 `modelEndpointId`가 `local`·`mock`(리허설), 무효 Run, 분석 미완료는 "확인 필요"로 표시한다. API로 만든 Run은 가짜 모델이어도 LIVE로 저장되므로 행사 Run인지는 `modelEndpointId`로 확인한다.
+- 이미 내용이 있으면 멈추고, `--force`면 고른 Run으로 다시 만든다.
+
 ## 프론트엔드 실제 API 연동 테스트
 
 프론트 저장소에서 `npm ci`, 백엔드 가상환경에서 의존성 설치와
