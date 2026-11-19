@@ -416,6 +416,22 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["ref
 
 </details>
 
+### 자동 개선 실행·리포트 API (#130)
+
+심사위원·사용자가 FE에서 직접 시작하고, 진행 상황과 리포트를 서버에서 본다. 클라이언트는 아무 값도 넘기지 않는다 (목표·사용자 유형·채택 규칙·모델 조건은 서버의 동결 계획 `results/improvement_plan_1119b.json` 그대로, id만 새로).
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| POST | `/api/improvements` | 1회 시작 → `202 {improvementId, status, phase, ...}`. 다른 Run·Optimization·자동 개선이 진행 중이면 `409 RUN_ALREADY_ACTIVE` |
+| GET | `/api/improvements/{id}` | `{improvementId, status, phase, phases[], createdAt, startedAt, finishedAt, error, improvement}` |
+| GET | `/api/improvements` | `{items: [... + summary{result, beforeLabel, afterLabel, main}]}` 최신순. 결과 폴더에 이미 있는 결과(예: `imp-1119b`)도 포함 |
+
+- `status`: `QUEUED` → `RUNNING` → `COMPLETED` / `FAILED` / `INTERRUPTED`(실행 프로세스가 중간에 멈춤). `phase`: `LOOP` → `BUILD_FINAL_SITE` → `OFFICIAL_AND_VERIFY` → `DONE` (채택 이름이 없으면 `LOOP` → `DONE`).
+- `improvement`: 리포트 `improvement.json` (FE 정적 파일과 같은 `improvement-v1` 형식). 루프가 끝나면 생기고, 공식 점수·검증 중에는 루프 결과까지만 들어 있다. 검증 Run 비교는 `verification.pairs[].comparisonPath`(`/comparisons/<improvementId>-<goal>`).
+- 실행은 별도 프로세스(`scripts/improve_live.py`): 루프(`improve.py loop`) → 채택 이름으로 최종안 사이트를 그 자리에서 만들어 서버 안 빈 포트에 띄움 → 공식 점수 + 실제 Run 검증(`improve.py finalize`) → 사이트 내림. 처음부터 끝까지 Run 잠금을 잡아 그동안 다른 Run·Optimization·배포는 막힌다. `/api/health`의 `activeRunOwner`에 `{kind: "IMPROVEMENT", improvementId}`가 보인다.
+- 대략 루프 1~2분 + 공식 점수·검증 3~4분 (행사 GPU 기준).
+- 상태·로그는 `results/improvement_jobs/<id>/`, 리포트는 `results/improvements/<id>/`. 응답에는 pid·로그·사이트 주소를 넣지 않는다.
+
 ## 목표 도달 확률 엔진
 
 실행 없이 "이 목표에 닿을 확률"을 본다. 사이트 지도 간선 + 화면마다 Zoro-1이 준 후보 확률(화면당 1번) → 화면 사이 이동 확률 → 단계별 도달 확률 (`uxm/reach.py`).

@@ -88,7 +88,7 @@ curl -s https://<위 주소>/api/health
 | 코드 갱신 | `./deploy/update.sh` (또는 아래 수동 배포 workflow) |
 | 결과 | 저장소의 `results/` (서버 디스크) |
 
-- **한 번에 Run 하나**는 프로세스 사이에서도 지켜진다 (`api/run_lock.py`, 결과 폴더의 파일 잠금). FE에서 시작한 Run, 서버에서 직접 돌리는 자동 개선 검증(`api/improvement.run_verification`, 두 Run 사이 빈틈 포함), Optimization 중 하나가 도는 동안 다른 쪽은 `409 RUN_ALREADY_ACTIVE`이고 `/api/health`의 `activeRun`에 그 Run ID가, `activeRunOwner`에 잡고 있는 작업이 보인다. 잡은 프로세스가 죽으면 잠금은 저절로 풀린다. 그래서 **평소에는 아무것도 켜고 끌 필요가 없다.**
+- **한 번에 Run 하나**는 프로세스 사이에서도 지켜진다 (`api/run_lock.py`, 결과 폴더의 파일 잠금). FE에서 시작한 Run, 서버에서 직접 돌리는 자동 개선 검증(`api/improvement.run_verification`, 두 Run 사이 빈틈 포함), Optimization 중 하나가 도는 동안 다른 쪽은 `409 RUN_ALREADY_ACTIVE`이고 `/api/health`의 `activeRun`에 그 Run ID가, `activeRunOwner`에 잡고 있는 작업이 보인다. 잡은 프로세스가 죽으면 잠금은 저절로 풀린다. 그래서 **평소에는 아무것도 켜고 끌 필요가 없다.** FE에서 시작한 자동 개선(`POST /api/improvements`, 5분 안팎)도 끝날 때까지 이 잠금을 잡으므로, 그동안 배포는 멈춘다.
 - API에는 로그인이 없다. 주소를 아는 사람은 Run을 만들 수 있다 (한 번에 하나만). 행사가 끝나면 인스턴스를 멈춘다.
 
 ### 쓰기 잠금 (배포용 · 비상용)

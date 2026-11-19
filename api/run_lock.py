@@ -84,8 +84,12 @@ class RunLock:
                     os.close(fd)
                     return False
                 self._fd = fd
-            self._stack.append({"pid": os.getpid(), "host": socket.gethostname(), "kind": owner.get("kind"),
-                                "runId": owner.get("runId"), "since": now_iso()})
+            info = {"pid": os.getpid(), "host": socket.gethostname(), "kind": owner.get("kind"),
+                    "runId": owner.get("runId"), "since": now_iso()}
+            for key in ("improvementId", "optimizationId"):   # 무슨 작업인지 (자동 개선·Optimization id)
+                if owner.get(key):
+                    info[key] = owner[key]
+            self._stack.append(info)
             self._write_info()
             return True
 
