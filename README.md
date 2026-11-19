@@ -49,7 +49,7 @@ flowchart LR
 
 ## 결과: v1 vs v2
 
-쇼핑몰 v1·v2, 같은 목표·같은 사용자 유형. Run 8개 모두 `VALID`. 기록: [run-logs/](run-logs/README.md)
+쇼핑몰 v1·v2, 같은 목표·같은 사용자 유형. Run 8개 모두 `VALID`. 이 Run들의 기록은 #134 이전 커밋의 `run-logs/`에 있다. 지금 [run-logs/](run-logs/README.md)에는 11/20 배포 서버에서 돌린 시연 시나리오 3개(환불 헤맴 → '주문 환불'로 해결, 문의 손해 없음, 배송 잘 찾음)가 있다.
 
 당시 v2는 고정 사이트 `moro-after`(8002)였다. 지금은 삭제했고 같은 화면은 `moro-c2`(8006)에 있다. 지금 after Run은 자동 개선 최종안([실행 API](#실행-api) 참고).
 

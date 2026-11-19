@@ -1,0 +1,339 @@
+{
+  "schemaVersion": "1.3.5",
+  "experimentKey": "imp-live-20261120073424-5254-MAIN",
+  "beforeRunId": "run_before_20261120073628_0ba9",
+  "afterRunId": "run_after_20261120073638_384e",
+  "comparisonStatus": "PARTIAL",
+  "conditionsMatched": true,
+  "conditionChecks": [
+    {
+      "code": "MODEL_VERSION_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "MODEL_ENDPOINT_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "DECISION_MODE_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "PROMPT_VERSION_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "GOAL_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "PERSONA_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "GOAL_JUDGMENT_MODE_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "MAX_STEPS_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "BACK_LIMITS_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "START_PATH_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "BROWSER_STATE_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "VIEWPORT_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "SITE_VERSION_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "LAYOUT_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "MODEL_PAYLOAD_LEAK_CHECK_PASSED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "TEMPERATURE_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "THRESHOLD_CONFIG_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "ANALYSIS_VERSION_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "REFERENCE_PATH_CONFIG_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "CANDIDATE_POLICY_MATCHED",
+      "matched": true,
+      "message": null
+    },
+    {
+      "code": "RESULT_ORIGIN_MATCHED",
+      "matched": true,
+      "message": null
+    }
+  ],
+  "layoutMatched": true,
+  "screenComparisons": [
+    {
+      "pageKey": "home",
+      "beforeStepId": 1,
+      "afterStepId": 1,
+      "screenComparable": true,
+      "reason": null,
+      "candidateSetMatched": true,
+      "actionSetIncludesBack": false,
+      "candidateComparisons": [
+        {
+          "semanticKey": "상단 메뉴>/shop/orders#1",
+          "beforeLabel": "이용정보",
+          "afterLabel": "주문 환불",
+          "beforeProbability": 0.2057,
+          "afterProbability": 0.5378,
+          "deltaProbability": 0.33209999999999995,
+          "comparable": true,
+          "reason": null
+        },
+        {
+          "semanticKey": "상단 메뉴>/shop/support#1",
+          "beforeLabel": "고객센터",
+          "afterLabel": "고객센터",
+          "beforeProbability": 0.3419,
+          "afterProbability": 0.2776,
+          "deltaProbability": -0.06429999999999997,
+          "comparable": true,
+          "reason": null
+        },
+        {
+          "semanticKey": "상단 메뉴>/shop/mypage#1",
+          "beforeLabel": "마이페이지",
+          "afterLabel": "마이페이지",
+          "beforeProbability": 0.2571,
+          "afterProbability": 0.0827,
+          "deltaProbability": -0.1744,
+          "comparable": true,
+          "reason": null
+        },
+        {
+          "semanticKey": "본문>/shop/orders#1",
+          "beforeLabel": "실시간 조회 이용정보 · 주문/배송",
+          "afterLabel": "실시간 조회 이용정보 · 주문/배송",
+          "beforeProbability": 0.0729,
+          "afterProbability": 0.0299,
+          "deltaProbability": -0.04300000000000001,
+          "comparable": true,
+          "reason": null
+        },
+        {
+          "semanticKey": "본문>/shop/support#1",
+          "beforeLabel": "24H 빠른 접수 고객 케어 & 1:1 상담",
+          "afterLabel": "24H 빠른 접수 고객 케어 & 1:1 상담",
+          "beforeProbability": 0.1225,
+          "afterProbability": 0.072,
+          "deltaProbability": -0.0505,
+          "comparable": true,
+          "reason": null
+        }
+      ],
+      "metrics": {
+        "beforeNormalizedEntropy": 0.9255058844270159,
+        "afterNormalizedEntropy": 0.7393030819430445,
+        "deltaNormalizedEntropy": -0.18620280248397136,
+        "beforeClickOnlyNormalizedEntropy": 0.925475473479695,
+        "afterClickOnlyNormalizedEntropy": 0.7393030819430445,
+        "deltaClickOnlyNormalizedEntropy": -0.18617239153665055,
+        "beforeTop2Margin": 0.08479999999999999,
+        "afterTop2Margin": 0.26019999999999993,
+        "deltaTop2Margin": 0.17539999999999994,
+        "beforeClickOnlyTop2Margin": 0.08479152084791519,
+        "afterClickOnlyTop2Margin": 0.26019999999999993,
+        "deltaClickOnlyTop2Margin": 0.17540847915208474,
+        "beforeGoBackProbability": null,
+        "afterGoBackProbability": null,
+        "deltaGoBackProbability": null,
+        "beforeGoalPathProbability": 0.5357,
+        "afterGoalPathProbability": 0.6504,
+        "deltaGoalPathProbability": 0.11470000000000002
+      }
+    },
+    {
+      "pageKey": "support",
+      "beforeStepId": 2,
+      "afterStepId": null,
+      "screenComparable": false,
+      "reason": "NOT_VISITED_IN_AFTER",
+      "candidateSetMatched": false,
+      "actionSetIncludesBack": null,
+      "candidateComparisons": [],
+      "metrics": null
+    },
+    {
+      "pageKey": "orders",
+      "beforeStepId": null,
+      "afterStepId": 2,
+      "screenComparable": false,
+      "reason": "NOT_VISITED_IN_BEFORE",
+      "candidateSetMatched": false,
+      "actionSetIncludesBack": null,
+      "candidateComparisons": [],
+      "metrics": null
+    }
+  ],
+  "runComparison": {
+    "before": {
+      "status": "BLOCKED",
+      "terminationReason": "REVISIT_LIMIT_REACHED",
+      "goalReached": false,
+      "stepCount": 4,
+      "successfulNavigationClickCount": 2,
+      "modelBackCount": 2,
+      "systemBackCount": 0,
+      "backCount": 2,
+      "navigationCost": 4,
+      "extraSteps": null,
+      "extraNavigationCost": null,
+      "referencePathDeviationCount": null,
+      "path": [
+        {
+          "sequence": 0,
+          "pageKey": "home",
+          "pageSignature": "home_default",
+          "path": "/shop/home",
+          "enteredBy": null,
+          "visitCause": "RUN_START",
+          "stepId": null
+        },
+        {
+          "sequence": 1,
+          "pageKey": "support",
+          "pageSignature": "support_default",
+          "path": "/shop/support",
+          "enteredBy": "CLICK",
+          "visitCause": "MODEL_NAVIGATION",
+          "stepId": 1
+        },
+        {
+          "sequence": 2,
+          "pageKey": "home",
+          "pageSignature": "home_default",
+          "path": "/shop/home",
+          "enteredBy": "GO_BACK",
+          "visitCause": "MODEL_BACK",
+          "stepId": 2
+        },
+        {
+          "sequence": 3,
+          "pageKey": "support",
+          "pageSignature": "support_default",
+          "path": "/shop/support",
+          "enteredBy": "CLICK",
+          "visitCause": "MODEL_NAVIGATION",
+          "stepId": 3
+        },
+        {
+          "sequence": 4,
+          "pageKey": "home",
+          "pageSignature": "home_default",
+          "path": "/shop/home",
+          "enteredBy": "GO_BACK",
+          "visitCause": "MODEL_BACK",
+          "stepId": 4
+        }
+      ],
+      "detectedIssueTypes": [
+        "GOAL_NOT_REACHED",
+        "REPEATED_VISIT",
+        "CHOICE_AMBIGUITY"
+      ],
+      "detourMoveCount": 2
+    },
+    "after": {
+      "status": "SUCCESS",
+      "terminationReason": "GOAL_VERIFIED",
+      "goalReached": true,
+      "stepCount": 2,
+      "successfulNavigationClickCount": 2,
+      "modelBackCount": 0,
+      "systemBackCount": 0,
+      "backCount": 0,
+      "navigationCost": 2,
+      "extraSteps": 0,
+      "extraNavigationCost": 0,
+      "referencePathDeviationCount": null,
+      "path": [
+        {
+          "sequence": 0,
+          "pageKey": "home",
+          "pageSignature": "home_default",
+          "path": "/shop/home",
+          "enteredBy": null,
+          "visitCause": "RUN_START",
+          "stepId": null
+        },
+        {
+          "sequence": 1,
+          "pageKey": "orders",
+          "pageSignature": "orders_default",
+          "path": "/shop/orders",
+          "enteredBy": "CLICK",
+          "visitCause": "MODEL_NAVIGATION",
+          "stepId": 1
+        },
+        {
+          "sequence": 2,
+          "pageKey": "refund",
+          "pageSignature": "refund_default",
+          "path": "/shop/refund",
+          "enteredBy": "CLICK",
+          "visitCause": "MODEL_NAVIGATION",
+          "stepId": 2
+        }
+      ],
+      "detectedIssueTypes": [],
+      "detourMoveCount": 0
+    }
+  },
+  "beforeResultOrigin": "LIVE",
+  "afterResultOrigin": "LIVE",
+  "resultOrigin": "LIVE",
+  "createdAt": "2026-11-19T22:37:28.288002+00:00"
+}
