@@ -88,10 +88,12 @@ curl -s https://<위 주소>/api/health
 | 코드 갱신 | `./deploy/update.sh` (또는 아래 수동 배포 workflow) |
 | 결과 | 저장소의 `results/` (서버 디스크) |
 
-- API에는 로그인이 없다. 주소를 아는 사람은 Run을 만들 수 있지만 한 번에 하나만 돈다(`409 RUN_ALREADY_ACTIVE`). 발표·실제 검증 시간에는 아래 쓰기 잠금을 켠다. 행사가 끝나면 인스턴스를 멈춘다.
-- 자동 개선 검증 Run(`api/improvement.run_verification`)을 서버에서 돌리는 동안에는 쓰기 잠금을 켜고(FE Run 차단), 배포하지 않는다 (API 밖 프로세스라 배포의 잠금으로 막을 수 없다).
+- **한 번에 Run 하나**는 프로세스 사이에서도 지켜진다 (`api/run_lock.py`, 결과 폴더의 파일 잠금). FE에서 시작한 Run, 서버에서 직접 돌리는 자동 개선 검증(`api/improvement.run_verification`, 두 Run 사이 빈틈 포함), Optimization 중 하나가 도는 동안 다른 쪽은 `409 RUN_ALREADY_ACTIVE`이고 `/api/health`의 `activeRun`에 그 Run이 보인다. 잡은 프로세스가 죽으면 잠금은 저절로 풀린다. 그래서 **평소에는 아무것도 켜고 끌 필요가 없다.**
+- API에는 로그인이 없다. 주소를 아는 사람은 Run을 만들 수 있다 (한 번에 하나만). 행사가 끝나면 인스턴스를 멈춘다.
 
-### 쓰기 잠금
+### 쓰기 잠금 (배포용 · 비상용)
+
+배포 스크립트가 재시작하는 동안 자동으로 쓴다. 평소에는 켤 필요가 없다 (위의 Run 잠금이 실행 중 겹침을 막는다). 외부에서 Run을 아예 못 시작하게 해야 할 때만 직접 켠다.
 
 ```bash
 ./deploy/write_lock.sh on
@@ -116,7 +118,7 @@ curl -s https://<위 주소>/api/health
 `update.sh` 순서 — 재시작 전에 멈추면 서버는 바뀌지 않는다.
 
 1. **쓰기 잠금** on, 실제 요청으로 503을 확인했을 때만 진행 → 새 Run이 API로 못 들어온다. 5초 기다려 잠금 직전에 들어온 요청을 마저 받는다. 잠금 상태를 확인할 수 없으면(Caddy 응답 없음) 멈춘다.
-2. **진행 중인 Run 확인** → 있으면 멈춤: `/api/health`의 `activeRun`·`activeOptimization`, API가 켜져 있는데 health가 응답 없음, 결과 폴더에서 최근 30분 안에 바뀐 READY·RUNNING Run(API 밖 스크립트 Run).
+2. **진행 중인 Run 확인** → 있으면 멈춤: 결과 폴더의 Run 잠금(API Run·Optimization·서버에서 돌리는 검증 스크립트 Run 모두, `python -m api.run_lock status`), `/api/health`의 `activeRun`·`activeOptimization`, API가 켜져 있는데 health가 응답 없음.
 3. **받을 커밋 확인** → 서버 저장소에 커밋 안 된 수정, `--sha`와 지금 브랜치 커밋이 다름(테스트 뒤 새 커밋), fast-forward 불가면 멈춤. 진행 중인 Run을 다시 확인한 뒤 그 커밋의 `deploy/requirements-server.txt`로 패키지를 **먼저** 설치.
 4. **코드 전환 → 진행 중인 Run 한 번 더 확인**(있으면 코드를 되돌리고 멈춤) → 서비스 파일 다시 쓰기 → 쇼핑몰·API 재시작.
 5. **실제로 Run을 돌릴 수 있는지**: `READY`, 쇼핑몰 5개, 바깥 HTTPS. 안 되면 무엇이 안 되는지와 되돌리는 명령을 출력하고 실패 (모델 서버 문제일 수 있어 자동으로 되돌리지 않는다).

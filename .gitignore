@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 .env
 results/screenshots/
+# 프로세스 사이 Run 잠금 (api/run_lock.py)
+results/.active_run.*
 # STS / Eclipse 설정
 .project
 .settings/

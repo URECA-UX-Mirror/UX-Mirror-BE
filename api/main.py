@@ -275,13 +275,21 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
                       "endpointId": settings["modelEndpointId"]},
             "browser": {"ready": browser_ready},
             "agent": {"ready": agent_ready},
-            "activeRun": runner.active_run_id,
+            # 다른 프로세스(서버에서 직접 돌리는 검증 스크립트 등)의 Run도 보인다 (#122)
+            "activeRun": runner.active_run_id or _external_run_label(runner.external_run()),
             # UX Optimizer 평가·검증 중이면 일반 실행은 409다. activeRun만 보면 비어 있어 같이 알려 준다 (정자비 11-18)
             "activeOptimization": optimizer.active_job(),
             "checkedAt": now_iso(),
         }
 
     return app
+
+
+def _external_run_label(holder: dict | None) -> str | None:
+    """다른 프로세스가 잡은 Run 잠금 → activeRun 값 (Run ID, 두 Run 사이처럼 아직 없으면 작업 종류)."""
+    if not holder:
+        return None
+    return holder.get("runId") or holder.get("kind") or "EXTERNAL_RUN"
 
 
 def _invalid(message: str) -> ApiError:

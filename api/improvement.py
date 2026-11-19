@@ -8,8 +8,8 @@
 - 목표마다 v1(C0 등록 사이트, variant=before)과 최종안(variant=after) Run 1쌍을 순서대로 만든다. 한 번에 Run 하나
   (단일 활성 Run). 같은 목표의 두 Run은 같은 experimentKey라 기존 비교·재생 화면을 그대로 쓸 수 있다.
 - 최종안 주소는 내부 값이라 Run·결과에 남기지 않는다. Run에는 `improvementContext`(siteInstanceId·이름)만 남는다.
-- 스크립트(`scripts/improve.py` 등)에서 부르는 함수다. 같은 결과 폴더를 쓰는 API 서버에서 Run이 진행 중이면 두 Run이
-  겹칠 수 있으므로, 실행 중에는 API로 Run을 만들지 않는다.
+- 스크립트(`scripts/improve.py` 등)에서 부르는 함수다. 같은 결과 폴더를 쓰는 API 서버와는 Run 잠금(`api/run_lock.py`)을
+  같이 써서, 어느 쪽이든 Run이 도는 동안 다른 쪽은 새 Run을 만들지 못한다.
 """
 import copy
 import os
@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from api import run_factory
+from api.errors import ApiError
 from api.presets import Presets
 from api.site_instances import SiteRegistry
 from api.store import is_safe_id
@@ -40,8 +41,8 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
     goals: 목표 목록. preset goalId 문자열 또는 {goalId, goal, verification, referencePathConfig}.
     반환: 실행 순서대로 [{runId, goalId, experimentKey, variant, executionRole, label, status, validity}].
     입력이 잘못되면 Run을 하나도 만들지 않고 ValueError (만들 experimentKey가 비교 API 형식이 아닐 때도).
-    다른 Run이 진행 중이면 ApiError(RUN_ALREADY_ACTIVE). 이 확인은 같은 프로세스의 Runner 안에서만 된다 —
-    API 서버 프로세스에서 도는 Run은 보지 못하므로, 실행 중에는 API로 Run을 만들지 않는다.
+    다른 Run이 진행 중이면 ApiError(RUN_ALREADY_ACTIVE). 결과 폴더의 Run 잠금(#122)으로 확인하므로 API 서버 프로세스의
+    Run도 막고, 검증이 도는 동안(두 Run 사이 빈틈 포함) API 서버는 새 Run을 409로 거절한다.
     Run이 wait_s 안에 끝나지 않으면 TimeoutError (그 뒤 Run은 만들지 않는다).
     중간에 예외가 나면 그때까지 끝난 Run 목록(반환과 같은 모양)을 예외의 `runs` 속성에 붙여 다시 던진다.
     """
@@ -65,6 +66,13 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
         runner = _default_runner(results_dir)
 
     sites = {BASELINE_SITE_INSTANCE_ID: v1["baseUrl"], FINAL_SITE_INSTANCE_ID: final_url}
+    # 두 Run 사이 빈틈에도 다른 프로세스(API 서버의 FE Run 등)가 끼어들지 못하게, 끝날 때까지 Run 잠금을 잡는다 (#122)
+    if not runner.run_lock.acquire({"kind": "IMPROVEMENT_VERIFICATION", "runId": None,
+                                    "improvementId": base["improvementId"]}):
+        busy = ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다 (API 서버 등에서 Run을 실행하고 있습니다).",
+                        retryable=True)
+        busy.runs = []
+        raise busy
     previous = runner.site_base_url
     runner.site_base_url = lambda sid: sites.get(sid) or (previous(sid) if previous else None)
     out = []
@@ -90,6 +98,7 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
         raise
     finally:
         runner.site_base_url = previous
+        runner.run_lock.release()
     return out
 
 

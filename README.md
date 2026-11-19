@@ -235,7 +235,7 @@ flowchart LR
 <details>
 <summary>세부 규칙</summary>
 
-- 동시에 1개만 실행(`409 RUN_ALREADY_ACTIVE`). 같은 `experimentKey`+`variant`에 VALID·진행 중 Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`. INVALID Run만 다시 실행할 수 있고 원본의 `replacementRunId`에 연결된다.
+- 동시에 1개만 실행(`409 RUN_ALREADY_ACTIVE`). 결과 폴더의 파일 잠금(`api/run_lock.py`, #122)이라 서버에서 직접 돌리는 검증 스크립트·Optimization과도 겹치지 않고, `/api/health`의 `activeRun`에 다른 프로세스의 Run도 보인다. 같은 `experimentKey`+`variant`에 VALID·진행 중 Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`. INVALID Run만 다시 실행할 수 있고 원본의 `replacementRunId`에 연결된다.
 - 루프나 브라우저 모듈이 없으면 `POST /api/runs`는 `503`.
 - Issue 분석은 Run이 끝날 때 한 번 돌고 `issues.json`을 쓴다. 분석 전이면 비교는 `409 COMPARISON_NOT_READY`, 분석 실패면 `500 ANALYSIS_ERROR`. 나중에 분석: `python scripts/analyze_runs.py --all`.
 - 목표는 `goalId` 또는 `goal` + `verification{path, text, exact?, scope?}`, 사용자 유형은 `personaId` 또는 `persona`. 직접 입력 문장이 비었거나 200자 초과·누출 금지 문자열이면 `422`.
@@ -407,7 +407,8 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["ref
 - 목표마다 v1(`site-c0`, before) → 최종안(after) Run 1쌍. 같은 목표의 두 Run은 같은 `experimentKey`(`<improvementId>-<goalId>`)라 기존 비교·재생 화면을 그대로 쓴다.
 - `frozen`: `improvementId`, `personaId`, `persona`, `startPath`, `viewport`, `limits.maxSteps`, `modelMetadata`. `goals`: preset goalId 또는 `{goalId, goal, verification, referencePathConfig}`.
 - 반환: `[{runId, goalId, experimentKey, variant, executionRole, label, status, validity}]`. Run에는 `improvementContext`만 남고 최종안 주소는 남지 않는다.
-- 입력 오류는 Run을 만들기 전에 `ValueError`, 제한 시간(600초) 초과는 `TimeoutError`(끝난 Run 목록은 예외의 `runs`). 실행 중에는 API로 Run을 만들지 않는다.
+- 입력 오류는 Run을 만들기 전에 `ValueError`, 제한 시간(600초) 초과는 `TimeoutError`(끝난 Run 목록은 예외의 `runs`).
+- API 서버와 Run 잠금(`api/run_lock.py`, #122)을 같이 쓴다. 검증이 도는 동안(두 Run 사이 포함) API의 새 Run은 `409 RUN_ALREADY_ACTIVE`, API에서 Run이 돌고 있으면 검증이 `RUN_ALREADY_ACTIVE`로 시작하지 않는다.
 
 </details>
 

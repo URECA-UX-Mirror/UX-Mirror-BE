@@ -214,9 +214,23 @@ class Optimizer:
         with self._lock, self.runner.creation_lock:
             if self.runner.active_run_id is not None or self._job is not None or self._pending_model_call():
                 raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이나 후보 평가가 진행 중입니다.", retryable=True)
-            self.store.save(opt)
-            self._start(opt_id, "EVALUATING", self._evaluate)
+            self._claim_run_lock(opt_id, "OPTIMIZATION_EVALUATING")
+            try:
+                self.store.save(opt)
+                self._start(opt_id, "EVALUATING", self._evaluate)
+            except BaseException:
+                self.runner.run_lock.release()
+                raise
         return opt
+
+    def _claim_run_lock(self, opt_id: str, kind: str) -> None:
+        """평가·검증 동안 프로세스 사이 Run 잠금을 잡는다 (#122). 서버의 다른 작업이 Run 중이면 409.
+
+        잡은 채로 만드는 자기 검증 Run은 같은 프로세스라 겹쳐 잡힌다. 작업이 끝나면 `_run_job`이 놓는다.
+        """
+        if not self.runner.run_lock.acquire({"kind": kind, "runId": None, "optimizationId": opt_id}):
+            raise ApiError(409, "RUN_ALREADY_ACTIVE",
+                           "다른 실행이 진행 중입니다 (서버의 다른 작업이 Run을 실행하고 있습니다).", retryable=True)
 
     def _start(self, opt_id: str, kind: str, target) -> None:
         self._job = (opt_id, kind)
@@ -231,6 +245,7 @@ class Optimizer:
             # 끝나지 않은 모델 호출이 있으면 _stuck_model_call에 남아 있어, 작업이 끝나도 그 호출이 끝날 때까지 busy_reason이 막는다
             with self._lock:
                 self._job = None
+            self.runner.run_lock.release()
 
     # ------------------------------------------------------------------ 후보 평가 (4장, 6장)
 
@@ -412,9 +427,14 @@ class Optimizer:
                     raise ApiError(422, "INVALID_SITE_INSTANCE", f"후보 {cid}의 사이트 인스턴스가 등록되어 있지 않습니다.")
             self._check_conditions(opt)
             self.runner.ensure_ready()
-            opt.update(status="VERIFYING", verificationPhase="BASELINE")
-            self.store.save(opt)
-            self._start(opt_id, "VERIFYING", self._verify)
+            self._claim_run_lock(opt_id, "OPTIMIZATION_VERIFYING")
+            try:
+                opt.update(status="VERIFYING", verificationPhase="BASELINE")
+                self.store.save(opt)
+                self._start(opt_id, "VERIFYING", self._verify)
+            except BaseException:
+                self.runner.run_lock.release()
+                raise
         return opt
 
     def _baseline_id(self, opt: dict) -> str:
