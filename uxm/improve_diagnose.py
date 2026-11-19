@@ -116,12 +116,18 @@ def diagnose(site_map: dict, page_probs: dict[str, dict[str, float]], start: str
     return result
 
 
-def describe(diagnosis: dict, goal_name: str) -> str:
-    """제안 프롬프트에 넣을 진단 요약 (자연어). 점수·식별자·경로 이름은 넣지 않는다 (누출 검사 원칙)."""
+def describe(diagnosis: dict, goal_name: str, destination: str | None = None) -> str:
+    """제안 프롬프트에 넣을 진단 요약 (자연어). 점수·식별자·경로 이름은 넣지 않는다 (누출 검사 원칙).
+
+    destination: 고칠 버튼을 누르면 가는 화면 설명 (기준 고정 파일 `edit.targetPageDescription`).
+    모델이 메뉴가 어디로 가는지 모르면 화면에 보이는 다른 메뉴 이름만 따라 쓴다 (11/19 연습 실행).
+    """
     target, rival = diagnosis.get("targetButton"), diagnosis.get("rivalButton")
     if not target or not target.get("label"):
         raise ValueError("고칠 버튼 글자가 없는 진단은 설명할 수 없습니다.")
     text = f"{goal_name} 사용자가 '{target['label']}' 메뉴를 잘 고르지 않는다."
     if rival and rival.get("label"):
         text = f"{goal_name} 사용자가 '{target['label']}' 메뉴를 잘 고르지 않고 '{rival['label']}' 쪽으로 간다."
+    if destination:
+        text = f"'{target['label']}' 메뉴를 누르면 {destination}으로 간다. " + text
     return text
