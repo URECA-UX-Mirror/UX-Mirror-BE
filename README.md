@@ -155,7 +155,7 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["ref
 - `frozen`: `improvementId`, `personaId`, `persona`, `startPath`, `viewport`, `limits.maxSteps`(나머지 제한은 기본값), `modelMetadata`(있으면 지금 모델 설정과 같아야 실행). `goals`: preset goalId 또는 `{goalId, goal, verification, referencePathConfig}`.
 - 반환: 실행 순서대로 `[{runId, goalId, experimentKey, variant, executionRole, label, status, validity}]`. 같은 목표의 두 Run은 같은 `experimentKey`(`<improvementId>-<goalId>`)라 기존 조회·비교·재생 API를 그대로 쓴다.
 - Run에는 `improvementContext: {improvementId, goalId, label, siteInstanceId, executionRole}`만 남고 최종안 주소는 남지 않는다.
-- 입력이 잘못되면 Run을 만들지 않고 `ValueError`. 다른 Run이 진행 중이면 `RUN_ALREADY_ACTIVE`, Run이 제한 시간(기본 600초) 안에 안 끝나면 `TimeoutError`.
+- 입력이 잘못되면 Run을 만들지 않고 `ValueError` (만들 `experimentKey`가 영문·숫자·`_`·`-` 64자 이하가 아닐 때도). 다른 Run이 진행 중이면 `RUN_ALREADY_ACTIVE`(같은 프로세스 안에서만 확인), Run이 제한 시간(기본 600초) 안에 안 끝나면 `TimeoutError`. 중간에 멈추면 그때까지 끝난 Run 목록이 예외의 `runs`에 들어 있다.
 - API 서버와 같은 결과 폴더(`UXM_RESULTS_DIR` 또는 `results/`)를 쓴다. 실행 중에는 API로 Run을 만들지 않는다 (서버와 단일 활성 Run을 공유하지 않음).
 
 ## 제출용 실행 로그 (#83)

@@ -192,3 +192,56 @@ def test_verification_runs_open_in_existing_run_and_comparison_api(env):
         assert run["improvementContext"]["executionRole"] == "CANDIDATE" and run["variant"] == "after"
         assert c.get(f"/api/comparisons/{out[0]['experimentKey']}").status_code == 200
         assert {r["runId"] for r in c.get("/api/runs").json()["items"]} == {r["runId"] for r in out}
+
+
+@pytest.mark.parametrize("imp_id, goal_id", [
+    ("imp.1119", "refund"),                 # 리뷰 재현: 점이 들어간 id
+    ("i" * 62, "refund"),                   # 리뷰 재현: 키가 64자를 넘음
+    ("imp_ok", "s4.support"),
+])
+def test_experiment_key_must_be_safe_id_before_any_run(env, imp_id, goal_id):
+    """만든 experimentKey가 /api/comparisons/{key}에서 받는 형식(영문·숫자·_·-, 64자 이하)이어야 한다 (#102 리뷰)."""
+    runner, integ, _ = env
+    g = goals()[1]
+    g["goalId"] = goal_id
+    with pytest.raises(ValueError, match="experimentKey"):
+        improvement.run_verification(frozen(improvementId=imp_id), FINAL_URL, "주문·조회", ["refund", g] if goal_id != "refund" else ["refund"],
+                                     runner=runner)
+    assert integ.opened == [] and runner.store.list_runs() == []
+
+
+def test_timeout_keeps_finished_runs_on_error(env):
+    """중간에 멈춰도 이미 끝난 Run 목록을 예외의 runs로 받는다 (#102 리뷰: FE는 끝난 Run만 보여 줌)."""
+    runner, integ, _ = env
+    calls, hold = {"n": 0}, threading.Event()   # integ.gate는 모든 Run을 붙잡으므로 따로 둔다
+    real = integ.agent()
+
+    def agent_blocks_on_third(settings, backend, page):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            hold.wait(5)
+        return real(settings, backend, page)
+    integ.agent = lambda: agent_blocks_on_third
+    try:
+        with pytest.raises(TimeoutError) as e:
+            improvement.run_verification(frozen(), FINAL_URL, "주문·조회", goals(), runner=runner, wait_s=0.3)
+    finally:
+        hold.set()
+        runner.wait(10)
+    assert [(r["goalId"], r["executionRole"], r["validity"]) for r in e.value.runs] == [
+        ("refund", "BASELINE", "VALID"), ("refund", "CANDIDATE", "VALID")]
+
+
+def test_refused_run_keeps_finished_runs_on_error(env, monkeypatch):
+    runner, _, _ = env
+    real_create, calls = runner.create, {"n": 0}
+
+    def create(run, goal):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise ApiError(409, "RUN_ALREADY_ACTIVE", "다른 실행이 진행 중입니다.", retryable=True)
+        return real_create(run, goal)
+    monkeypatch.setattr(runner, "create", create)
+    with pytest.raises(ApiError) as e:
+        improvement.run_verification(frozen(), FINAL_URL, "주문·조회", goals(), runner=runner)
+    assert [r["executionRole"] for r in e.value.runs] == ["BASELINE"]

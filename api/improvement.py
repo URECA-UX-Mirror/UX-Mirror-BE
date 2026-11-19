@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 from api import run_factory
 from api.presets import Presets
 from api.site_instances import SiteRegistry
+from api.store import is_safe_id
 
 FINAL_SITE_INSTANCE_ID = "improve-final"
 BASELINE_SITE_INSTANCE_ID = "site-c0"
@@ -38,8 +39,11 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
     label: 최종안 버튼 이름.
     goals: 목표 목록. preset goalId 문자열 또는 {goalId, goal, verification, referencePathConfig}.
     반환: 실행 순서대로 [{runId, goalId, experimentKey, variant, executionRole, label, status, validity}].
-    입력이 잘못되면 Run을 하나도 만들지 않고 ValueError. 다른 Run이 진행 중이면 ApiError(RUN_ALREADY_ACTIVE).
+    입력이 잘못되면 Run을 하나도 만들지 않고 ValueError (만들 experimentKey가 비교 API 형식이 아닐 때도).
+    다른 Run이 진행 중이면 ApiError(RUN_ALREADY_ACTIVE). 이 확인은 같은 프로세스의 Runner 안에서만 된다 —
+    API 서버 프로세스에서 도는 Run은 보지 못하므로, 실행 중에는 API로 Run을 만들지 않는다.
     Run이 wait_s 안에 끝나지 않으면 TimeoutError (그 뒤 Run은 만들지 않는다).
+    중간에 예외가 나면 그때까지 끝난 Run 목록(반환과 같은 모양)을 예외의 `runs` 속성에 붙여 다시 던진다.
     """
     presets = presets or Presets()
     registry = registry or SiteRegistry()
@@ -48,6 +52,11 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
     if not isinstance(label, str) or not label.strip():
         raise ValueError("최종안 이름(label)이 필요합니다.")
     goal_list = _resolve_goals(goals, presets)
+    for goal in goal_list:
+        key = _experiment_key(base["improvementId"], goal["goalId"])
+        if not is_safe_id(key):
+            raise ValueError(f"experimentKey({key[:80]})가 영문·숫자·_·- 64자 이하가 아닙니다. "
+                             "improvementId·goalId를 줄이거나 점을 빼 주세요.")
     v1 = registry.instances.get(BASELINE_SITE_INSTANCE_ID)
     if v1 is None:
         raise ValueError(f"v1 사이트({BASELINE_SITE_INSTANCE_ID})가 config/site_instances.json에 없습니다.")
@@ -62,7 +71,7 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
     try:
         runner.ensure_ready()
         for goal in goal_list:
-            key = f"{base['improvementId']}-{goal['goalId']}"
+            key = _experiment_key(base["improvementId"], goal["goalId"])
             for role, variant, sid, name in (("BASELINE", "before", BASELINE_SITE_INSTANCE_ID, v1["label"]),
                                              ("CANDIDATE", "after", FINAL_SITE_INSTANCE_ID, label.strip())):
                 run = _build_run(base, goal, key, variant)
@@ -76,9 +85,16 @@ def run_verification(frozen: dict, site_url: str, label: str, goals: list, *, ru
                 out.append({"runId": run["runId"], "goalId": goal["goalId"], "experimentKey": key, "variant": variant,
                             "executionRole": role, "label": name, "status": done.get("status"),
                             "validity": done.get("validity")})
+    except BaseException as e:
+        e.runs = list(out)   # 끝난 Run만 (FE는 검증이 멈추면 끝난 Run만 보여 준다)
+        raise
     finally:
         runner.site_base_url = previous
     return out
+
+
+def _experiment_key(improvement_id: str, goal_id: str) -> str:
+    return f"{improvement_id}-{goal_id}"
 
 
 def _build_run(base: dict, goal: dict, key: str, variant: str) -> dict:
