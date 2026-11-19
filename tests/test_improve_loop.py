@@ -321,3 +321,48 @@ def test_real_policy_prompt_receives_previously_tried_names_and_comma_response()
     filtered = result['rounds'][0]['proposal']['filtered']
     assert [(x['label'], x['accepted']) for x in filtered] == [
         ('고객센터', False), ('이용정보', False), ('주문내역', True)]
+
+
+# ---- #114 리뷰: 시도 간 중복은 filter_labels와 같은 정규화로, 회차당 수 제한을 넘은 이름은 사유와 함께
+
+def _proposal_round(responses, ai):
+    plan = copy.deepcopy(PLAN)
+    plan["humanCandidates"] = []
+    plan["aiProposal"] = ai
+    it = iter(responses)
+    from uxm import improve_policy
+    deps = Deps(fake_collect([]), lambda prompt: next(it, ""), improve_policy, clock=lambda: "t")
+    return run_loop(plan, SITE_MAP, deps)["improvement"]["rounds"][0]
+
+
+def test_duplicate_across_attempts_ignores_case_and_spacing():
+    r1 = _proposal_round(["Order", "ORDER\n주문  내역", "주문 내역\n구매내역"], {"maxAttempts": 3, "minAccepted": 3})
+    rows = [(f["label"], f["accepted"], f["rejectedReason"], f["attempt"]) for f in r1["proposal"]["filtered"]]
+    assert ("ORDER", False, "DUPLICATE_LABEL", 2) in rows                 # Order와 같은 이름
+    assert ("주문 내역", False, "DUPLICATE_LABEL", 3) in rows             # 2번째 시도 '주문  내역'과 같은 이름
+    assert [c["label"] for c in r1["candidates"]] == ["Order", "주문 내역", "구매내역"]
+
+
+def test_names_over_max_per_round_are_marked_and_not_evaluated():
+    r1 = _proposal_round(["주문내역\n구매내역\n내 주문"], {"maxAttempts": 1, "minAccepted": 1, "maxPerRound": 2})
+    filtered = {f["label"]: (f["accepted"], f["rejectedReason"]) for f in r1["proposal"]["filtered"]}
+    assert filtered["내 주문"] == (False, "CANDIDATE_LIMIT_EXCEEDED")
+    evaluated = [c["label"] for c in r1["candidates"]]
+    assert evaluated == ["주문내역", "구매내역"]
+    assert [f["label"] for f in r1["proposal"]["filtered"] if f["accepted"]] == evaluated   # accepted = 평가 대상
+
+
+def test_tried_names_and_tie_lost_use_the_same_rules_as_policy():
+    from uxm.improve_loop import _apply_decisions
+    # 이미 시험한 이름 비교도 정규화: 현재 이름 '이용정보'와 앞뒤 공백만 다른 사람 후보는 다시 평가하지 않는다
+    plan = copy.deepcopy(PLAN)
+    plan["humanCandidates"] = [{"candidateId": "H1", "label": " 이용정보 "}, {"candidateId": "H2", "label": "주문 관리"}]
+    it = iter(["Order"])
+    deps = Deps(fake_collect([]), lambda prompt: next(it, ""), FakePolicy(), clock=lambda: "t")
+    r1 = run_loop(plan, SITE_MAP, deps)["improvement"]["rounds"][0]
+    labels = [c["label"] for c in r1["candidates"]]
+    assert " 이용정보 " not in labels and "주문 관리" in labels
+    # 정확히 1%p 차이는 동률(choose와 같은 Decimal 기준) → TIE_LOST, float 오차로 NOT_BEST가 되지 않는다
+    cands = [{"candidateId": "A", "mainScore": 0.6, "reason": None}, {"candidateId": "B", "mainScore": 0.59, "reason": None}]
+    _apply_decisions(cands, {"adopted": "A", "ranking": ["A", "B"], "rejected": []}, {"tieTolerance": 0.01})
+    assert [c["reason"] for c in cands] == [None, "TIE_LOST"]
