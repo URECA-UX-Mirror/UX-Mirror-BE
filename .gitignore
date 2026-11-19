@@ -2,6 +2,15 @@
 __pycache__/
 .pytest_cache/
 .env
+# 접속 키·인증서 (EC2 .pem 등). 저장소 폴더에 두어도 커밋되지 않게
+*.pem
+*.ppk
+*.key
+id_rsa*
+id_ed25519*
+# .env 복사본(.env.local 등)도 막는다. 예시 파일만 올린다
+.env.*
+!.env.example
 results/screenshots/
 # STS / Eclipse 설정
 .project
