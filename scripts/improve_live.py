@@ -32,7 +32,7 @@ from api.timeutil import now_iso  # noqa: E402
 TEMPLATE_PLAN = os.path.join(ROOT, "results", "improvement_plan_1119b.json")
 JOBS_DIR = "improvement_jobs"
 SITE_START_TIMEOUT_S = 20
-_URL_RE = re.compile(r"https?://\S+|127\.0\.0\.1:\d+|localhost:\d+")
+_URL_RE = re.compile(r"https?://\S+|127\.0\.0\.1:\d+|localhost:\d+|(?:/home|/Users|/private|/tmp|/var)/\S+|[A-Za-z]:\\\S+")
 
 
 def job_dir(results_dir: str, improvement_id: str) -> str:
@@ -85,6 +85,8 @@ def make_plan(template: dict, improvement_id: str, user_input: dict | None = Non
         raise ValueError("기준 계획이 동결(FROZEN)되지 않았습니다.")
     based_on = plan.get("improvementId")
     plan["improvementId"] = improvement_id
+    plan["improvementPlanId"] = f"{plan.get('improvementPlanId') or based_on}-live"   # 공식 계획과 구분 (#131 리뷰)
+    plan.pop("secondRun", None)   # "2차 1회" 같은 공식 실행 기록은 복사본에 남기지 않는다
     frozen = plan.get("verification", {}).get("frozen") if isinstance(plan.get("verification"), dict) else None
     if isinstance(frozen, dict):
         frozen["improvementId"] = improvement_id
@@ -122,6 +124,14 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+def _die_with_parent():   # pragma: no cover - 자식 프로세스에서 실행
+    """실행 프로세스가 죽으면(kill 포함) 최종안 사이트 서버도 같이 끝나게 (Linux). 다른 OS에서는 아무것도 하지 않는다."""
+    if sys.platform.startswith("linux"):
+        import ctypes
+        import signal
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)   # PR_SET_PDEATHSIG
+
+
 def build_and_serve(label: str, folder: str):
     """채택 이름으로 최종안 사이트(B)를 만들고 빈 포트에서 띄운다 → (주소, 프로세스)."""
     site = os.path.join(folder, "site")
@@ -129,7 +139,7 @@ def build_and_serve(label: str, folder: str):
                     "--force"], check=True, cwd=ROOT, stdout=subprocess.DEVNULL)
     port = free_port()
     proc = subprocess.Popen([sys.executable, "server.py", "--host", "127.0.0.1", "--port", str(port)], cwd=site,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=_die_with_parent)
     end = time.time() + SITE_START_TIMEOUT_S
     while time.time() < end:
         if proc.poll() is not None:

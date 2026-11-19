@@ -364,3 +364,36 @@ def test_diagnosis_run_refuses_meaningless_persona(make_client):
             "verification": {"path": "/shop/refund", "text": "환불 / 반품 신청"}, "persona": ".", "maxSteps": 5}
     r = c.post("/api/runs", json=body)
     assert r.status_code == 422 and "구체적" in r.json()["error"]["message"]
+
+
+# ---------------------------------------------------------------- #131 리뷰: 공식 결과와 심사 실행 구분 · 끄기 스위치 · 오류 문구
+
+def test_live_and_official_results_are_marked(make_client):
+    c, _, results = make_client(delay="0.1")
+    folder = results / "improvements" / "imp-1119b"
+    folder.mkdir(parents=True)
+    (folder / "improvement.json").write_text(json.dumps({"improvementId": "imp-1119b", "status": "COMPLETED",
+                                                         "createdAt": "2026-11-20T00:05:39+09:00", "summary": {}}), encoding="utf-8")
+    live = c.post("/api/improvements").json()["improvementId"]
+    wait_status(c, live, ("COMPLETED",))
+    kinds = {i["improvementId"]: i["kind"] for i in c.get("/api/improvements").json()["items"]}
+    assert kinds == {"imp-1119b": "OFFICIAL", live: "LIVE"}
+    assert c.get(f"/api/improvements/{live}").json()["kind"] == "LIVE"
+
+
+def test_live_plan_is_not_the_official_plan():
+    plan = improve_live.make_plan(REAL_TEMPLATE, "imp-live-x")
+    assert plan["improvementPlanId"] == f"{REAL_TEMPLATE['improvementPlanId']}-live" and "secondRun" not in plan
+
+
+def test_improvements_can_be_switched_off(make_client, monkeypatch):
+    c, _, _ = make_client()
+    monkeypatch.setenv("UXM_IMPROVEMENTS_ENABLED", "0")
+    r = c.post("/api/improvements")
+    assert r.status_code == 503 and r.json()["error"]["code"] == "IMPROVEMENTS_DISABLED"
+    assert c.get("/api/improvements").status_code == 200
+
+
+def test_error_message_hides_paths():
+    msg = improve_live.scrub("파일 없음: /home/ubuntu/UX-Mirror-BE/results/x.json, C:\\AI\\Zoro-1 와 http://10.0.0.1:9000")
+    assert "/home/" not in msg and "C:\\" not in msg and "10.0.0.1" not in msg

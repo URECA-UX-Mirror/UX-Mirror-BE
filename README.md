@@ -434,6 +434,8 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["ref
 - `improvement`: 리포트 `improvement.json` (FE 정적 파일과 같은 `improvement-v1` 형식). 루프가 끝나면 생기고, 공식 점수·검증 중에는 루프 결과까지만 들어 있다. 검증 Run 비교는 `verification.pairs[].comparisonPath`(`/comparisons/<improvementId>-<goal>`).
 - 실행은 별도 프로세스(`scripts/improve_live.py`): 루프(`improve.py loop`) → 채택 이름으로 최종안 사이트를 그 자리에서 만들어 서버 안 빈 포트에 띄움 → 공식 점수 + 실제 Run 검증(`improve.py finalize`) → 사이트 내림. 처음부터 끝까지 Run 잠금을 잡아 그동안 다른 Run·Optimization·배포는 막힌다. `/api/health`의 `activeRunOwner`에 `{kind: "IMPROVEMENT", improvementId}`가 보인다.
 - 대략 루프 1~2분 + 공식 점수·검증 3~4분 (행사 GPU 기준).
+- 응답 `kind`: `LIVE`(서버에서 시작한 실행, 심사·시연용) / `OFFICIAL`(사전 등록 공식 실행 결과를 결과 폴더에 넣은 것, 예: imp-1119b). 심사 실행 계획은 `improvementPlanId`에 `-live`가 붙고 공식 실행 기록(`secondRun`)은 지운다.
+- `UXM_IMPROVEMENTS_ENABLED=0`이면 새 시작은 `503 IMPROVEMENTS_DISABLED`(조회는 그대로). 심사 기간 뒤 끄기용.
 - 상태·로그는 `results/improvement_jobs/<id>/`, 리포트는 `results/improvements/<id>/`. 응답에는 pid·로그·사이트 주소를 넣지 않는다.
 
 ## 목표 도달 확률 엔진

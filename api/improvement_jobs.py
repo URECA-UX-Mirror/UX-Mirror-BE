@@ -28,6 +28,7 @@ JOBS_DIR = "improvement_jobs"
 ACTIVE = ("QUEUED", "RUNNING")
 START_TIMEOUT_S = 20   # 실행 프로세스가 Run 잠금을 잡을 때까지 기다리는 시간
 PUBLIC_STATUS_FIELDS = ("improvementId", "status", "phase", "phases", "createdAt", "startedAt", "finishedAt", "error")
+ENABLE_ENV = "UXM_IMPROVEMENTS_ENABLED"   # "0"이면 새 AI 개선 시작을 막는다 (심사 기간 뒤 끄기용). 조회는 그대로
 
 
 class ImprovementJobs:
@@ -113,6 +114,8 @@ class ImprovementJobs:
         return user_input
 
     def start(self, body: dict | None = None) -> dict:
+        if os.getenv(ENABLE_ENV, "1").strip() == "0":
+            raise ApiError(503, "IMPROVEMENTS_DISABLED", "지금은 AI 개선을 새로 시작할 수 없어요. 지난 결과는 볼 수 있어요.")
         user_input = self.resolve_input(body)
         with self._lock, self.runner.creation_lock:
             if any(self._running(i, p) for i, p in self._procs.items()):
@@ -156,6 +159,7 @@ class ImprovementJobs:
         result = _read(self._result_path(imp_id))
         if status is None and result is None:
             raise ApiError(404, "IMPROVEMENT_NOT_FOUND", "자동 개선 결과를 찾을 수 없습니다.")
+        kind = "LIVE" if status is not None else "OFFICIAL"   # 서버에서 시작한 실행 / 사전 등록 공식 실행 결과 (#131 리뷰)
         if status is None:   # 서버 밖에서 돌려 결과만 넣은 것 (예: imp-1119b)
             status = {"improvementId": imp_id, "status": "COMPLETED" if result.get("status") == "COMPLETED" else
                       result.get("status"), "phase": "DONE", "phases": [], "createdAt": result.get("createdAt"),
@@ -165,6 +169,7 @@ class ImprovementJobs:
                           error={"code": "IMPROVEMENT_INTERRUPTED", "message": "실행 프로세스가 끝까지 가지 못하고 멈췄습니다."})
             _write(os.path.join(self._job_dir(imp_id), "status.json"), status)
         out = {k: status.get(k) for k in PUBLIC_STATUS_FIELDS}
+        out["kind"] = kind
         out["input"] = _read(os.path.join(self._job_dir(imp_id), "input.json"))   # 어떤 입력으로 돌렸는지 (없으면 기본 계획)
         # 루프가 끝나면 리포트가 생긴다. 공식 점수·검증 중(RUNNING)에는 루프 결과까지만 들어 있다
         out["improvement"] = result
