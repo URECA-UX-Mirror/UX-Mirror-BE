@@ -2,7 +2,7 @@
 
 baseline.mainScore는 현재 기준의 주 목표 점수이고, baseline.guardScores는
 동결된 지킬 목표 기준이다. 최초 v1 대비 정책에서는 최초 v1 점수를 넘긴다.
-rules: minMainGain, maxGuardLoss, tieTolerance (각각 확률 단위, 기본 .05/.02/.01).
+rules: minMainGain, maxGuardLoss, tieTolerance (모두 필수, 확률 단위).
 """
 import math
 import re
@@ -13,7 +13,7 @@ from uxm.candidates import DANGEROUS_WORDS
 from uxm.leak import assert_no_leak
 
 # 일반 후보의 위험 동작도 막는다. 이 목록은 기존 탐색 규칙을 변경하지 않는다.
-_DANGEROUS = tuple(dict.fromkeys((*DANGEROUS_WORDS, "결제", "구매", "주문하기", "장바구니 담기", "비우기")))
+_DANGEROUS = tuple(dict.fromkeys((*DANGEROUS_WORDS, "결제", "구매하기", "바로구매", "주문하기", "장바구니 담기", "비우기")))
 # 명확한 미완성 예시만 차단한다. 임의 한국어 단어의 완결성은 판별할 수 없다.
 _TRUNCATED = re.compile(r"(?:[·/\-]\s*환|[·/\-])$")
 
@@ -44,14 +44,14 @@ def build_prompt(diagnosis_text, button, siblings, persona, history):
 
 
 def _key(value):
-    return unicodedata.normalize("NFKC", value).strip().casefold()
+    return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
 
 
 def filter_labels(raw_text, context):
     """원문 한 줄을 한 후보로 검사하고 거절 사유를 보존한다.
 
     잘린 단어 검사는 명확한 기호 끝과 '·환' 예시에 한정한 휴리스틱이다.
-    번호나 설명, 코드 블록을 자동 제거해 후보로 오인하지 않는다.
+    줄 앞의 일반적인 목록 기호를 제거한다. 설명·코드 블록은 후보로 취급하지 않는다.
     """
     if not isinstance(raw_text, str) or not isinstance(context, dict):
         raise ValueError("raw_text and context must be a string and a dict")
@@ -66,6 +66,8 @@ def filter_labels(raw_text, context):
     seen, result, accepted = set(), [], 0
     for raw in raw_text.splitlines():
         label = unicodedata.normalize("NFKC", raw).strip()
+        label = re.sub(r"^(?:\d+[.)]|[-*•])\s*", "", label, count=1)
+        label = " ".join(label.split())
         key = _key(label)
         reason = None
         if not label:
@@ -80,7 +82,7 @@ def filter_labels(raw_text, context):
             reason = "DANGEROUS_LABEL"
         elif _TRUNCATED.search(label):
             reason = "TRUNCATED_LABEL"
-        elif not re.fullmatch(r"[가-힣A-Za-z0-9]+(?:[·/\-][가-힣A-Za-z0-9]+)*", label) or not re.search(r"[가-힣A-Za-z]", label):
+        elif not re.fullmatch(r"[가-힣A-Za-z0-9]+(?:[ ·/\-][가-힣A-Za-z0-9]+)*", label) or not re.search(r"[가-힣A-Za-z]", label):
             reason = "INVALID_FORMAT"
         elif accepted >= 6:
             reason = "CANDIDATE_LIMIT_EXCEEDED"
@@ -112,7 +114,10 @@ def choose(baseline, candidates, rules):
     main, guards = baseline.get("mainScore"), baseline.get("guardScores")
     if not _probability(main) or not isinstance(guards, dict) or not guards or any(not isinstance(k, str) or not k or not _probability(v) for k, v in guards.items()):
         raise ValueError("baseline scores must contain a valid main score and guard scores")
-    params = {k: rules.get(k, default) for k, default in (("minMainGain", .05), ("maxGuardLoss", .02), ("tieTolerance", .01))}
+    required_rules = ("minMainGain", "maxGuardLoss", "tieTolerance")
+    if any(k not in rules for k in required_rules):
+        raise ValueError("rules must include minMainGain, maxGuardLoss and tieTolerance")
+    params = {k: rules[k] for k in required_rules}
     if any(not _probability(v) for v in params.values()):
         raise ValueError("rules must contain probability thresholds between 0 and 1")
     ids = [c.get("candidateId") if isinstance(c, dict) else None for c in candidates]
@@ -135,7 +140,10 @@ def choose(baseline, candidates, rules):
         else:
             reason = None
         if reason:
-            rejected.append({"candidateId": cid, "reason": reason})
+            item = {"candidateId": cid, "reason": reason}
+            if reason == "GUARD_LOSS_EXCEEDED":
+                item["guardGoals"] = [g for g in guards if _decimal(guards[g]) - _decimal(scores[g]) > _decimal(params["maxGuardLoss"])]
+            rejected.append(item)
         else:
             eligible.append(c)
     ranking = []
