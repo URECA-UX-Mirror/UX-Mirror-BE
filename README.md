@@ -101,7 +101,7 @@ copy .env.example .env
 
 - `siteId`가 없으면 지금까지와 같은 MORO MARKET 버전 비교 Run이다. Run에 `siteId`·`mode` 필드를 쓰지 않는다.
 - 시나리오 Run 규칙: `variant=before`만, 목표는 직접 입력(`goal` + `verification`)만. 시작·도착 화면은 그 사이트에 등록된 화면(`pages`)의 경로와 정확히 같아야 한다(쿼리·끝 `/`가 붙으면 `422`, 화면은 설정의 `open` 주소로 연다). 시작 화면을 생략하면 사이트의 `startPage`. 등록되지 않은 `siteId`·MORO MARKET `siteId`·위 규칙 위반은 `422`.
-- 실행 주소와 사이트 버전 값(`siteVersion`, `comparisonContext`의 layout·candidatePolicy·initialBrowserState)은 사이트 설정(`variants`·`meta`)에서 온다. 사이트 주소는 Run에 넣지 않는다. `GET /api/sites`에는 FE가 사용자가 입력한 링크로 등록 사이트를 찾을 수 있게 `siteUrl`(공개 주소일 때만: http(s), 호스트가 `allowedHosts`에 있고 내 컴퓨터·사설망이 아님, 아니면 `null`)과 `allowedHosts`를 내려 준다(#95). 실행은 여전히 `siteId`로만 하고 `POST /api/runs`는 주소를 받지 않는다.
+- 실행 주소와 사이트 버전 값(`siteVersion`, `comparisonContext`의 layout·candidatePolicy·initialBrowserState)은 사이트 설정(`variants`·`meta`)에서 온다. 사이트 주소는 Run에 넣지 않는다. `GET /api/sites`에는 FE가 사용자가 입력한 링크로 등록 사이트를 찾을 수 있게 `siteUrl`(공개 주소일 때만: http(s), 호스트가 `allowedHosts`에 있고 내 컴퓨터·사설망이 아님, 아니면 `null`. IPv6는 `[...]`, 기본 포트 80·443은 표기 안 함)과 `allowedHosts`(같은 판정으로 공개 호스트만)를 내려 준다(#95). 실행은 여전히 `siteId`로만 하고 `POST /api/runs`는 주소를 받지 않는다.
 - 실행 전 검사는 사이트 1곳만 확인한다. 쿼리가 있어야 열리는 화면(게시판 등)은 설정의 `open` 주소로 연다. 메시지에 Before/After를 붙이지 않는다.
 - 사이트 지도가 있으면 그 지도로 `SITE_MAP` 경로 기준을 만든다. 지도상 시작 화면에서 갈 수 없는 도착 화면은 `422` "도착 화면으로 가는 경로가 없습니다." (`/api/sites`의 `goalSelectable: false`. 고를 수 있는 화면 = 확인 글자 있음 + 시작 화면 아님 + 지도에서 닿음). 지도가 없으면 `referencePathConfig: null`.
 - 사이트 지도 진단: 도착 화면으로 고를 수 없는 이유는 `goalUnavailableReason`(`START_PAGE` / `NO_GOAL_TEXT` / `UNREACHABLE_ON_SITE_MAP`). `UNREACHABLE_ON_SITE_MAP`은 "시작 화면에 보이는 링크로는 닿지 않는 화면"이고, 목록은 `siteMap.unreachablePages`(지도를 만들 때 기록한 값 그대로). cafe24는 `qna`·`guide`·`company`이며 실행하지 않고 이 진단으로 보여 준다(경고 후 실행 허용은 행사 뒤 고도화).

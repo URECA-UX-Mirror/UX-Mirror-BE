@@ -82,11 +82,38 @@ def unreachable_pages(scope: SiteScope, site_map: dict | None) -> list[str] | No
     return [k for k in scope.config.pages if k in recorded or (k != scope.config.start_page and k not in site_map["pages"])]
 
 
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _is_public_host(host: str) -> bool:
+    """응답에 내보내도 되는 호스트인지: 내 컴퓨터(`localhost`·루프백)·사설망·링크 로컬 등 공인 주소가 아닌 IP는 제외.
+
+    `siteUrl`과 `allowedHosts`가 같은 판정을 쓴다 (#97 리뷰).
+    """
+    host = (host or "").strip().strip("[]").lower()
+    if not host or host == "localhost" or host.endswith(".localhost"):
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        return True   # 도메인 이름
+
+
+def public_allowed_hosts(scope: SiteScope) -> list[str]:
+    """응답에 내려 줄 허용 도메인. 공개 호스트만 (내부 IP가 이 필드로 새지 않게)."""
+    out = []
+    for h in scope.config.allowed_hosts:
+        h = h.strip().strip("[]").lower()
+        if _is_public_host(h) and h not in out:
+            out.append(h)
+    return out
+
+
 def public_site_url(scope: SiteScope) -> str | None:
-    """응답에 내려 줄 사이트 주소. 공개 주소만: http(s), 호스트가 `allowedHosts`에 있고, 내 컴퓨터·사설망이 아니어야 한다.
+    """응답에 내려 줄 사이트 주소. 공개 주소만: http(s), 호스트가 `allowedHosts`에 있고, 공개 호스트여야 한다.
 
     조건이 안 맞으면 None (예: 내부 서버를 사이트로 등록한 경우에도 그 주소가 응답에 나가지 않게).
-    경로·쿼리·인증 정보는 떼고 `scheme://host[:port]`만 돌려준다.
+    경로·쿼리·인증 정보는 떼고 `scheme://host[:port]`만 돌려준다. IPv6는 대괄호로 감싸고 기본 포트(80·443)는 뺀다.
     """
     try:
         u = urlsplit(scope.base_url)
@@ -96,15 +123,10 @@ def public_site_url(scope: SiteScope) -> str | None:
         return None
     if u.scheme not in ("http", "https") or not host or u.username or u.password:
         return None
-    if host not in {h.lower() for h in scope.config.allowed_hosts} or host == "localhost":
+    if host not in public_allowed_hosts(scope) or not _is_public_host(host):
         return None
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        ip = None
-    if ip is not None and not ip.is_global:
-        return None
-    return f"{u.scheme}://{host}" + (f":{port}" if port else "")
+    shown = f"[{host}]" if ":" in host else host
+    return f"{u.scheme}://{shown}" + (f":{port}" if port and port != DEFAULT_PORTS[u.scheme] else "")
 
 
 def public_site(scope: SiteScope) -> dict:
@@ -116,7 +138,7 @@ def public_site(scope: SiteScope) -> dict:
     `goalUnavailableReason`: 고를 수 없는 이유 (`START_PAGE` / `NO_GOAL_TEXT` / `UNREACHABLE_ON_SITE_MAP`), 고를 수 있으면 null.
     `UNREACHABLE_ON_SITE_MAP`은 "시작 화면에 보이는 링크로는 닿지 않는 화면"이라는 사이트 지도 진단 결과다.
     `siteMap.unreachablePages`: 지도가 기록한 닿지 않는 화면 목록 (지도가 없으면 null).
-    `siteUrl`·`allowedHosts`: 사용자가 입력한 링크로 이 사이트를 찾는 용도(#95). siteUrl은 공개 주소일 때만, 아니면 null.
+    `siteUrl`·`allowedHosts`: 사용자가 입력한 링크로 이 사이트를 찾는 용도(#95). 둘 다 공개 호스트만 (siteUrl은 아니면 null).
     """
     config = scope.config
     site_map = site_map_of(scope)
@@ -129,7 +151,7 @@ def public_site(scope: SiteScope) -> dict:
         pages.append({"pageKey": key, "path": path, "label": config.page_labels.get(key, key), "goalText": goal_text,
                       "goalSelectable": reason is None, "goalUnavailableReason": reason})
     return {"siteId": config.name, "name": config.display_name, "mode": SCENARIO_MODE,
-            "siteUrl": public_site_url(scope), "allowedHosts": list(config.allowed_hosts),
+            "siteUrl": public_site_url(scope), "allowedHosts": public_allowed_hosts(scope),
             "startPage": config.start_page, "pages": pages,
             "siteMap": {"available": site_map is not None,
                         "siteMapVersion": site_map["siteMapVersion"] if site_map else None,
