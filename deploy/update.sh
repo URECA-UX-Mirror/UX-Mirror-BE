@@ -9,7 +9,7 @@
 # 순서
 #   1. 쓰기 잠금 (실제 요청으로 503 확인) — 새 Run이 API로 들어오지 못한다
 #   2. 진행 중인 Run 확인
-#   3. 받을 커밋 확인 (--sha와 같은지, fast-forward인지) → 그 커밋의 패키지 먼저 설치
+#   3. 받을 커밋 확인 (--sha와 같은지, fast-forward인지) → Run 다시 확인 → 그 커밋의 패키지 먼저 설치
 #   4. 코드 전환 → 진행 중인 Run 한 번 더 확인 → 재시작
 #   5. 실제로 Run을 돌릴 수 있는지 (API READY · 쇼핑몰 5개 · 바깥 HTTPS)
 #   6. 잠금 해제 (원래 잠겨 있었으면 그대로). 해제하지 못하면 실패로 끝난다
@@ -97,6 +97,10 @@ main() {
   if [ -n "$local_tip" ] && ! git merge-base --is-ancestor "$local_tip" "$target"; then
     echo "서버의 $ref가 origin/$ref보다 앞서거나 갈라져 있습니다 (fast-forward 불가)." >&2
     exit 1
+  fi
+  # 패키지를 바꾸기 직전에도 확인한다 (돌고 있는 Run의 환경을 바꾸지 않게)
+  if [ -z "$force" ]; then
+    check_idle || exit 1
   fi
   reqs="$(mktemp)"
   git show "$target:deploy/requirements-server.txt" > "$reqs"

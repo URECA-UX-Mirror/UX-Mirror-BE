@@ -56,24 +56,9 @@ if [ -z "$DOMAIN" ]; then
 fi
 echo "HTTPS 주소: https://$DOMAIN"
 
-# ---- 3. 패키지
-sudo apt-get update -y
-if ! apt-cache show caddy >/dev/null 2>&1; then
-  echo "이 Ubuntu 저장소에 caddy가 없습니다. Ubuntu 24.04 이상 이미지를 써 주세요." >&2
-  exit 1
-fi
-sudo apt-get install -y python3-venv python3-pip git curl caddy
-
-# ---- 4. 파이썬 패키지 + Chromium
-[ -d .venv ] || python3 -m venv .venv
-.venv/bin/pip install -q --upgrade pip
-.venv/bin/pip install -q -r deploy/requirements-server.txt
-sudo .venv/bin/python -m playwright install-deps chromium
-.venv/bin/python -m playwright install chromium
-
-# ---- 5. 서비스 등록 (쇼핑몰 → API)
-# 이미 설치된 서버에서 다시 실행하면 update.sh와 같은 순서: 쓰기 잠금 → 진행 중인 Run 확인 → 재시작·확인 → 원래 잠금 상태로.
-# 처음 설치(API가 아직 없음)는 돌고 있는 Run이 없으므로 바로 진행한다.
+# ---- 3. 이미 설치된 서버면 먼저: 쓰기 잠금 → 진행 중인 Run 확인
+# 다시 실행하면 패키지 설치·재시작이 돌고 있는 서버를 바꾸므로, update.sh와 같이 아무것도 바꾸기 전에 확인한다.
+# 처음 설치(API가 아직 없음)는 돌고 있는 Run이 없으므로 바로 진행한다. 끝나면(실패해도) 원래 잠금 상태로 되돌린다.
 SETUP_LOCKED=""
 restore_lock() {
   local rc=$?
@@ -102,6 +87,26 @@ if systemctl is-active --quiet uxm-api 2>/dev/null; then
   else
     echo "[주의] --force: 진행 중인 Run이 있어도 재시작합니다."
   fi
+fi
+
+# ---- 4. 패키지
+sudo apt-get update -y
+if ! apt-cache show caddy >/dev/null 2>&1; then
+  echo "이 Ubuntu 저장소에 caddy가 없습니다. Ubuntu 24.04 이상 이미지를 써 주세요." >&2
+  exit 1
+fi
+sudo apt-get install -y python3-venv python3-pip git curl caddy
+
+# ---- 4-2. 파이썬 패키지 + Chromium
+[ -d .venv ] || python3 -m venv .venv
+.venv/bin/pip install -q --upgrade pip
+.venv/bin/pip install -q -r deploy/requirements-server.txt
+sudo .venv/bin/python -m playwright install-deps chromium
+.venv/bin/python -m playwright install chromium
+
+# ---- 5. 서비스 등록 (쇼핑몰 → API). 패키지 설치 중에 시작된 Run(서버에서 직접 도는 스크립트)이 있으면 재시작하지 않는다
+if systemctl is-active --quiet uxm-api 2>/dev/null && [ "${2:-}" != "--force" ]; then
+  check_idle || exit 1
 fi
 for unit in uxm-shops uxm-api; do
   sed -e "s#__APP_DIR__#$APP_DIR#g" -e "s#__USER__#$RUN_USER#g" "deploy/$unit.service" \

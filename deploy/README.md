@@ -46,7 +46,7 @@ git clone https://github.com/UX-Mirror/UX-Mirror-BE.git && cd UX-Mirror-BE
 
 `setup.sh`가 하는 일: 패키지·Caddy 설치 → `.venv`에 `deploy/requirements-server.txt`(torch 없음) → Chromium → `uxm-shops`·`uxm-api` 서비스 등록·시작 → Caddy 설정(쓰기 잠금 꺼짐) → **실제로 Run을 돌릴 수 있는지 확인**: `/api/health`가 `READY`, 쇼핑몰 5개 응답, 바깥 HTTPS 주소 응답. 하나라도 안 되면 무엇이 안 되는지 출력하고 실패로 끝난다 (GPU가 꺼져 있으면 `model` 준비 안 됨).
 
-다시 실행해도 된다. 이미 설치된 서버에서는 `update.sh`와 같이 쓰기 잠금 → 진행 중인 Run 확인(있으면 멈춤) → 재시작·확인 → 원래 잠금 상태로 되돌린다 (`./deploy/setup.sh "" --force`면 진행 중인 Run을 무시). 처음 설치는 돌고 있는 Run이 없으므로 잠금 없이 진행한다.
+다시 실행해도 된다. 이미 설치된 서버에서는 **아무것도 설치하기 전에** `update.sh`와 같이 쓰기 잠금 → 진행 중인 Run 확인(있으면 멈춤) → 패키지 설치 → 재시작 직전에 한 번 더 확인 → 재시작·확인 → 원래 잠금 상태로 되돌린다 (`./deploy/setup.sh "" --force`면 진행 중인 Run을 무시). 처음 설치는 돌고 있는 Run이 없으므로 잠금 없이 진행한다.
 
 ## 3. GPU 연결
 
@@ -117,7 +117,7 @@ curl -s https://<위 주소>/api/health
 
 1. **쓰기 잠금** on, 실제 요청으로 503을 확인했을 때만 진행 → 새 Run이 API로 못 들어온다. 5초 기다려 잠금 직전에 들어온 요청을 마저 받는다. 잠금 상태를 확인할 수 없으면(Caddy 응답 없음) 멈춘다.
 2. **진행 중인 Run 확인** → 있으면 멈춤: `/api/health`의 `activeRun`·`activeOptimization`, API가 켜져 있는데 health가 응답 없음, 결과 폴더에서 최근 30분 안에 바뀐 READY·RUNNING Run(API 밖 스크립트 Run).
-3. **받을 커밋 확인** → 서버 저장소에 커밋 안 된 수정, `--sha`와 지금 브랜치 커밋이 다름(테스트 뒤 새 커밋), fast-forward 불가면 멈춤. 그 커밋의 `deploy/requirements-server.txt`로 패키지를 **먼저** 설치.
+3. **받을 커밋 확인** → 서버 저장소에 커밋 안 된 수정, `--sha`와 지금 브랜치 커밋이 다름(테스트 뒤 새 커밋), fast-forward 불가면 멈춤. 진행 중인 Run을 다시 확인한 뒤 그 커밋의 `deploy/requirements-server.txt`로 패키지를 **먼저** 설치.
 4. **코드 전환 → 진행 중인 Run 한 번 더 확인**(있으면 코드를 되돌리고 멈춤) → 서비스 파일 다시 쓰기 → 쇼핑몰·API 재시작.
 5. **실제로 Run을 돌릴 수 있는지**: `READY`, 쇼핑몰 5개, 바깥 HTTPS. 안 되면 무엇이 안 되는지와 되돌리는 명령을 출력하고 실패 (모델 서버 문제일 수 있어 자동으로 되돌리지 않는다).
 6. **잠금 해제** (원래 켜져 있었으면 그대로). 풀지 못하면 실패.
