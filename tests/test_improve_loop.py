@@ -366,3 +366,36 @@ def test_tried_names_and_tie_lost_use_the_same_rules_as_policy():
     cands = [{"candidateId": "A", "mainScore": 0.6, "reason": None}, {"candidateId": "B", "mainScore": 0.59, "reason": None}]
     _apply_decisions(cands, {"adopted": "A", "ranking": ["A", "B"], "rejected": []}, {"tieTolerance": 0.01})
     assert [c["reason"] for c in cands] == [None, "TIE_LOST"]
+
+
+# ---- #114 리뷰 2차: 동률은 1등 기준, 사람·AI 같은 이름은 한 번만
+
+def test_tie_lost_is_judged_against_the_top_score_not_the_adopted_one():
+    from uxm.improve_loop import _apply_decisions
+    # A 0.600(1등) / B 0.591(지킬이 높아 동률 묶음에서 채택) / C 0.582 — C는 1등과 1.8%p라 묶음 밖
+    cands = [{"candidateId": k, "mainScore": s, "reason": None} for k, s in (("A", 0.6), ("B", 0.591), ("C", 0.582))]
+    _apply_decisions(cands, {"adopted": "B", "ranking": ["B", "A", "C"], "rejected": []}, {"tieTolerance": 0.01})
+    assert [(c["candidateId"], c["decision"], c["reason"]) for c in cands] == [
+        ("A", "REJECTED", "TIE_LOST"), ("B", "ADOPTED", None), ("C", "REJECTED", "NOT_BEST")]
+
+
+def test_same_name_from_human_and_ai_is_evaluated_once():
+    from uxm import improve_policy
+    plan = copy.deepcopy(PLAN)
+    plan["humanCandidates"] = [{"candidateId": "H4", "label": "주문 관리"}]
+    prompts, it = [], iter(["주문  관리\n주문내역"])
+    def propose(prompt):
+        prompts.append(prompt)
+        return next(it, "")
+    for policy in (improve_policy, FakePolicy()):          # 진짜 정책(EXISTING_LABEL)·가짜 정책(루프가 DUPLICATE_LABEL) 모두
+        it = iter(["주문  관리\n주문내역"])
+        r1 = run_loop(copy.deepcopy(plan), SITE_MAP, Deps(fake_collect([]), lambda p: next(it, ""), policy,
+                                                         clock=lambda: "t"))["improvement"]["rounds"][0]
+        labels = [c["label"] for c in r1["candidates"]]
+        assert labels.count("주문 관리") == 1 and "주문  관리" not in labels and "주문내역" in labels
+        dup = next(f for f in r1["proposal"]["filtered"] if f["label"].replace(" ", "") == "주문관리")
+        assert not dup["accepted"] and dup["rejectedReason"] in ("EXISTING_LABEL", "DUPLICATE_LABEL")
+    # 사람 후보 이름은 모델에게도 "함께 평가할 이름"으로 알린다
+    it = iter(["주문내역"])
+    run_loop(copy.deepcopy(plan), SITE_MAP, Deps(fake_collect([]), propose, improve_policy, clock=lambda: "t"))
+    assert "이번에 함께 평가할 이름: 주문 관리" in prompts[0]

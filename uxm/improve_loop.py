@@ -168,15 +168,14 @@ def _run_round(ctx: _Ctx, rnd: int, current: dict, v1_label, tried: set, history
     diag["text"] = describe(diag, main_goal.get("situation") or main_goal["name"],
                             ctx.plan["edit"].get("targetPageDescription"))
     tried.add(target["label"])
-    attempts, filtered = _propose(ctx, rnd, diag, siblings, tried, history)
-    ai_labels = [f["label"] for f in filtered if f["accepted"]]   # accepted = 평가 대상 (회차당 수 제한은 _propose에서)
-
-    # 후보: 1회차는 사람 후보 + AI, 이후 AI만. 이미 시험한 이름은 뺀다
-    # "이미 시험한 이름" 비교도 filter_labels와 같은 정규화로 (대소문자·공백 차이는 같은 이름)
+    # 후보: 1회차는 사람 후보 + AI, 이후 AI만. 이름 비교는 모두 filter_labels와 같은 정규화(label_key)
     tried_keys = {label_key(t) for t in tried}
-    pool = [(c["label"], "HUMAN") for c in ctx.plan.get("humanCandidates", [])
-            if rnd == 1 and label_key(c["label"]) not in tried_keys]
-    pool += [(lbl, "AI") for lbl in ai_labels if label_key(lbl) not in tried_keys]
+    human = [c["label"] for c in ctx.plan.get("humanCandidates", [])
+             if rnd == 1 and label_key(c["label"]) not in tried_keys]
+    # 이번 회차 사람 후보도 AI에게 "이미 있는 이름"으로 알려, 같은 이름을 두 번 평가하지 않게 한다 (#114 리뷰 2차-2)
+    attempts, filtered = _propose(ctx, rnd, diag, siblings, tried, history, planned=human)
+    ai_labels = [f["label"] for f in filtered if f["accepted"]]   # accepted = 평가 대상 (중복·수 제한은 _propose에서)
+    pool = [(lbl, "HUMAN") for lbl in human] + [(lbl, "AI") for lbl in ai_labels]
     cands, evaluated = _evaluate_candidates(ctx, rnd, pool, tried)
 
     # 채택 (#103: mainScore = 현재 기준, guardScores = 최초 v1)
@@ -188,9 +187,12 @@ def _run_round(ctx: _Ctx, rnd: int, current: dict, v1_label, tried: set, history
     return record, chosen, cands, evaluated
 
 
-def _propose(ctx: _Ctx, rnd: int, diag: dict, siblings: list, tried: set, history: list) -> tuple[list[dict], list[dict]]:
+def _propose(ctx: _Ctx, rnd: int, diag: dict, siblings: list, tried: set, history: list,
+             planned=()) -> tuple[list[dict], list[dict]]:
     """제안: 통과한 이름이 `minAccepted`개 모일 때까지 최대 `maxAttempts`번 요청하고, **모든 시도에서 통과한 이름을 합친다.**
 
+    planned: 이번 회차에 함께 평가할 사람 후보. 모델에게 "이미 있는 이름"으로 알리고(걸러 내기 `triedLabels`에도 넣어
+    `EXISTING_LABEL`), 정규화 기준으로 같은 이름이 통과해도 `DUPLICATE_LABEL`로 바꿔 두 번 평가하지 않는다 (#114 리뷰 2차-2).
     반환 (시도 기록, 합친 걸러 내기 결과). 합친 결과의 각 줄에 `attempt`(몇 번째 요청)를 붙인다.
     - 앞 시도에서 이미 통과한 이름이 다시 오면 `DUPLICATE_LABEL`. 비교는 `filter_labels`와 같은 정규화
       (NFKC·공백 정리·대소문자 무시)로 한다 (#114 리뷰 1: `Order`와 `ORDER`는 같은 이름).
@@ -203,11 +205,14 @@ def _propose(ctx: _Ctx, rnd: int, diag: dict, siblings: list, tried: set, histor
     min_accepted = ai.get("minAccepted", 1)
     max_per_round = ai.get("maxPerRound", 6)
     target = diag["targetButton"]
-    # 함수 계약은 유지하고, 이미 시험한 이름을 자연어 이력에 명시해 모델에도 전달한다.
+    # 함수 계약은 유지하고, 이미 시험한 이름(+이번 회차 사람 후보)을 자연어 이력에 명시해 모델에도 전달한다.
     proposal_history = [*history, f"이미 시험한 이름: {', '.join(sorted(tried))}"] if tried else list(history)
+    if planned:
+        proposal_history.append(f"이번에 함께 평가할 이름: {', '.join(planned)}")
     prompt = ctx.deps.policy.build_prompt(diag["text"], target, siblings, ctx.plan["persona"], proposal_history)
-    context = {"currentLabel": target["label"], "siblingLabels": siblings, "triedLabels": sorted(tried),
-               "maxLength": ctx.plan["edit"]["maxNewLabelLength"]}
+    context = {"currentLabel": target["label"], "siblingLabels": siblings,
+               "triedLabels": sorted(set(tried) | set(planned)), "maxLength": ctx.plan["edit"]["maxNewLabelLength"]}
+    existing_keys = {label_key(x) for x in [*tried, *planned]}
     attempts, merged, accepted_keys = [], [], set()
     for n in range(1, max_attempts + 1):
         response = ctx.deps.propose(prompt)
@@ -217,7 +222,7 @@ def _propose(ctx: _Ctx, rnd: int, diag: dict, siblings: list, tried: set, histor
             row = {**f, "attempt": n}
             if f["accepted"]:
                 key = label_key(f["label"])
-                if key in accepted_keys:
+                if key in accepted_keys or key in existing_keys:   # 앞 시도·이미 시험·사람 후보와 같은 이름
                     row.update(accepted=False, rejectedReason="DUPLICATE_LABEL")
                 elif len(accepted_keys) >= max_per_round:
                     row.update(accepted=False, rejectedReason="CANDIDATE_LIMIT_EXCEEDED")
@@ -307,6 +312,10 @@ def _apply_decisions(cands: list, chosen: dict, rules: dict) -> None:
     rejected = {r["candidateId"]: r for r in chosen.get("rejected", [])}
     by_id = {c["candidateId"]: c for c in cands}
     winner = by_id.get(chosen.get("adopted"))
+    # 동률 기준은 채택 후보가 아니라 "적격 후보(ranking) 중 주 점수 1등" (합의 §3.2, #114 리뷰 2차-1).
+    # 채택은 동률 묶음 안에서 지킬 평균 등으로 정해지므로 1등이 아닐 수 있다.
+    ranked = [by_id[i] for i in chosen.get("ranking", []) if i in by_id]
+    leader = max((Decimal(str(c["mainScore"])) for c in ranked), default=None)
     for c in cands:
         cid = c["candidateId"]
         if winner is not None and cid == winner["candidateId"]:
@@ -319,8 +328,7 @@ def _apply_decisions(cands: list, chosen: dict, rules: dict) -> None:
             c.update(decision="REJECTED", reason=c["reason"] or reason)
         elif cid in chosen.get("ranking", []):
             # choose(#105)와 같은 Decimal 계산 — 정확히 1%p 차이 같은 경계에서 채택 판단과 사유가 어긋나지 않게
-            tie = winner is not None and (Decimal(str(winner["mainScore"])) - Decimal(str(c["mainScore"]))
-                                          <= Decimal(str(rules["tieTolerance"])))
+            tie = leader is not None and leader - Decimal(str(c["mainScore"])) <= Decimal(str(rules["tieTolerance"]))
             c.update(decision="REJECTED", reason="TIE_LOST" if tie else "NOT_BEST")
         else:
             c.update(decision="REJECTED", reason=c["reason"] or "EVALUATION_FAILED")
