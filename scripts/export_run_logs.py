@@ -33,8 +33,9 @@ from api.store import is_safe_id  # noqa: E402  (실행 API와 같은 Run ID 규
 DEFAULT_RESULTS = os.path.join(ROOT, "results")
 DEFAULT_OUT = os.path.join(ROOT, "run-logs")
 MARKER = "index.json"   # 이 스크립트가 만든 폴더 표시
-TEXT_EXT = (".json", ".jsonl", ".txt", ".md", ".log", ".csv", ".html", ".yaml", ".yml")
-EXCLUDE = (".env", ".env.*", "*.tmp", ".tmp_*", "*.lock", "__pycache__", ".DS_Store", "Thumbs.db")
+TEXT_EXT = (".json", ".jsonl", ".txt", ".md", ".csv", ".html", ".yaml", ".yml")
+EXCLUDE = (".env", ".env.*", "*.tmp", ".tmp_*", "*.lock", "*.log", "__pycache__", ".DS_Store", "Thumbs.db")
+MIN_ALLOW_LEN = 8   # 짧은 --allow 값은 검사를 통째로 끌 수 있어 받지 않는다 (예: "http", "/root")
 
 # 공개 저장소에 올리면 안 되는 값
 SECRET_PATTERNS = [
@@ -51,7 +52,14 @@ SECRET_PATTERNS = [
     (re.compile(r"(?i)\b[A-Z]:[\\/]{1,2}(?:Users|home|workspace)[\\/]{1,2}[^\s\"']+"), "Windows 사용자 경로"),
     (re.compile(r"(?<![\w.:/-])/(?:Users|home|root|workspace|mnt|data|opt|srv)/[^\s\"']+"), "로컬·서버 경로"),
 ]
+PATH_LABEL = "로컬·서버 경로"
+# 화면 경로를 담는 필드에서 /home/·/data/로 시작하는 **웹 페이지 주소**(확장자나 쿼리가 있음)는 서버 경로가 아니다
+# (외부 사이트의 "/home/notice.html" 등). /Users·/root·/workspace 같은 경로나 확장자 없는 경로는 그대로 막는다.
+PAGE_PATH_FIELD = re.compile(r'"(?:path|href|currentPath|fromPath|toPath|open|url|startPath)"\s*:\s*"$')
+WEB_PAGE_PATH = re.compile(r"(?i)^/(?:home|data)/[^\s\"']*(?:\.(?:html?|php|jsp|aspx?)(?:\?[^\s\"']*)?|\?[^\s\"']*)$")
 ENV_SECRET_KEYS = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|BASE_URL|ENDPOINT|HOST)", re.I)
+# *_ID는 비밀 주소 대신 기록에 남기는 공개 이름이다 (예: ZORO_ENDPOINT_ID → run.json modelEndpointId, 계약 6.1)
+ENV_PUBLIC_KEYS = re.compile(r"_ID$", re.I)
 
 
 class ExportError(Exception):
@@ -71,8 +79,9 @@ def env_values(paths: list[str]) -> dict[str, str]:
                     continue
                 key, value = line.split("=", 1)
                 value = value.strip().strip('"').strip("'")
-                if ENV_SECRET_KEYS.search(key) and len(value) >= 8:
-                    out[f"{os.path.basename(path)}:{key.strip()}"] = value
+                key = key.strip()
+                if ENV_SECRET_KEYS.search(key) and not ENV_PUBLIC_KEYS.search(key) and len(value) >= 8:
+                    out[f"{os.path.basename(path)}:{key}"] = value
     return out
 
 
@@ -80,18 +89,25 @@ def _snippet(text: str, start: int, end: int) -> str:
     return text[start:end].replace("\n", " ")[:80]
 
 
+MAX_PER_FILE = 50   # 한 파일에서 보여 줄 최대 개수 (너무 많으면 잘라서 개수만)
+
+
 def scan_text(text: str, where: str, env: dict[str, str], allow: list[str]) -> list[str]:
-    """찾은 값마다 `위치: 종류 (값)`. allow에 든 글자를 포함한 값은 건너뛴다(사람이 확인한 화면 글자 등)."""
+    """찾은 값마다 `위치: 종류 (값)`, 모두 보고한다. allow에 든 글자를 포함한 값은 건너뛴다(사람이 확인한 값)."""
     found = []
     for pattern, label in SECRET_PATTERNS:
         for m in pattern.finditer(text):
+            if (label == PATH_LABEL and WEB_PAGE_PATH.match(m.group(0))
+                    and PAGE_PATH_FIELD.search(text[max(0, m.start() - 24):m.start()])):
+                continue
             snip = _snippet(text, m.start(), m.end())
             if not any(a in snip for a in allow):
                 found.append(f"{where}: {label} ({snip})")
-                break
     for key, value in env.items():
         if value in text and not any(a in value for a in allow):
             found.append(f"{where}: .env 값 {key}")
+    if len(found) > MAX_PER_FILE:
+        found = found[:MAX_PER_FILE] + [f"{where}: … 외 {len(found) - MAX_PER_FILE}개"]
     return found
 
 
@@ -234,9 +250,12 @@ def export(run_ids: list[str], results_dir: str, out_dir: str, force: bool = Fal
     for run_id in run_ids:
         if not is_safe_id(run_id):
             raise ExportError(f"Run ID 형식이 올바르지 않습니다: {run_id!r} ([A-Za-z0-9_-] 1~64자)")
+    allow = [a for a in (allow or [])]
+    short = [a for a in allow if len(a.strip()) < MIN_ALLOW_LEN]
+    if short:
+        raise ExportError(f"--allow 값은 걸린 값 그대로 {MIN_ALLOW_LEN}자 이상 주세요 (짧으면 검사를 통째로 끕니다): {short}")
     _check_out(out_dir, results_dir, force)
     env = env_values(env_paths if env_paths is not None else [os.path.join(ROOT, ".env")])
-    allow = list(allow or [])
 
     runs_dir = os.path.join(results_dir, "runs")
     plans, problems = [], []
@@ -289,10 +308,20 @@ def export(run_ids: list[str], results_dir: str, out_dir: str, force: bool = Fal
         shutil.rmtree(tmp, ignore_errors=True)
         raise
     old = None
-    if os.path.exists(out_dir):
-        old = os.path.join(parent, f".{os.path.basename(out_dir)}.old-{secrets.token_hex(4)}")
-        os.rename(out_dir, old)
-    os.rename(tmp, out_dir)
+    try:
+        if os.path.exists(out_dir):
+            old = os.path.join(parent, f".{os.path.basename(out_dir)}.old-{secrets.token_hex(4)}")
+            os.rename(out_dir, old)   # Windows에서 run-logs/ 안 파일이 열려 있으면 여기서 실패할 수 있다
+        os.rename(tmp, out_dir)
+    except BaseException:
+        if old and not os.path.exists(out_dir):   # 이전 제출본을 제자리로
+            try:
+                os.rename(old, out_dir)
+                old = None
+            except OSError:
+                pass
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
     if old:
         shutil.rmtree(old, ignore_errors=True)
     return {"rows": rows, "comparisons": [k for k, _ in comparisons], "out": out_dir}
@@ -306,7 +335,7 @@ def main(argv=None) -> int:
     ap.add_argument("--env", action="append", default=None, metavar="PATH",
                     help="검사에 쓸 .env (여러 번 가능, 예: GPU 서버 .env). 주지 않으면 저장소 .env")
     ap.add_argument("--allow", action="append", default=[], metavar="TEXT",
-                    help="확인한 값은 건너뛴다 (걸린 값에 이 글자가 들어 있으면). 예: 화면에 보이는 문구")
+                    help=f"확인한 값은 건너뛴다 (걸린 값에 이 글자가 들어 있으면, {MIN_ALLOW_LEN}자 이상). 예: 화면에 보이는 문구")
     ap.add_argument("--force", action="store_true", help="이 스크립트가 만든 내보낼 폴더를 다시 만든다")
     args = ap.parse_args(argv)
     try:

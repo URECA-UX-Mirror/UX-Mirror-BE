@@ -241,3 +241,78 @@ def test_cli_returns_error_code_and_message(results, tmp_path, capsys):
     assert ex.main(["--results-dir", str(results), "--out", str(tmp_path / "o"), "--env", str(tmp_path / "x"),
                     "run_nope"]) == 1
     assert "[중단]" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- 재리뷰 반영
+
+def test_event_run_with_gpu_env_is_exported(results, tmp_path):
+    """행사 Run 모양: run.json의 modelEndpointId가 GPU 서버 .env의 ZORO_ENDPOINT_ID와 같다.
+    이 ID는 비밀 주소 대신 남기는 공개 이름이라 막지 않는다. 서버 주소·키 값은 그대로 막는다 (재리뷰 필수)."""
+    gpu_env = tmp_path / "gpu.env"
+    gpu_env.write_text("ZORO_BACKEND=http\nZORO_BASE_URL=gpu-l40s.trillion.example\n"
+                       "ZORO_ENDPOINT_ID=event-l40s\nZORO_API_KEY=abcd1234efgh\n", encoding="utf-8")
+    out = tmp_path / "run-logs"
+    rows = export(results, out, "run_before_1", "run_after_1", env_paths=[str(gpu_env)])["rows"]
+    assert [r["modelEndpointId"] for r in rows] == ["event-l40s", "event-l40s"] and rows[0]["warnings"] == []
+    with open(results / "runs" / "run_after_1" / "events.jsonl", "a", encoding="utf-8") as f:
+        f.write('{"x": "abcd1234efgh"}\n')
+    with pytest.raises(ex.ExportError, match="ZORO_API_KEY"):
+        export(results, tmp_path / "o2", "run_after_1", env_paths=[str(gpu_env)])
+
+
+@pytest.mark.parametrize("value", ["", " ", "http", "/root", "1234567"])
+def test_allow_rejects_empty_or_short_values(results, tmp_path, value):
+    """빈 값·짧은 값은 검사를 통째로 끌 수 있어 받지 않는다 (재리뷰)."""
+    with pytest.raises(ex.ExportError, match="--allow"):
+        export(results, tmp_path / "o", "run_before_1", allow=[value])
+
+
+def test_failed_swap_restores_previous_export(results, tmp_path, monkeypatch):
+    """마지막 바꿔치기가 실패하면 이전 제출본을 되돌리고 임시 폴더를 지운다 (재리뷰)."""
+    out = tmp_path / "run-logs"
+    export(results, out, "run_before_1")
+    snapshot = tree_hash(str(out))
+    real = os.rename
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 2:   # 1: out → old, 2: tmp → out
+            raise PermissionError("파일이 열려 있음")
+        return real(src, dst)
+    monkeypatch.setattr(ex.os, "rename", flaky)
+    with pytest.raises(PermissionError):
+        export(results, out, "run_after_1", force=True)
+    assert tree_hash(str(out)) == snapshot
+    assert not [p for p in tmp_path.iterdir() if ".tmp-" in p.name or ".old-" in p.name]
+
+
+def test_reports_every_match_not_only_first(results, tmp_path):
+    with open(results / "runs" / "run_before_1" / "events.jsonl", "a", encoding="utf-8") as f:
+        f.write('{"a": "/root/one"}\n{"b": "/root/two"}\n')
+    with pytest.raises(ex.ExportError) as e:
+        export(results, tmp_path / "o", "run_before_1")
+    assert "/root/one" in str(e.value) and "/root/two" in str(e.value)
+
+
+def test_log_files_are_not_copied(results, tmp_path):
+    (results / "runs" / "run_before_1" / "server.log").write_text("/root/secret", encoding="utf-8")
+    out = tmp_path / "run-logs"
+    export(results, out, "run_before_1")   # 로그는 복사하지 않으므로 검사에도 걸리지 않는다
+    assert not (out / "run_before_1" / "server.log").exists()
+
+
+def test_site_page_path_fields_are_not_server_paths(results, tmp_path):
+    """외부 사이트의 페이지 경로("path": "/home/...")는 서버 경로가 아니다. 다른 곳의 /home/은 그대로 막는다 (재리뷰 nit)."""
+    with open(results / "runs" / "run_after_1" / "steps.jsonl", "a", encoding="utf-8") as f:
+        f.write('{"page": {"path": "/home/notice.html", "currentPath": "/data/list.php?id=3"}, '
+                '"href": "/home/event.html?no=2"}\n')
+    export(results, tmp_path / "ok", "run_after_1")
+    with open(results / "runs" / "run_after_1" / "events.jsonl", "a", encoding="utf-8") as f:
+        f.write('{"error": "open failed /home/ubuntu/UX-Mirror-BE/x"}\n')
+    with pytest.raises(ex.ExportError, match="/home/ubuntu"):
+        export(results, tmp_path / "bad", "run_after_1")
+    with open(results / "runs" / "run_after_1" / "events.jsonl", "a", encoding="utf-8") as f:
+        f.write('{"path": "/home/ubuntu/models"}\n')   # 경로 필드여도 웹 페이지 주소가 아니면 막는다
+    with pytest.raises(ex.ExportError, match="/home/ubuntu/models"):
+        export(results, tmp_path / "bad2", "run_after_1", allow=["/home/ubuntu/UX-Mirror-BE/x"])
