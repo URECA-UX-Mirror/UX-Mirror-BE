@@ -34,8 +34,8 @@ flowchart LR
 
 | | |
 |---|---|
-| **데모** | [ux-mirror-fe.vercel.app](https://ux-mirror-fe.vercel.app)<br>예시 결과: [진단 → 개선안 → 효과](https://ux-mirror-fe.vercel.app/runs/run_before_20261120072728_49b6) · [지금 화면 vs 개선안](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120072738-8ba5-MAIN) |
-| **결과** | 환불 화면을 못 찾던 고객이 '이용정보'를 '주문 환불'로 바꾼 화면에서는 2번 만에 도착 (찾아올 가능성 40.0% → 59.7%)<br>[실행 로그](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) |
+| **데모** | [ux-mirror-fe.vercel.app](https://ux-mirror-fe.vercel.app)<br>예시 결과 (운동화): [진단 → 개선안 → 효과](https://ux-mirror-fe.vercel.app/runs/run_before_20261120072728_49b6) · [지금 화면 vs 개선안](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120072738-8ba5-MAIN) |
+| **결과** | 환불하려는 고객이 '이용정보'를 '주문 환불'로 바꾼 화면에서 더 잘 찾아온다. 11/20 배포 서버에서 할 일 문장마다 새로 계산한 찾아올 가능성:<br>· 선물로 받은 셔츠가 작아서 반품하고 환불받고 싶다: 23.5% → 72.1%, 지금 화면 못 찾음 → 개선안 2번 만에 도착 ([결과](https://ux-mirror-fe.vercel.app/improvements/imp-live-20261120075020-967a) · [비교](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120075020-967a-MAIN))<br>· 지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다: 40.0% → 59.7%, 못 찾음 → 2번 만에 도착 (공식 결과와 같은 문장)<br>· 어제 받은 원피스가 마음에 안 들어서 반품하고 싶다: 36.9% → 68.1%<br>[실행 로그](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) |
 | **실패 처리** | [상황별 동작과 근거 코드](#실패-처리) |
 | **Zoro-1** | [진단·라우팅·검증에 쓰는 곳](#zoro-1의-역할). Run 폴더마다 원본 요청·응답(`raw/`)이 있다 |
 | **하는 일** | 사이트를 고치지 않고, AI 고객이 직접 눌러 보며 어디서 헤매는지, 왜 그런지, 무엇을 바꾸면 얼마나 나아지는지 보여 준다. 반영은 개발자가 한다 |
@@ -46,7 +46,7 @@ flowchart LR
 3. ③ 바꿀 이름, ④ 찾아올 가능성 전 → 후, "화면별로 비교하기"
 
 - 실행은 한 번에 하나다. 다른 실행이 돌고 있으면 화면에 안내가 나온다.
-- 진단은 Zoro-1이 확률로 고르므로 같은 문장도 결과가 조금씩 다를 수 있다. 예시 결과는 11/20 07:27 실행이다.
+- 진단은 Zoro-1이 확률로 고르므로 같은 문장도 결과가 조금씩 다를 수 있다. 찾아올 가능성은 같은 문장·같은 조건이면 거의 같게 나온다(공식 실행 40.2% → 59.7%, 11/20 재실행 40.0% → 59.7%).
 - 프론트엔드: [UX-Mirror/UX-Mirror-FE](https://github.com/UX-Mirror/UX-Mirror-FE)
 
 ## 특징
