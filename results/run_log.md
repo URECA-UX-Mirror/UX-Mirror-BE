@@ -75,3 +75,17 @@ E-1 전 확인 (2026-11-19 15:20, 실행 커밋 `230fd67`, 모델 서버 `brev-l
 | final-plan-1119 | 1 | e-s3-1119 | after | 2 | 2026-11-19T15:28:04.968+09:00 | run_after_20261119152804_2323 | 230fd67 | brev-l40s-bf16 |
 | final-plan-1119 | 1 | e-s4-1119 | before | 1 | 2026-11-19T15:28:24.850+09:00 | run_before_20261119152824_99ae | 230fd67 | brev-l40s-bf16 |
 | final-plan-1119 | 1 | e-s4-1119 | after | 2 | 2026-11-19T15:28:42.652+09:00 | run_after_20261119152842_443f | 230fd67 | brev-l40s-bf16 |
+
+E 결과 요약 (#94 리뷰 반영, 결과 원본은 Run 폴더와 `results/comparisons/e-s*-1119.json`):
+- Run 8개 모두 `VALID`, 4개 목표 모두 비교 조건 일치(`conditionsMatched`), 재실행 없음
+- 메인 지표 = home에서 정답 메뉴(`correctFirstLinks`)를 고를 확률 합 (= home `goalPathProbability`, SITE_MAP)
+
+| 목표 | experimentKey | Before | After | 변화 | 경로 Before / After |
+|---|---|---|---|---|---|
+| S1 환불 | e-s1-1119 | 0.537 | 0.717 | +0.180 | BLOCKED(REVISIT_LIMIT_REACHED, 미도달) / SUCCESS 2단계 |
+| S2 배송 | e-s2-1119 | 0.653 | 0.773 | +0.120 | SUCCESS 1단계 / SUCCESS 1단계 |
+| S3 쿠폰 | e-s3-1119 | 0.758 | 0.935 | +0.177 | SUCCESS 1단계 / SUCCESS 1단계 |
+| S4 문의 | e-s4-1119 | 0.771 | 0.611 | −0.160 | SUCCESS 1단계 / SUCCESS 1단계 (CHOICE_AMBIGUITY) |
+
+- 바꾼 메뉴(상단 `/shop/orders`, 이용정보 → 주문·환불) 확률: S1 0.205 → 0.596, S2 0.060 → 0.181, S3 0.170 → 0.023, S4 0.105 → 0.260
+- 해석: 환불·배송·쿠폰은 개선, 상품 문제로 문의하려는 S4에서는 "주문·환불"이 사용자를 끌어당기는 부작용. 목표당 Run 1쌍, 확률은 모델의 선택 분포이며 사람 클릭률이 아님
