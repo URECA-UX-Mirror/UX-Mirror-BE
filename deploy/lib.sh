@@ -90,10 +90,18 @@ set_lock() {
 #  - /api/health의 activeRun·activeOptimization (같은 정보, API 쪽에서 한 번 더)
 #  - API가 켜져 있는데 health가 응답하지 않으면 판단할 수 없으므로 실행 중으로 본다
 busy_reason() {
-  local health="" held=""
+  local health="" held="" rc=0
+  # 0 = 비어 있음, 1 = 잡혀 있음. 그 밖(확인 자체가 실패)은 모르는 상태라 실행 중으로 보고 멈춘다
   if [ -x .venv/bin/python ]; then
-    held="$(.venv/bin/python -m api.run_lock status 2>/dev/null)" && held=""
-    [ -n "$held" ] && { echo "Run 잠금: $held"; return 0; }
+    held="$(.venv/bin/python -m api.run_lock status 2>&1)" || rc=$?
+    case "$rc" in
+      0) ;;
+      1) echo "Run 잠금: $held"; return 0 ;;
+      *) echo "Run 잠금을 확인하지 못함 (종료 코드 $rc): $(printf '%s' "$held" | tail -n1)"; return 0 ;;
+    esac
+  else
+    echo "Run 잠금을 확인하지 못함 (.venv/bin/python 없음)"
+    return 0
   fi
   health="$(curl -sf -m 15 "$API_URL/api/health" || true)"
   if [ -z "$health" ]; then

@@ -23,15 +23,15 @@ from api.run_lock import RunLock  # noqa: E402
 class OtherProcess:
     """다른 프로세스가 잠금을 잡고 있는 상황. with 블록이 끝나면 그 프로세스를 끝낸다."""
 
-    def __init__(self, results_dir, run_id="run_external", kill=False):
-        self.results_dir, self.run_id, self.kill = str(results_dir), run_id, kill
+    def __init__(self, results_dir, run_id="run_external", kill=False, kind="SCRIPT"):
+        self.results_dir, self.run_id, self.kill, self.kind = str(results_dir), run_id, kill, kind
 
     def __enter__(self):
         code = textwrap.dedent(f"""
             import sys; sys.path.insert(0, {ROOT!r})
             from api.run_lock import RunLock
             lock = RunLock({self.results_dir!r})
-            ok = lock.acquire({{"kind": "SCRIPT", "runId": {self.run_id!r}}})
+            ok = lock.acquire({{"kind": {self.kind!r}, "runId": {self.run_id!r}}})
             print("held" if ok else "busy", flush=True)
             sys.stdin.read()
         """)
@@ -210,3 +210,47 @@ def test_optimization_refused_while_another_process_runs(tmp_path, monkeypatch):
         assert r.status_code == 202
         app.state.optimizer.wait(10)
         assert RunLock(str(results)).holder() is None           # 평가가 끝나면 잠금을 놓는다
+
+
+def test_health_active_run_is_only_a_run_id_and_owner_is_separate(api):
+    """activeRun은 Run ID 또는 null (FE가 /runs/{id}로 연다). 무슨 작업이 잡고 있는지는 activeRunOwner (#123 리뷰)."""
+    c, _, tmp_path = api
+    assert c.get("/api/health").json()["activeRunOwner"] is None
+    with OtherProcess(tmp_path, run_id=None, kind="IMPROVEMENT_VERIFICATION"):   # 검증의 두 Run 사이
+        h = c.get("/api/health").json()
+        assert h["activeRun"] is None
+        assert h["activeRunOwner"] == {"kind": "IMPROVEMENT_VERIFICATION", "runId": None, "external": True}
+    with OtherProcess(tmp_path, run_id="run_v2", kind="RUN"):
+        h = c.get("/api/health").json()
+        assert h["activeRun"] == "run_v2" and h["activeRunOwner"]["external"] is True
+    assert set(c.get("/api/health").json()["activeRunOwner"] or {}) == set()   # 풀리면 null
+
+
+def test_health_owner_for_run_in_this_process(api):
+    import threading
+    c, integ, _ = api
+    integ.gate = threading.Event()
+    rid = c.post("/api/runs", json=preset_run()).json()["runId"]
+    h = c.get("/api/health").json()
+    assert h["activeRun"] == rid and h["activeRunOwner"] == {"kind": "RUN", "runId": rid, "external": False}
+    integ.gate.set()
+    c.app.state.runner.wait(10)
+
+
+def test_info_file_write_failure_does_not_break_the_lock(tmp_path, monkeypatch):
+    """정보 파일은 표시용이라 쓰기 실패(Windows에서 다른 프로세스가 읽는 중 등)를 무시한다. 잠금은 정상 (#123 리뷰)."""
+    import api.run_lock as rl
+    real = os.replace
+
+    def flaky(src, dst):
+        if dst.endswith(rl.INFO_NAME):
+            raise PermissionError(13, "being used by another process")
+        return real(src, dst)
+    monkeypatch.setattr(rl.os, "replace", flaky)
+    lock = RunLock(str(tmp_path))
+    assert lock.acquire({"kind": "RUN", "runId": "run_w"})
+    assert lock.acquire({"kind": "RUN", "runId": "run_w2"})
+    lock.release()
+    lock.release()
+    assert not lock.held_here and RunLock(str(tmp_path)).holder() is None
+    assert not [n for n in os.listdir(tmp_path) if n.endswith(".tmp")]   # 임시 파일도 남기지 않는다

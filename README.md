@@ -235,7 +235,7 @@ flowchart LR
 <details>
 <summary>세부 규칙</summary>
 
-- 동시에 1개만 실행(`409 RUN_ALREADY_ACTIVE`). 결과 폴더의 파일 잠금(`api/run_lock.py`, #122)이라 서버에서 직접 돌리는 검증 스크립트·Optimization과도 겹치지 않고, `/api/health`의 `activeRun`에 다른 프로세스의 Run도 보인다. 같은 `experimentKey`+`variant`에 VALID·진행 중 Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`. INVALID Run만 다시 실행할 수 있고 원본의 `replacementRunId`에 연결된다.
+- 동시에 1개만 실행(`409 RUN_ALREADY_ACTIVE`). 결과 폴더의 파일 잠금(`api/run_lock.py`, #122)이라 서버에서 직접 돌리는 검증 스크립트·Optimization과도 겹치지 않고, `/api/health`의 `activeRun`(Run ID 또는 `null`)에 다른 프로세스의 Run도 보인다. 누가 잡고 있는지는 `activeRunOwner: {kind, runId, external}` (검증의 두 Run 사이처럼 Run ID가 없어도 보임, 없으면 `null`). 같은 `experimentKey`+`variant`에 VALID·진행 중 Run이 있으면 `409 EXPERIMENT_RUN_EXISTS`. INVALID Run만 다시 실행할 수 있고 원본의 `replacementRunId`에 연결된다.
 - 루프나 브라우저 모듈이 없으면 `POST /api/runs`는 `503`.
 - Issue 분석은 Run이 끝날 때 한 번 돌고 `issues.json`을 쓴다. 분석 전이면 비교는 `409 COMPARISON_NOT_READY`, 분석 실패면 `500 ANALYSIS_ERROR`. 나중에 분석: `python scripts/analyze_runs.py --all`.
 - 목표는 `goalId` 또는 `goal` + `verification{path, text, exact?, scope?}`, 사용자 유형은 `personaId` 또는 `persona`. 직접 입력 문장이 비었거나 200자 초과·누출 금지 문자열이면 `422`.

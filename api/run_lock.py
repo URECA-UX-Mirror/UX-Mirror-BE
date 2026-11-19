@@ -10,12 +10,15 @@ API 서버 안의 Run, 서버에서 직접 돌리는 스크립트(자동 개선 
 - 배포 스크립트: `python -m api.run_lock status` → 잠겨 있으면 잡은 쪽을 출력하고 종료 코드 1.
 """
 import json
+import logging
 import os
 import socket
 import sys
 import threading
 
 from api.timeutil import now_iso
+
+log = logging.getLogger("uxm.api.run_lock")
 
 LOCK_NAME = ".active_run.lock"
 INFO_NAME = ".active_run.json"
@@ -131,10 +134,18 @@ class RunLock:
                 return {"pid": None, "kind": None, "runId": None}
 
     def _write_info(self) -> None:
+        """표시용 정보 파일. 쓰기에 실패해도(Windows에서 다른 프로세스가 읽는 중 등) 잠금에는 영향이 없으므로 무시한다."""
         tmp = self.info_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(self._stack[-1], f, ensure_ascii=False)
-        os.replace(tmp, self.info_path)
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self._stack[-1], f, ensure_ascii=False)
+            os.replace(tmp, self.info_path)
+        except OSError:
+            log.warning("Run 잠금 정보 파일을 쓰지 못했습니다 (잠금은 정상): %s", self.info_path)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def describe(holder: dict) -> str:
