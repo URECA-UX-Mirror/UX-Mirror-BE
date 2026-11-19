@@ -84,21 +84,33 @@ set_lock() {
   return 1
 }
 
-# 진행 중인 실행이 있으면 이유를 출력하고 1 (쓰기 잠금을 건 뒤에 부른다).
-#  - API 안의 Run·Optimization: /api/health의 activeRun·activeOptimization
+# 진행 중인 실행이 있으면 이유를 출력 (쓰기 잠금을 건 뒤에 부른다).
+#  - 결과 폴더의 Run 잠금(api/run_lock.py, #122): API Run·Optimization·서버에서 직접 돌리는 검증 스크립트 Run 모두
+#    (잡은 프로세스가 죽으면 저절로 풀리므로 남아서 막지 않는다)
+#  - /api/health의 activeRun·activeOptimization (같은 정보, API 쪽에서 한 번 더)
 #  - API가 켜져 있는데 health가 응답하지 않으면 판단할 수 없으므로 실행 중으로 본다
-#  - API 밖(스크립트, 예: 자동 개선 검증 Run): 결과 폴더에서 최근 30분 안에 바뀐 READY·RUNNING run.json
-#    (쓰기 잠금은 API로 들어오는 요청만 막는다. 서버에서 직접 돌리는 스크립트는 배포 전에 끝낸다)
 busy_reason() {
-  local health=""
+  local health="" held="" rc=0
+  # 0 = 비어 있음, 1 = 잡혀 있음. 그 밖(확인 자체가 실패)은 모르는 상태라 실행 중으로 보고 멈춘다
+  if [ -x .venv/bin/python ]; then
+    held="$(.venv/bin/python -m api.run_lock status 2>&1)" || rc=$?
+    case "$rc" in
+      0) ;;
+      1) echo "Run 잠금: $held"; return 0 ;;
+      *) echo "Run 잠금을 확인하지 못함 (종료 코드 $rc): $(printf '%s' "$held" | tail -n1)"; return 0 ;;
+    esac
+  else
+    echo "Run 잠금을 확인하지 못함 (.venv/bin/python 없음)"
+    return 0
+  fi
   health="$(curl -sf -m 15 "$API_URL/api/health" || true)"
   if [ -z "$health" ]; then
     if systemctl is-active --quiet uxm-api 2>/dev/null; then
       echo "API는 켜져 있는데 /api/health가 응답하지 않아 진행 중인 Run을 확인할 수 없음"
-      return 0
     fi
-  else
-    printf '%s' "$health" | python3 -c '
+    return 0
+  fi
+  printf '%s' "$health" | python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -108,30 +120,6 @@ if d.get("activeRun"):
     print("Run " + d["activeRun"])
 elif d.get("activeOptimization"):
     print("Optimization " + str(d["activeOptimization"].get("optimizationId")))'
-  fi
-  [ -x .venv/bin/python ] || return 0
-  .venv/bin/python - <<'PY'
-import glob, json, os, time
-try:
-    from dotenv import dotenv_values
-    env = dotenv_values(".env")
-except ImportError:
-    env = {}
-results = os.getenv("UXM_RESULTS_DIR") or env.get("UXM_RESULTS_DIR") or "results"
-now, found = time.time(), []
-for path in glob.glob(os.path.join(results, "runs", "*", "run.json")):
-    if now - os.path.getmtime(path) > 1800:
-        continue
-    try:
-        with open(path, encoding="utf-8") as f:
-            run = json.load(f)
-    except (OSError, ValueError):
-        continue
-    if run.get("status") in ("READY", "RUNNING"):
-        found.append(run.get("runId") or os.path.basename(os.path.dirname(path)))
-if found:
-    print("결과 폴더의 진행 중인 Run " + " ".join(sorted(found)))
-PY
 }
 
 check_idle() {   # 진행 중이면 이유를 출력하고 1

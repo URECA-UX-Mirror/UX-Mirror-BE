@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 
+from api.run_lock import RunLock
 from api import run_factory
 from api.errors import ApiError, error_detail
 from api.integrations import Integrations
@@ -36,6 +37,8 @@ class Runner:
         self._active: str | None = None
         self._thread: threading.Thread | None = None
         # UX Optimizer 연결 (고도화 v1.3 5.5). Optimizer가 없으면 기존 P0 동작 그대로.
+        # 프로세스 사이 한 번에 Run 하나 (#122): API·검증 스크립트·Optimization이 결과 폴더의 같은 잠금을 쓴다
+        self.run_lock = RunLock.for_results(store.results_dir)
         self.site_base_url = None    # siteInstanceId → 서버에 등록된 사이트 주소 (없으면 None)
         self.external_busy = None    # external_busy(run) → Run을 만들면 안 되는 이유 (후보 평가·검증 중 등) 또는 None
 
@@ -43,6 +46,12 @@ class Runner:
     @property
     def active_run_id(self) -> str | None:
         return self._active
+
+    def external_run(self) -> dict | None:
+        """다른 프로세스(서버에서 직접 돌리는 검증 스크립트 등)가 잡고 있는 Run 잠금. 이 프로세스가 잡고 있으면 None."""
+        if self.run_lock.held_here:
+            return None
+        return self.run_lock.holder()
 
     @property
     def creation_lock(self) -> threading.Lock:
@@ -79,12 +88,20 @@ class Runner:
             if any(r.get("status") in ("READY", "RUNNING") or r.get("validity") == "VALID" for r in same):
                 raise ApiError(409, "EXPERIMENT_RUN_EXISTS",
                                "같은 experimentKey와 variant에 유효하거나 진행 중인 실행이 이미 있습니다.")
-            self.store.save_run(run)
-            self._link_replacement(same, run["runId"])
-            self._active = run["runId"]
-            self._thread = threading.Thread(target=self._execute, args=(run["runId"], goal),
-                                            name=f"run-{run['runId']}", daemon=True)
-            self._thread.start()
+            if not self.run_lock.acquire({"kind": "RUN", "runId": run["runId"]}):
+                raise ApiError(409, "RUN_ALREADY_ACTIVE",
+                               "다른 실행이 진행 중입니다 (서버의 다른 작업이 Run을 실행하고 있습니다).", retryable=True)
+            try:
+                self.store.save_run(run)
+                self._link_replacement(same, run["runId"])
+                self._active = run["runId"]
+                self._thread = threading.Thread(target=self._execute, args=(run["runId"], goal),
+                                                name=f"run-{run['runId']}", daemon=True)
+                self._thread.start()
+            except BaseException:
+                self._active = None
+                self.run_lock.release()
+                raise
         return run
 
     def _link_replacement(self, same: list[dict], new_run_id: str) -> None:
@@ -135,6 +152,7 @@ class Runner:
                 log.exception("run %s finalize failed", run_id)
             with self._lock:
                 self._active = None
+                self.run_lock.release()
 
     def _reload_or(self, run_id: str, fallback: dict) -> dict:
         try:
@@ -241,10 +259,15 @@ class Runner:
 
     # ---- 서버 시작 시 정리
     def recover_interrupted(self) -> list[str]:
-        """서버가 꺼지며 READY·RUNNING에 멈춘 Run을 무효 처리한다. 그대로 두면 같은 키로 다시 실행할 수 없다."""
+        """서버가 꺼지며 READY·RUNNING에 멈춘 Run을 무효 처리한다. 그대로 두면 같은 키로 다시 실행할 수 없다.
+
+        다른 프로세스가 지금 Run 잠금을 잡고 있으면(서버에서 직접 돌리는 검증 스크립트 등) 그 Run은 살아 있으므로 건드리지 않는다.
+        """
         fixed = []
+        other = self.external_run()
+        live = {other.get("runId")} if other else set()
         for run in self.store.list_runs():
-            if run.get("status") in ("READY", "RUNNING") and run["runId"] != self._active:
+            if run.get("status") in ("READY", "RUNNING") and run["runId"] != self._active and run["runId"] not in live:
                 self._fail(run, "BROWSER_ERROR", "BROWSER_ERROR", "서버 재시작으로 실행이 중단되었습니다.")
                 run_factory.finalize(run)
                 self.store.save_run(run)

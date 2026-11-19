@@ -265,6 +265,7 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
     @app.get("/api/health")
     def health():
         settings = run_factory.model_settings()
+        owner = _run_owner(runner)
         model_ready = _model_reachable(settings["config"])
         browser_ready = integrations.browser() is not None and _importable("playwright")
         agent_ready = integrations.agent() is not None
@@ -275,13 +276,24 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
                       "endpointId": settings["modelEndpointId"]},
             "browser": {"ready": browser_ready},
             "agent": {"ready": agent_ready},
-            "activeRun": runner.active_run_id,
+            # Run ID 또는 null. 다른 프로세스(서버에서 직접 돌리는 검증 스크립트 등)의 Run도 보인다 (#122)
+            "activeRun": runner.active_run_id or (owner or {}).get("runId"),
+            # 누가 Run 잠금을 잡고 있는지 {kind, runId, external} 또는 null. 검증의 두 Run 사이처럼 Run ID가 없을 때도 보인다
+            "activeRunOwner": owner,
             # UX Optimizer 평가·검증 중이면 일반 실행은 409다. activeRun만 보면 비어 있어 같이 알려 준다 (정자비 11-18)
             "activeOptimization": optimizer.active_job(),
             "checkedAt": now_iso(),
         }
 
     return app
+
+
+def _run_owner(runner) -> dict | None:
+    """Run 잠금을 잡은 쪽 → `activeRunOwner` (pid·호스트 이름은 내부 정보라 내보내지 않는다)."""
+    holder = runner.run_lock.holder()
+    if not holder:
+        return None
+    return {"kind": holder.get("kind"), "runId": holder.get("runId"), "external": not runner.run_lock.held_here}
 
 
 def _invalid(message: str) -> ApiError:
