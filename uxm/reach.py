@@ -52,7 +52,8 @@ def estimate(site_map: dict, page_probs: dict[str, dict[str, float]], start: str
 
     page_probs: {pageKey: {semanticKey: 확률}}. 도착 화면은 없어도 된다.
     반환: reachProbability(합), reachByStep[k] = 정확히 k+1번째 이동에 처음 닿을 확률, lostProbability(지도 밖),
-    unfinishedProbability(maxSteps 안에 못 닿음), expectedStepsGivenReach, mostLikelyPath, status, missingPages.
+    unfinishedProbability(maxSteps 안에 못 닿음), expectedStepsGivenReach, mostLikelyPath, status, missingPages,
+    pageVisitProbability(`page_visit_probability`).
     map_mismatches: `collect_page_probabilities`가 찾은 {pageKey: {added, removed}}. 있으면 status=MAP_MISMATCH.
     """
     pages = site_map["pages"]
@@ -116,12 +117,46 @@ def estimate(site_map: dict, page_probs: dict[str, dict[str, float]], start: str
         "shortestSteps": shortest,
         "reachWithinShortestProbability": _r(within),
         "reachByStep": [_r(p) for p in reach_by_step],
+        "pageVisitProbability": page_visit_probability(trans, pages, start, goal, max_steps),
         "lostProbability": _r(lost),
         "unfinishedProbability": _r(unfinished),
         "expectedStepsGivenReach": _r(expected),
         "nullReasons": null_reasons,
         "mostLikelyPath": most_likely_path(trans, start, goal, max_steps),
     }
+
+
+def page_visit_probability(trans: dict, pages: dict, start: str, goal: str, max_steps: int) -> dict[str, float]:
+    """화면마다 maxSteps 안에서 도착 화면에 닿기 전에 그 화면에서 한 번 이상 선택하게 될 확률 (#99).
+
+    자동 개선 진단의 막힘 점수 `P(도착 전에 X에 들어옴) × (1 − X의 정답 버튼 확률 합)`의 앞쪽 항.
+    - 시작 화면은 1, 도착 화면은 넣지 않는다. 같은 화면에 다시 들어와도 한 번으로 센다.
+    - 선택은 0 ~ maxSteps−1번째 이동 전에 한다. 마지막 이동으로 들어간 화면에서는 더 선택하지 않으므로 세지 않는다.
+    - 확률을 모르는 화면(INCOMPLETE)에서는 더 진행하지 않는다. 그 화면을 거치는 경로는 세지 않으므로 다른 화면 값은 하한.
+    """
+    if start == goal:
+        return {}
+    out = {}
+    for target in pages:
+        if target == goal:
+            continue
+        if target == start:
+            out[target] = 1.0
+            continue
+        dist, hit = {start: 1.0}, 0.0
+        for _ in range(1, max_steps):
+            nxt: dict[str, float] = {}
+            for page, mass in dist.items():
+                if page not in trans:
+                    continue
+                for to, p in trans[page][0].items():
+                    if to == target:
+                        hit += mass * p          # 처음 들어온 확률만 더하고 그 뒤는 따라가지 않는다
+                    elif to != goal:
+                        nxt[to] = nxt.get(to, 0.0) + mass * p
+            dist = nxt
+        out[target] = _r(hit)
+    return dict(sorted(out.items()))
 
 
 def most_likely_path(trans: dict, start: str, goal: str, max_steps: int) -> dict | None:

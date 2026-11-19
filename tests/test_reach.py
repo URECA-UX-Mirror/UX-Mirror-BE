@@ -353,3 +353,51 @@ def test_unknown_site_is_a_clean_cli_error(capsys):
     with pytest.raises(SystemExit) as e:
         er.main(["--site", "no-such-site"])
     assert e.value.code == 2 and "등록되지 않은 사이트" in capsys.readouterr().err
+
+
+# ---- 화면별 방문 확률 (#99, 자동 개선 진단의 막힘 점수용) ----
+
+def test_page_visit_probability_matches_hand_calculation():
+    # A에서 1번째 이동: B 0.5 → B를 들르는 경로는 이것뿐 (B→A→B로 다시 와도 한 번으로 센다)
+    est = reach.estimate(MAP, PROBS, "A", "G", 3)
+    assert est["pageVisitProbability"] == {"A": 1.0, "B": 0.5}   # 시작 화면 1, 도착 화면은 없음
+
+
+def test_page_visit_probability_counts_revisits_once():
+    # A→B 확실, B에서 반은 A로 돌아갔다가 다시 B로 → B 방문 확률은 1 (1.5가 아님)
+    m = {"pages": {
+        "A": {"path": "/a", "edges": [{"semanticKey": "ab", "to": "B"}]},
+        "B": {"path": "/b", "edges": [{"semanticKey": "ba", "to": "A"}, {"semanticKey": "bg", "to": "G"}]},
+        "G": {"path": "/g", "edges": []}}}
+    probs = {"A": {"ab": 1.0}, "B": {"ba": 0.5, "bg": 0.5}}
+    assert reach.estimate(m, probs, "A", "G", 8)["pageVisitProbability"] == {"A": 1.0, "B": 1.0}
+
+
+def test_page_visit_probability_sums_different_routes():
+    # A→B 0.5 / A→C 0.5 → C→B 1. B는 1번째 이동 0.5 + 2번째 이동 0.5 = 1
+    m = {"pages": {
+        "A": {"path": "/a", "edges": [{"semanticKey": "ab", "to": "B"}, {"semanticKey": "ac", "to": "C"}]},
+        "B": {"path": "/b", "edges": [{"semanticKey": "bg", "to": "G"}]},
+        "C": {"path": "/c", "edges": [{"semanticKey": "cb", "to": "B"}]},
+        "D": {"path": "/d", "edges": [{"semanticKey": "dg", "to": "G"}]},
+        "G": {"path": "/g", "edges": []}}}
+    probs = {"A": {"ab": 0.5, "ac": 0.5}, "B": {"bg": 1.0}, "C": {"cb": 1.0}, "D": {"dg": 1.0}}
+    v = reach.estimate(m, probs, "A", "G", 3)["pageVisitProbability"]
+    assert v == {"A": 1.0, "B": 1.0, "C": 0.5, "D": 0.0}          # 지도상 안 가는 화면은 0
+    # 마지막 이동으로 들어간 화면에서는 더 선택하지 않으므로 세지 않는다: maxSteps=2면 C→B(2번째 이동)는 제외
+    assert reach.estimate(m, probs, "A", "G", 2)["pageVisitProbability"]["B"] == 0.5
+    assert reach.estimate(m, probs, "A", "G", 1)["pageVisitProbability"] == {"A": 1.0, "B": 0.0, "C": 0.0, "D": 0.0}
+
+
+def test_page_visit_probability_with_missing_page_and_start_equals_goal():
+    est = reach.estimate(MAP, {"A": PROBS["A"]}, "A", "G", 3)
+    assert est["status"] == "INCOMPLETE" and est["pageVisitProbability"] == {"A": 1.0, "B": 0.5}   # B에서는 더 진행 안 함
+    assert reach.estimate(MAP, PROBS, "G", "G", 5)["pageVisitProbability"] == {}
+
+
+def test_page_visit_probability_does_not_change_existing_fields():
+    est = reach.estimate(MAP, PROBS, "A", "G", 3)
+    rest = {k: v for k, v in est.items() if k != "pageVisitProbability"}
+    assert rest["engineVersion"] == "reach-v1"
+    assert (rest["reachByStep"], rest["reachProbability"], rest["lostProbability"]) == ([0.3, 0.3, 0.06], 0.66, 0.24)
+    assert "pageVisitProbability" not in reach.compare(est, est)
