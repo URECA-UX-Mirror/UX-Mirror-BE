@@ -6,6 +6,8 @@
 """
 import json
 import os
+import socket
+import subprocess
 import sys
 import threading
 import time
@@ -745,3 +747,99 @@ def test_real_policy_module_follows_contract(make):
     report = client.get(f"/api/optimizations/{opt['optimizationId']}/report")
     assert report.status_code == 200
     assert report.json()["verification"]["finalDecision"] == "IMPROVEMENT_OBSERVED"
+
+
+def test_real_policy_excludes_failed_model_evaluation(make):
+    """한 후보의 모델 오류가 나머지 평가와 실제 정책 선정에 영향을 주지 않는다."""
+    class RealPolicy(FakeIntegrations):
+        def optimizer_policy(self):
+            return Integrations().optimizer_policy()
+
+    client, app, _ = make(RealPolicy(backend=LabelBackend(fail_labels=("주문·배송",))))
+    opt = create_and_evaluate(client, app)
+    assert opt["status"] == "EVALUATED", opt["error"]
+    failed = next(ev for ev in opt["evaluations"] if ev["candidateId"] == "C1")
+    assert failed["evaluationStatus"] == "FAILED" and failed["candidateValidity"] == "VALID"
+    assert opt["verificationCandidateId"] == "C2"
+    excluded = next(item for item in opt["selection"]["excludedCandidates"] if item["candidateId"] == "C1")
+    assert "EVALUATION_NOT_COMPLETED" in excluded["reasonCodes"]
+
+
+def test_real_policy_and_real_browser_with_all_candidate_sites(tmp_path, shops, monkeypatch):
+    """실제 5개 화면·루프·정책/API를 연결한다. 모델만 가짜이며 결과는 최종 실측이 아니다."""
+    pytest.importorskip("playwright")
+    monkeypatch.setattr(api_main, "_model_reachable", lambda cfg: True)
+    sites = {"C0": shops["before"], "C2": shops["after"]}
+    procs = []
+    try:
+        for cid in ("C1", "C3", "C4"):
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                port = sock.getsockname()[1]
+            server = os.path.join(ROOT, "shop", f"moro-{cid.lower()}", "server.py")
+            proc = subprocess.Popen([sys.executable, server, "--port", str(port)],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            procs.append(proc)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    raise RuntimeError(f"{cid} server exited before starting")
+                with socket.socket() as sock:
+                    if sock.connect_ex(("127.0.0.1", port)) == 0:
+                        break
+                time.sleep(0.1)
+            else:
+                raise RuntimeError(f"{cid} server did not start")
+            sites[cid] = f"http://127.0.0.1:{port}"
+
+        registry_path = tmp_path / "site_instances.json"
+        registry_path.write_text(json.dumps({"instances": [
+            {"siteInstanceId": f"site-{cid.lower()}", "candidateId": cid,
+             "label": LABELS[cid], "baseUrl": sites[cid]} for cid in LABELS
+        ]}, ensure_ascii=False), encoding="utf-8")
+
+        class MockModelIntegrations(Integrations):
+            def backend(self, cfg):
+                return KeywordBackend()
+
+        app = create_app(results_dir=str(tmp_path / "results"), integrations=MockModelIntegrations(),
+                         site_registry=SiteRegistry(str(registry_path)))
+        with TestClient(app) as client:
+            response = client.post("/api/optimizations")
+            assert response.status_code == 202, response.text
+            opt_id = response.json()["optimizationId"]
+            app.state.optimizer.wait(90)
+            opt = client.get(f"/api/optimizations/{opt_id}").json()
+            assert opt["status"] == "EVALUATED", opt["error"]
+            assert len(opt["evaluations"]) == 5
+            assert all(ev["evaluationStatus"] == "COMPLETED" and ev["candidateValidity"] == "VALID"
+                       for ev in opt["evaluations"])
+            assert all(ev["normalizedEntropy"] is not None and ev["top2Margin"] is not None
+                       for ev in opt["evaluations"])
+            assert opt["verificationCandidateId"] in {"C1", "C2", "C3", "C4"}
+            assert client.post(f"/api/optimizations/{opt_id}/verify").status_code == 202
+            app.state.optimizer.wait(120)
+            done = client.get(f"/api/optimizations/{opt_id}").json()
+            assert done["status"] == "COMPLETED", done["error"]
+            assert done["verification"]["finalDecision"] == done["finalDecision"]
+            assert done["verification"]["reasonCode"] != "RUN_CONDITIONS_MISMATCH_OR_MISSING"
+            assert done["baselineRunId"] != done["validationRunId"]
+            for key, role in (("baselineRunId", "BASELINE"), ("validationRunId", "CANDIDATE")):
+                run_id = done[key]
+                run = client.get(f"/api/runs/{run_id}").json()
+                assert run["validity"] == "VALID"
+                assert run["optimizationContext"]["executionRole"] == role
+                steps = client.get(f"/api/runs/{run_id}/steps").json()["items"]
+                assert steps and client.get(f"/api/runs/{run_id}/screenshots/{steps[0]['stepId']}").status_code == 200
+                assert client.get(f"/api/runs/{run_id}/issues").json()["analysisStatus"] == "COMPLETED"
+            report = client.get(f"/api/optimizations/{opt_id}/report").json()
+            assert report["finalDecision"] == done["finalDecision"]
+            assert report["selection"] == done["selection"]
+            for ev in report["evaluations"]:
+                for ref in (ev["rawRequestRef"], ev["rawResponseRef"]):
+                    assert os.path.isfile(app.state.optimizer.store.path(opt_id, *ref.split("/")))
+    finally:
+        for proc in procs:
+            proc.terminate()
+        for proc in procs:
+            proc.wait(timeout=5)
