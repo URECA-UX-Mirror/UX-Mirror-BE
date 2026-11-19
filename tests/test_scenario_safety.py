@@ -95,3 +95,45 @@ def test_registered_pages_are_frozen_at_construction():
 def test_rejects_invalid_registration(base, pages):
     with pytest.raises(ValueError):
         ScenarioSafety(base, pages)
+
+
+# ---- cafe24-ons 장바구니 경계 (#91): 장바구니는 조회용 목표 화면으로만 허용, 상태 변경 동작은 후보에서 제외
+BASKET_URL = "https://ecudemo360127.cafe24.com/order/basket.html"
+
+
+@pytest.fixture
+def cafe24():
+    from uxm.site_scope import load_scope
+    return load_scope("cafe24-ons")
+
+
+def dom(tag="a", href=None, label="", onclick=None):
+    return {"tag": tag, "href": href, "label": label,
+            "attrs": {"onclick": onclick, "download": None, "target": None, "role": None}}
+
+
+@pytest.mark.parametrize("href, label", [("/order/basket.html", "장바구니 (0)"), ("/order/basket.html", "0")])
+def test_cafe24_basket_is_reachable_as_goal_screen(cafe24, href, label):
+    assert cafe24.candidate_rejection("https://ecudemo360127.cafe24.com/", dom(href=href, label=label)) is None
+
+
+@pytest.mark.parametrize("el, reason", [
+    # 2026-11-19 실제 장바구니 화면(빈 장바구니)에서 읽은 DOM
+    (dom(href="#none", label="전체상품주문", onclick="Basket.orderAll(this)"), "UNSUPPORTED_LINK_ACTION"),
+    (dom(href="#none", label="선택상품주문", onclick="Basket.orderSelectBasket(this)"), "UNSUPPORTED_LINK_ACTION"),
+    (dom(href="#none", label="변경"), "NOT_NAVIGATION"),
+    (dom(href="/myshop/order/list.html", label="주문조회"), "OUT_OF_SCOPE"),
+    # 상품이 담긴 장바구니의 cafe24 기본 스킨 형태 (깨끗한 브라우저로 시작하면 빈 장바구니라 실제 화면에서는 관찰 불가)
+    (dom(href="javascript:;", label="", onclick="Basket.addQuantityShortcut('quantity_id_0', 0);"), "UNSUPPORTED_LINK_ACTION"),
+    (dom(href="javascript:;", label="삭제", onclick="Basket.deleteBasketItem(0);"), "UNSUPPORTED_LINK_ACTION"),
+    (dom(href="/exec/front/order/basket/?command=delete", label="삭제"), "DANGEROUS_ACTION"),
+    (dom(href="/order/orderform.html?basket_type=all_buy", label="주문하기"), "DANGEROUS_ACTION"),
+    (dom(href="/product/detail.html?product_no=10", label="장바구니 담기"), "DANGEROUS_ACTION"),
+    (dom(tag="button", label="장바구니 비우기"), "NOT_LINK"),
+    # 라벨이 위험해 보이지 않아도 주소만으로 막히는지 (라벨 검사가 먼저라 위 두 경로는 DANGEROUS_ACTION으로 끝난다)
+    (dom(href="/exec/front/order/basket/?command=delete", label="확인"), "DANGEROUS_PATH"),
+    (dom(href="/order/orderform.html?basket_type=all_buy", label="다음 단계"), "DANGEROUS_PATH"),
+])
+def test_cafe24_basket_state_changes_are_not_candidates(cafe24, el, reason):
+    """차단 여부뿐 아니라 의도한 규칙으로 막혔는지 본다 (#92 리뷰). 다른 규칙으로 우연히 막히면 실패한다."""
+    assert cafe24.candidate_rejection(BASKET_URL, el) == reason
