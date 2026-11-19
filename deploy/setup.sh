@@ -124,7 +124,7 @@ sed -e "s#__DOMAIN__#$DOMAIN#g" deploy/Caddyfile | sudo tee /etc/caddy/Caddyfile
 sudo systemctl enable caddy >/dev/null
 sudo systemctl restart caddy
 
-# ---- 7. 확인: 실제로 Run을 돌릴 수 있는지 (API READY · 쇼핑몰 5개 · 바깥 HTTPS)
+# ---- 7. 확인: 실제로 Run을 돌릴 수 있는지 (API READY · 쇼핑몰 6개 · 바깥 HTTPS)
 echo "확인 중... (처음엔 인증서 발급에 몇 초 걸립니다)"
 if ! check_ready 60 "$DOMAIN"; then
   echo "설치는 끝났지만 Run을 돌릴 수 없는 상태입니다. 위 항목을 고친 뒤 ./deploy/setup.sh를 다시 실행해 주세요." >&2

@@ -11,7 +11,7 @@
 #   2. 진행 중인 Run 확인
 #   3. 받을 커밋 확인 (--sha와 같은지, fast-forward인지) → Run 다시 확인 → 그 커밋의 패키지 먼저 설치
 #   4. 코드 전환 → 진행 중인 Run 한 번 더 확인 → 재시작
-#   5. 실제로 Run을 돌릴 수 있는지 (API READY · 쇼핑몰 5개 · 바깥 HTTPS)
+#   5. 실제로 Run을 돌릴 수 있는지 (API READY · 쇼핑몰 6개 · 바깥 HTTPS)
 #   6. 잠금 해제 (원래 잠겨 있었으면 그대로). 해제하지 못하면 실패로 끝난다
 # 재시작 전에 멈추면 코드를 원래 커밋으로 되돌린다. 재시작 뒤 확인이 실패하면 되돌리지 않고(모델 서버 문제일 수 있음)
 # 되돌리는 명령을 알려 준다.
@@ -123,6 +123,9 @@ main() {
   sudo systemctl restart uxm-shops uxm-api
 
   # ---- 5. 실제로 Run을 돌릴 수 있는지
+  # 점검할 쇼핑몰 포트는 방금 받은 커밋의 lib.sh 값으로 다시 읽는다 (이 스크립트가 처음 읽은 lib.sh는 이전 커밋 것이라
+  # 새로 추가된 쇼핑몰을 빼고 점검하게 된다). 함수는 다시 읽지 않는다.
+  SHOP_PORTS="$(bash -c 'source deploy/lib.sh && echo "$SHOP_PORTS"')"
   echo "확인 중..."
   if ! check_ready 60 "$(site_domain)"; then
     echo "배포는 됐지만 Run을 돌릴 수 없는 상태입니다. 위 항목을 확인해 주세요." >&2

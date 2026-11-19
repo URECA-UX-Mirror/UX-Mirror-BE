@@ -1,11 +1,11 @@
 # 백엔드 서버 배포 (EC2, #108)
 
-서버 한 대에 실행 API·브라우저(Chromium)·쇼핑몰 C0~C4를 같이 띄우고, 모델은 행사 GPU 서버를 쓴다.
+서버 한 대에 실행 API·브라우저(Chromium)·쇼핑몰(v1·v2·Optimizer 후보)을 같이 띄우고, 모델은 행사 GPU 서버를 쓴다.
 
 ```
 Vercel FE (https) ──→ EC2: Caddy(443, HTTPS 자동) → uvicorn api.main:app (127.0.0.1:8000, 프로세스 1개)
                               ├ Chromium (Playwright, 화면 없이)
-                              └ 쇼핑몰 C0~C4 (127.0.0.1:8001~8005, 밖에 안 열림)
+                              └ 쇼핑몰 v1·v2·C1~C4 (127.0.0.1:8001~8006, 밖에 안 열림)
                          API ──→ GPU 서버 serve_decide.py /v1/decide  (.env의 ZORO_BASE_URL)
 ```
 
@@ -21,7 +21,7 @@ Vercel FE (https) ──→ EC2: Caddy(443, HTTPS 자동) → uvicorn api.main:a
 | 유형 | t3.large 이상 (메모리 8GB, Chromium) |
 | 디스크 | 30GB |
 | 공인 IP | **Elastic IP** 연결 (IP가 바뀌면 HTTPS 주소도 바뀜) |
-| 보안 그룹 | 22: 아래 "수동 배포"를 쓰면 모두(키로만 접속), 서버에서 직접 배포만 하면 내 IP만 · 80·443: 모두 (인증서 발급·FE 접속). **8000~8005는 열지 않는다** |
+| 보안 그룹 | 22: 아래 "수동 배포"를 쓰면 모두(키로만 접속), 서버에서 직접 배포만 하면 내 IP만 · 80·443: 모두 (인증서 발급·FE 접속). **8000~8006은 열지 않는다** |
 | 사용자 | `ubuntu` (비밀번호 없이 `sudo` 가능한 EC2 기본 사용자. 스크립트가 sudo를 묻지 않고 쓴다) |
 
 ## 2. 설치
@@ -44,7 +44,7 @@ git clone https://github.com/UX-Mirror/UX-Mirror-BE.git && cd UX-Mirror-BE
 
 두 번째 실행이 끝나면 `https://<공인 IP 점→대시>.sslip.io/api/health` 주소가 출력된다. 도메인이 있으면 `./deploy/setup.sh <도메인>`.
 
-`setup.sh`가 하는 일: 패키지·Caddy 설치 → `.venv`에 `deploy/requirements-server.txt`(torch 없음) → Chromium → `uxm-shops`·`uxm-api` 서비스 등록·시작 → Caddy 설정(쓰기 잠금 꺼짐) → **실제로 Run을 돌릴 수 있는지 확인**: `/api/health`가 `READY`, 쇼핑몰 5개 응답, 바깥 HTTPS 주소 응답. 하나라도 안 되면 무엇이 안 되는지 출력하고 실패로 끝난다 (GPU가 꺼져 있으면 `model` 준비 안 됨).
+`setup.sh`가 하는 일: 패키지·Caddy 설치 → `.venv`에 `deploy/requirements-server.txt`(torch 없음) → Chromium → `uxm-shops`·`uxm-api` 서비스 등록·시작 → Caddy 설정(쓰기 잠금 꺼짐) → **실제로 Run을 돌릴 수 있는지 확인**: `/api/health`가 `READY`, 쇼핑몰 6개 응답, 바깥 HTTPS 주소 응답. 하나라도 안 되면 무엇이 안 되는지 출력하고 실패로 끝난다 (GPU가 꺼져 있으면 `model` 준비 안 됨).
 
 다시 실행해도 된다. 이미 설치된 서버에서는 **아무것도 설치하기 전에** `update.sh`와 같이 쓰기 잠금 → 진행 중인 Run 확인(있으면 멈춤) → 패키지 설치 → 재시작 직전에 한 번 더 확인 → 재시작·확인 → 원래 잠금 상태로 되돌린다 (`./deploy/setup.sh "" --force`면 진행 중인 Run을 무시). 처음 설치는 돌고 있는 Run이 없으므로 잠금 없이 진행한다.
 
@@ -119,7 +119,7 @@ curl -s https://<위 주소>/api/health
 2. **진행 중인 Run 확인** → 있으면 멈춤: `/api/health`의 `activeRun`·`activeOptimization`, API가 켜져 있는데 health가 응답 없음, 결과 폴더에서 최근 30분 안에 바뀐 READY·RUNNING Run(API 밖 스크립트 Run).
 3. **받을 커밋 확인** → 서버 저장소에 커밋 안 된 수정, `--sha`와 지금 브랜치 커밋이 다름(테스트 뒤 새 커밋), fast-forward 불가면 멈춤. 진행 중인 Run을 다시 확인한 뒤 그 커밋의 `deploy/requirements-server.txt`로 패키지를 **먼저** 설치.
 4. **코드 전환 → 진행 중인 Run 한 번 더 확인**(있으면 코드를 되돌리고 멈춤) → 서비스 파일 다시 쓰기 → 쇼핑몰·API 재시작.
-5. **실제로 Run을 돌릴 수 있는지**: `READY`, 쇼핑몰 5개, 바깥 HTTPS. 안 되면 무엇이 안 되는지와 되돌리는 명령을 출력하고 실패 (모델 서버 문제일 수 있어 자동으로 되돌리지 않는다).
+5. **실제로 Run을 돌릴 수 있는지**: `READY`, 쇼핑몰 6개, 바깥 HTTPS. 안 되면 무엇이 안 되는지와 되돌리는 명령을 출력하고 실패 (모델 서버 문제일 수 있어 자동으로 되돌리지 않는다).
 6. **잠금 해제** (원래 켜져 있었으면 그대로). 풀지 못하면 실패.
 
 - 두 배포가 동시에 돌지 않는다 (`flock`).
