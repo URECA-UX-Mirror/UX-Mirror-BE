@@ -30,6 +30,25 @@ flowchart LR
     class A,I,C,FE ok
 ```
 
+## 심사위원 안내
+
+| 심사 항목 | 바로 확인 |
+|---|---|
+| **라이브 데모** | [ux-mirror-fe.vercel.app](https://ux-mirror-fe.vercel.app) (배포 서버에서 진짜로 돈다)<br>미리 돌려 둔 시연 결과: [진단 → 개선안 → 효과](https://ux-mirror-fe.vercel.app/runs/run_before_20261120072728_49b6) · [지금 화면 vs 개선안](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120072738-8ba5-MAIN) |
+| **목표 달성** | 환불 화면을 못 찾던 고객이 '이용정보' → '주문 환불'로 바꾼 화면에서 2번 만에 도착 (찾아올 가능성 40.0% → 59.7%)<br>[실행 로그 3종](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) |
+| **오류 시에도 동작** | [실패 처리](#실패-처리): 상황별 동작과 코드·테스트 링크 |
+| **Zoro-1 사용 (System 1)** | [Zoro-1의 역할](#zoro-1의-역할): 빠른 진단·라우팅·검증. 실행 로그의 Run 폴더마다 Zoro-1 원본 요청·응답(`raw/`)이 있다 |
+| **창의성·사업화** | 사이트를 고치지 않고, AI 고객이 직접 눌러 보며 **어디서 헤매는지 → 왜 → 무엇을 바꾸면 → 얼마나 좋아지는지**를 사람 사용성 테스트 전에 보여 준다. 반영은 개발자가 한다 |
+
+**직접 해 보기 (약 6분)**
+1. [첫 화면](https://ux-mirror-fe.vercel.app)에서 예시 문장(예: "선물로 받은 셔츠가 작아서 반품하고 환불받고 싶다")을 누르고 "진단 시작"
+2. 결과 화면 ① 잘 찾아가나요 · ② 왜 그랬을까요가 채워지면 ③의 "AI에게 개선안 받아 보기" (약 5분)
+3. ③ 바꿀 이름 · ④ 찾아올 가능성 전 → 후 · "화면별로 비교하기"
+
+- 서버는 한 번에 실행 1개만 돌린다. 다른 실행이 돌고 있으면 화면에 안내와 진행 중인 화면 링크가 나온다.
+- 진단(①)은 Zoro-1이 확률로 고르므로 같은 문장이어도 가끔 처음부터 찾는다. 위 시연 결과 링크는 11/20 07:27 실행 그대로다.
+- 프론트엔드 저장소: [UX-Mirror/UX-Mirror-FE](https://github.com/UX-Mirror/UX-Mirror-FE)
+
 ## 특징
 
 - **막히는 버튼 탐지 → 이름 수정 → 실제 Run으로 확인** ([자동 개선 에이전트](#자동-개선-에이전트), [공식 결과](#결과-자동-개선-공식))
@@ -165,6 +184,14 @@ curl localhost:8000/api/health                    # 모델·브라우저·에이
 | 실험 정보 누출 | 모델 입력에 버전·정답 정보가 있으면 요청 차단 |
 | 계산할 수 없는 값 | 0 대신 `null` + 사유 |
 | 공개 로그 비밀값 | 키·토큰·서버 주소가 있으면 내보내기 중단 |
+| AI 개선 중 실행 프로세스가 멈춤 | 다음 조회 때 `INTERRUPTED`로 바꾸고 이유를 보인다. 파일 잠금이라 프로세스가 죽으면 잠금도 풀려 서버가 다시 받는다 ([`api/improvement_jobs.py`](api/improvement_jobs.py) `view`, [`api/run_lock.py`](api/run_lock.py)) |
+| AI 개선 원본이 진행 중·무효·개선안 진단 | 시작 전 `422`, 작업을 만들지 않음 ([`api/improvement_jobs.py`](api/improvement_jobs.py) `source_problem`, [테스트](tests/test_improvement_api.py)) |
+| 개선 중 검증 Run이 도는 동안 새로고침 | 상태(`/api/health`)에 진행 중인 AI 개선 id를 계속 보여 그 화면으로 다시 연결 ([`api/run_lock.py`](api/run_lock.py)) |
+| 오류 문구에 주소·경로가 섞임 | 응답 전에 지운다 ([`scripts/improve_live.py`](scripts/improve_live.py) `scrub`) |
+| 서버 배포 중 실행 요청 | 쓰기 잠금으로 새 실행을 막고, 실행 중이면 배포를 멈춤. 재시작 전 실패는 원래 커밋으로 되돌린다 ([`deploy/update.sh`](deploy/update.sh), [`deploy/write_lock.sh`](deploy/write_lock.sh)) |
+| 화면에서 조회가 잠깐 끊김 | 받은 내용을 유지하고 5초마다 다시 시도, 진단이 끝난 직후 유효 여부가 아직 없으면 잠시 더 확인 (FE [`useImprovement.ts`](https://github.com/UX-Mirror/UX-Mirror-FE/blob/main/src/features/improvement/useImprovement.ts), [`useRunProgress.ts`](https://github.com/UX-Mirror/UX-Mirror-FE/blob/main/src/features/run-progress/useRunProgress.ts)) |
+| 이상한 입력 (`.`, `ㅋㅋㅋㅋ`, 금지어) | 시작 전에 칸 아래 안내, 서버도 같은 규칙으로 `422` ([`api/input_rules.py`](api/input_rules.py), FE [`inputRules.ts`](https://github.com/UX-Mirror/UX-Mirror-FE/blob/main/src/shared/inputRules.ts)) |
+| 바꿔도 나아지지 않음 | 억지로 고르지 않고 "이름만 바꿔서는 나아지지 않았어요"(`NO_IMPROVEMENT`)와 후보별 이유를 보인다 |
 
 테스트 1007개 (`pytest -q tests`, 모델 없이 실행).
 
