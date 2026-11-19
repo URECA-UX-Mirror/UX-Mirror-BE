@@ -1,0 +1,11 @@
+# 서버(EC2)용. 모델은 GPU 서버(ZORO_BACKEND=http)에서 돌리므로 torch·transformers는 설치하지 않는다.
+# 로컬 개발·모델 직접 실행은 저장소 루트의 requirements.txt.
+fastapi==0.163.1
+starlette==1.10.0
+pydantic==2.14.3
+uvicorn==0.54.0
+httpx==0.28.1
+requests==2.34.2
+pillow==13.0.0
+python-dotenv==1.2.4
+playwright==1.65.2

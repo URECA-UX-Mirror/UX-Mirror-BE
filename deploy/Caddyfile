@@ -1,0 +1,7 @@
+# setup.sh가 __DOMAIN__을 바꿔 /etc/caddy/Caddyfile로 복사한다. 인증서는 Caddy가 자동으로 받는다 (80·443 열려 있어야 함).
+__DOMAIN__ {
+	encode gzip
+	# 쓰기 잠금 (deploy/write_lock.sh on|off). 꺼져 있으면 주석 한 줄뿐인 파일
+	import /etc/caddy/uxm-write-lock.caddy
+	reverse_proxy 127.0.0.1:8000
+}
