@@ -1,7 +1,7 @@
 {
   "finalExecutionPlanId": "final-plan-1119",
   "status": "FROZEN",
-  "frozenAt": "2026-11-18T23:44:08+09:00",
+  "frozenAt": "2026-11-19T15:05:00+09:00",
   "note": "이 파일은 머지 후 수정 금지 (테스트 시나리오 '최종 실행 계획'). 모델 서버 식별자(endpointId)와 실제 실행 커밋은 결정이 아니라 실행 환경 값이라 run_log.md에 기록한다.",
   "decisionDoc": "팀 결정 최종본 (11/18 저녁) + 상황 문장 평가 사전 등록 (11/18) — 목표를 메뉴 단어 없는 상황 문장 S1~S4로 확정",
   "executionMode": "DIRECT_INPUT_SITE_MAP",
@@ -12,6 +12,7 @@
   "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
   "maxSteps": 8,
   "mainMetric": "home에서 정답 메뉴(도착 화면 방향 링크)를 고를 확률 — 목표 × Before/After. Run 한 번의 경로·단계 수는 예시 장면",
+  "correctFirstLinkRule": "정답 메뉴 = 사이트 지도(sitemap-v1)에서 home보다 도착 화면까지 거리가 줄어드는 화면으로 가는 home 링크 전부 (목표별 correctFirstLinks, semanticKey 기준). 메인 지표 값은 그 링크들의 확률 합이며, 비교 API home 화면의 goalPathProbability(SITE_MAP)와 같다. 링크 하나만 골라 보고하지 않고, home 후보 5개의 Before/After 확률 전체를 함께 공개한다",
   "goals": [
     {
       "goalIndex": 1,
@@ -20,6 +21,7 @@
       "goal": "지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다",
       "verification": {"path": "/shop/refund", "text": "환불 / 반품 신청", "exact": false, "scope": "page"},
       "expectedShortestSteps": 2,
+      "correctFirstLinks": ["상단 메뉴>/shop/orders#1", "본문>/shop/orders#1", "상단 메뉴>/shop/mypage#1"],
       "pairs": [{"pairIndex": 1, "experimentKey": "e-s1-1119", "plannedOrder": "B→A"}]
     },
     {
@@ -29,6 +31,7 @@
       "goal": "어제 산 물건이 지금 어디쯤 오고 있는지 알고 싶다",
       "verification": {"path": "/shop/orders", "text": "주문 / 배송 조회", "exact": false, "scope": "page"},
       "expectedShortestSteps": 1,
+      "correctFirstLinks": ["상단 메뉴>/shop/orders#1", "본문>/shop/orders#1"],
       "pairs": [{"pairIndex": 1, "experimentKey": "e-s2-1119", "plannedOrder": "B→A"}]
     },
     {
@@ -36,8 +39,10 @@
       "name": "S3 쿠폰",
       "priority": "REQUIRED",
       "goal": "내가 가진 할인 쿠폰이 몇 장 남았는지 보고 싶다",
-      "verification": {"path": "/shop/mypage", "text": "김모로 님", "exact": false, "scope": "page"},
+      "verification": {"path": "/shop/mypage", "text": "사용 가능 쿠폰", "exact": false, "scope": "page"},
+      "verificationNote": "사전 등록 때의 '김모로 님'은 헤더라 모든 화면에 있어 검사 역할을 못 해(#66 리뷰), mypage에만 있는 '사용 가능 쿠폰'(Before·After 동일)으로 바꿈. 목표 문장·도착 화면은 그대로",
       "expectedShortestSteps": 1,
+      "correctFirstLinks": ["상단 메뉴>/shop/mypage#1"],
       "pairs": [{"pairIndex": 1, "experimentKey": "e-s3-1119", "plannedOrder": "B→A"}]
     },
     {
@@ -47,13 +52,14 @@
       "goal": "받은 상품에 문제가 있어서 직원에게 직접 물어보고 싶다",
       "verification": {"path": "/shop/support", "text": "자주 묻는 질문", "exact": false, "scope": "page"},
       "expectedShortestSteps": 1,
+      "correctFirstLinks": ["상단 메뉴>/shop/support#1", "본문>/shop/support#1"],
       "pairs": [{"pairIndex": 1, "experimentKey": "e-s4-1119", "plannedOrder": "B→A"}]
     }
   ],
   "executionOrder": ["e-s1-1119", "e-s2-1119", "e-s3-1119", "e-s4-1119"],
   "gitCommit": "ac153e6",
-  "gitCommitScope": "실행 코드 기준 커밋 (develop = Merge PR #84; #70·#71·#75 외부 사이트 작업, #82 파일 잠금 재시도, #84 실행 로그 내보내기 스크립트 포함). #82·#84는 판단·경로·지표 코드를 바꾸지 않는다. 이전 기준 c2278a4에서 E 전 MORO 회귀 regress-75 통과 (11/18, 로컬 4bit, 통합 확인 Run과 경로·Step별 판단값·후보 확률·검토 후보까지 동일)",
-  "executionCommitRule": "실제 실행 환경의 체크아웃 커밋(이 manifest 머지 후 develop HEAD)은 run_log.md에 기록한다. E-1 전에 `git diff --name-only c2278a4 <실행 커밋>` 결과가 results/final_execution_plan.json(과 run_log.md)뿐인지 확인한다. 그 외 파일이 바뀌었으면 E-1을 시작하지 않고 팀과 확인한다.",
+  "gitCommitScope": "실행 코드 기준 커밋 (develop = Merge PR #84; #70·#71·#75 외부 사이트 작업, #82 파일 잠금 재시도, #84 실행 로그 내보내기 스크립트 포함). c2278a4 → ac153e6 사이 실행 코드 변경은 api/store.py·uxm/storage.py 두 파일뿐이며, Windows 파일 공유 위반(PermissionError) 재시도 코드를 uxm/storage.retry_on_file_lock 하나로 모은 것(재시도 횟수·대기 시간 같음)이라 판단·경로·지표 계산은 바뀌지 않는다. 나머지는 README·scripts/export_run_logs.py·테스트. 이전 기준 c2278a4에서 E 전 MORO 회귀 regress-75 통과 (11/18, 로컬 4bit, 통합 확인 Run과 경로·Step별 판단값·후보 확률·검토 후보까지 동일). ac153e6에서는 E-1 직전 행사 GPU 서버로 MORO 회귀 1쌍을 실행해 run_log.md에 기록한다 (SUCCESS·VALID·비교 조건 일치가 아니면 E-1을 시작하지 않는다)",
+  "executionCommitRule": "실제 실행 환경의 체크아웃 커밋(이 manifest 머지 후 develop HEAD)은 run_log.md에 기록한다. E-1 전에 `git diff --name-only ac153e6 <실행 커밋>` 결과가 results/final_execution_plan.json(과 run_log.md)뿐인지 확인한다. 그 외 파일이 바뀌었으면 E-1을 시작하지 않고 팀과 확인한다.",
   "modelVersion": "trillionlabs/Zoro-1",
   "modelEndpointRule": "모델 서버 식별자는 E-1 직전 /api/health의 model.endpointId(ZORO_BACKEND=http)를 run_log.md에 기록한다. model.modelVersion이 위 modelVersion과 다르면 E-1을 시작하지 않는다.",
   "temperature": 1.52,
