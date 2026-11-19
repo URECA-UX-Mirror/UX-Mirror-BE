@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.3.5",
+  "runId": "run_before_20261119152427_7646",
+  "analysisStatus": "COMPLETED",
+  "items": [
+    {
+      "schemaVersion": "1.3.5",
+      "issueId": "issue_6413f876b584c6d7ddca561e",
+      "runId": "run_before_20261119152427_7646",
+      "issueType": "GOAL_NOT_REACHED",
+      "stepId": null,
+      "relatedStepIds": [],
+      "pagePath": null,
+      "pageKey": null,
+      "pageSignature": null,
+      "title": "목표 미달성",
+      "description": "설정한 탐색 제한 안에 목표에 도달하지 못했습니다.",
+      "evidence": {
+        "status": "BLOCKED",
+        "terminationReason": "REVISIT_LIMIT_REACHED",
+        "stepCount": 4
+      },
+      "reviewPriority": "PRIORITY_REVIEW",
+      "occurrenceCount": 1,
+      "createdAt": "2026-11-19T15:24:37.625+09:00"
+    },
+    {
+      "schemaVersion": "1.3.5",
+      "issueId": "issue_937a70b9b92129de7f530b35",
+      "runId": "run_before_20261119152427_7646",
+      "issueType": "REPEATED_VISIT",
+      "stepId": 2,
+      "relatedStepIds": [
+        2,
+        4
+      ],
+      "pagePath": "/shop/home",
+      "pageKey": "home",
+      "pageSignature": "home_default",
+      "title": "화면 재방문",
+      "description": "모델 행동으로 이전에 방문한 화면을 다시 방문했습니다.",
+      "evidence": {
+        "pageSignature": "home_default",
+        "visitCount": 3,
+        "visitCauses": [
+          "RUN_START",
+          "MODEL_BACK"
+        ]
+      },
+      "reviewPriority": "PRIORITY_REVIEW",
+      "occurrenceCount": 2,
+      "createdAt": "2026-11-19T15:24:33.183+09:00"
+    },
+    {
+      "schemaVersion": "1.3.5",
+      "issueId": "issue_792d4d40eff24b0595abe1d2",
+      "runId": "run_before_20261119152427_7646",
+      "issueType": "REPEATED_VISIT",
+      "stepId": 3,
+      "relatedStepIds": [
+        3
+      ],
+      "pagePath": "/shop/support",
+      "pageKey": "support",
+      "pageSignature": "support_default",
+      "title": "화면 재방문",
+      "description": "모델 행동으로 이전에 방문한 화면을 다시 방문했습니다.",
+      "evidence": {
+        "pageSignature": "support_default",
+        "visitCount": 2,
+        "visitCauses": [
+          "MODEL_NAVIGATION",
+          "MODEL_NAVIGATION"
+        ]
+      },
+      "reviewPriority": "PRIORITY_REVIEW",
+      "occurrenceCount": 1,
+      "createdAt": "2026-11-19T15:24:34.544+09:00"
+    },
+    {
+      "schemaVersion": "1.3.5",
+      "issueId": "issue_0d14786f3737fc18dc79350a",
+      "runId": "run_before_20261119152427_7646",
+      "issueType": "CHOICE_AMBIGUITY",
+      "stepId": 1,
+      "relatedStepIds": [
+        1,
+        3
+      ],
+      "pagePath": "/shop/home",
+      "pageKey": "home",
+      "pageSignature": "home_default",
+      "title": "메뉴 선택 확률 분산",
+      "description": "여러 클릭 후보에 모델의 선택 확률이 분산되었습니다.",
+      "evidence": {
+        "clickOnlyNormalizedEntropy": 0.9277791476871425,
+        "clickOnlyTop2Margin": 0.0842,
+        "candidateCount": 5,
+        "entropyThreshold": 0.8
+      },
+      "reviewPriority": "GENERAL_REVIEW",
+      "occurrenceCount": 2,
+      "createdAt": "2026-11-19T15:24:30.933+09:00"
+    }
+  ]
+}
