@@ -1,9 +1,9 @@
 # UX MIRROR — 백엔드
 
 > **Zoro-1이 사용자 대신 사이트를 탐색해 막히는 버튼을 찾고, 그 버튼 이름을 스스로 고친 뒤 실제로 좋아졌는지 다시 돌려 확인한다.**
-> 결과는 사람 사용성 테스트 전에 확인할 화면과 버튼 이름 후보다.
+> 실제 사용자 테스트를 하기 전에, 어느 화면에서 헤매는지와 어떤 이름으로 바꾸면 좋을지 먼저 알려 준다.
 
-**바로 가기:** [데모](#데모) · [에이전트 실행 로그 (run-logs)](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) · [직접 실행해 보기](#직접-실행해-보기) · [공식 실행 기록 (run_log.md)](results/run_log.md)
+**바로 가기:** [라이브 데모](https://ux-mirror-fe.vercel.app) · [목표 달성](#결과-자동-개선-공식) · [오류 시에도 동작](#실패-처리) · [Zoro-1 사용](#zoro-1의-역할) · [실행 로그 3종](run-logs/README.md) · [직접 실행해 보기](#직접-실행해-보기) · [공식 실행 기록](results/run_log.md)
 
 ```mermaid
 flowchart LR
@@ -30,39 +30,14 @@ flowchart LR
     class A,I,C,FE ok
 ```
 
-## 데모
-
-[ux-mirror-fe.vercel.app](https://ux-mirror-fe.vercel.app)
-
-예시 쇼핑몰 MORO MARKET에서 할 일을 한 문장으로 넣으면, AI 고객이 쇼핑몰을 직접 눌러 보고 다음을 차례로 보여 준다. 진단은 1~2분, 개선안은 약 5분 걸린다.
-
-1. 원하는 화면을 잘 찾아가는지
-2. 못 찾았다면 왜 그런지
-3. 메뉴 이름을 어떻게 바꾸면 좋을지
-4. 바꾸면 찾아올 가능성이 얼마나 오르는지
-
-사이트는 고치지 않는다. 바꿀 이름과 효과만 보여 주고, 반영은 개발자가 한다.
-
-**예시 결과** (11/20 배포 서버, 셋 다 '이용정보' → '주문 환불')
-
-| 할 일 | 찾아올 가능성 | 다시 해 본 결과 (지금 화면 → 개선안) | |
-|---|---|---|---|
-| 선물로 받은 셔츠가 작아서 반품하고 환불받고 싶다 | 23.5% → 72.1% | 못 찾음 → 2번 만에 도착 | [결과](https://ux-mirror-fe.vercel.app/improvements/imp-live-20261120075020-967a) · [비교](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120075020-967a-MAIN) |
-| 지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다 | 40.0% → 59.7% | 못 찾음 → 2번 만에 도착 | [결과](https://ux-mirror-fe.vercel.app/runs/run_before_20261120072728_49b6) · [비교](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120072738-8ba5-MAIN) |
-| 어제 받은 원피스가 마음에 안 들어서 반품하고 싶다 | 36.9% → 68.1% | 둘 다 2번 만에 도착 | [결과](https://ux-mirror-fe.vercel.app/improvements/imp-live-20261120075522-9be8) · [비교](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120075522-9be8-MAIN) |
-
-- 같은 문장·같은 조건이면 찾아올 가능성은 거의 같게 나온다(운동화 문장: 공식 실행 40.2% → 59.7%, 재실행 40.0% → 59.7%). 지나가는 길은 Zoro-1이 확률로 고르므로 조금씩 다를 수 있다.
-- 실행은 한 번에 하나다. 다른 실행이 돌고 있으면 화면에 안내가 나온다.
-- 프론트엔드: [UX-Mirror/UX-Mirror-FE](https://github.com/UX-Mirror/UX-Mirror-FE)
-
 ## 특징
 
 - **막히는 버튼 탐지 → 이름 수정 → 실제 Run으로 확인** ([자동 개선 에이전트](#자동-개선-에이전트), [공식 결과](#결과-자동-개선-공식))
 - **다른 목표 점수도 확인.** 다른 목표가 2%p 넘게 내려가면 탈락
-- **배포 서버에서 직접 실행** ([직접 실행해 보기](#직접-실행해-보기))
+- **심사위원이 배포 서버에서 직접 실행** ([직접 실행해 보기](#직접-실행해-보기))
 - **사이트 수정 없이 실행.** 도착 판정 = 주소 + 화면 글자 ([외부 사이트 시나리오](#외부-사이트-시나리오))
 - **브라우저 실행 없이 도달 확률 추정** ([목표 도달 확률 엔진](#목표-도달-확률-엔진))
-- **결과는 사람 사용성 테스트에 올릴 후보**
+- **결과는 실제 사용자 테스트로 확인할 후보**
 
 ## Zoro-1의 역할
 
@@ -190,14 +165,6 @@ curl localhost:8000/api/health                    # 모델·브라우저·에이
 | 실험 정보 누출 | 모델 입력에 버전·정답 정보가 있으면 요청 차단 |
 | 계산할 수 없는 값 | 0 대신 `null` + 사유 |
 | 공개 로그 비밀값 | 키·토큰·서버 주소가 있으면 내보내기 중단 |
-| AI 개선 중 실행 프로세스가 멈춤 | 다음 조회 때 `INTERRUPTED`로 바꾸고 이유를 보인다. 파일 잠금이라 프로세스가 죽으면 잠금도 풀려 서버가 다시 받는다 ([`api/improvement_jobs.py`](api/improvement_jobs.py) `view`, [`api/run_lock.py`](api/run_lock.py)) |
-| AI 개선 원본이 진행 중·무효·개선안 진단 | 시작 전 `422`, 작업을 만들지 않음 ([`api/improvement_jobs.py`](api/improvement_jobs.py) `source_problem`, [테스트](tests/test_improvement_api.py)) |
-| 개선 중 검증 Run이 도는 동안 새로고침 | 상태(`/api/health`)에 진행 중인 AI 개선 id를 계속 보여 그 화면으로 다시 연결 ([`api/run_lock.py`](api/run_lock.py)) |
-| 오류 문구에 주소·경로가 섞임 | 응답 전에 지운다 ([`scripts/improve_live.py`](scripts/improve_live.py) `scrub`) |
-| 서버 배포 중 실행 요청 | 쓰기 잠금으로 새 실행을 막고, 실행 중이면 배포를 멈춤. 재시작 전 실패는 원래 커밋으로 되돌린다 ([`deploy/update.sh`](deploy/update.sh), [`deploy/write_lock.sh`](deploy/write_lock.sh)) |
-| 화면에서 조회가 잠깐 끊김 | 받은 내용을 유지하고 5초마다 다시 시도, 진단이 끝난 직후 유효 여부가 아직 없으면 잠시 더 확인 (FE [`useImprovement.ts`](https://github.com/UX-Mirror/UX-Mirror-FE/blob/main/src/features/improvement/useImprovement.ts), [`useRunProgress.ts`](https://github.com/UX-Mirror/UX-Mirror-FE/blob/main/src/features/run-progress/useRunProgress.ts)) |
-| 이상한 입력 (`.`, `ㅋㅋㅋㅋ`, 금지어) | 시작 전에 칸 아래 안내, 서버도 같은 규칙으로 `422` ([`api/input_rules.py`](api/input_rules.py), FE [`inputRules.ts`](https://github.com/UX-Mirror/UX-Mirror-FE/blob/main/src/shared/inputRules.ts)) |
-| 바꿔도 나아지지 않음 | 억지로 고르지 않고 "이름만 바꿔서는 나아지지 않았어요"(`NO_IMPROVEMENT`)와 후보별 이유를 보인다 |
 
 테스트 1007개 (`pytest -q tests`, 모델 없이 실행).
 
@@ -503,7 +470,7 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문 환불", ["refu
 
 ### 자동 개선 실행·리포트 API (#130)
 
-사용자가 FE에서 직접 시작하고, 진행 상황과 리포트를 서버에서 본다. **고객이 하려는 일·고객 유형·도착 화면을 입력으로 받아** 그때그때 계획을 만든다. 점수 기준·채택 규칙·회차 한도·모델 조건은 동결 계획 `results/improvement_plan_1119b.json` 그대로다.
+심사위원·사용자가 FE에서 직접 시작하고, 진행 상황과 리포트를 서버에서 본다. **고객이 하려는 일·고객 유형·도착 화면을 입력으로 받아** 그때그때 계획을 만든다. 점수 기준·채택 규칙·회차 한도·모델 조건은 동결 계획 `results/improvement_plan_1119b.json` 그대로다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
@@ -519,9 +486,9 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문 환불", ["refu
 - `improvement`: 리포트 `improvement.json` (FE 정적 파일과 같은 `improvement-v1` 형식). 루프가 끝나면 생기고, 공식 점수·검증 중에는 루프 결과까지만 들어 있다. 검증 Run 비교는 `verification.pairs[].comparisonPath`(`/comparisons/<improvementId>-<goal>`).
 - 실행은 별도 프로세스(`scripts/improve_live.py`): 루프(`improve.py loop`) → 채택 이름으로 최종안 사이트를 그 자리에서 만들어 서버 안 빈 포트에 띄움 → 공식 점수 + 실제 Run 검증(`improve.py finalize`) → 사이트 내림. 처음부터 끝까지 Run 잠금을 잡아 그동안 다른 Run·Optimization·배포는 막힌다. `/api/health`의 `activeRunOwner`에 `{kind: "IMPROVEMENT", improvementId}`가 보이고, 그 안의 검증 Run 동안(`kind: "RUN"`)에도 `improvementId`가 유지된다(겹쳐 잡은 잠금은 바깥 작업 id를 이어받음).
 - 대략 루프 1~2분 + 공식 점수·검증 3~4분 (행사 GPU 기준).
-- 응답 `kind`: `LIVE`(서버에서 시작한 실행, 시연용) / `OFFICIAL`(동결된 사전 등록 계획 `results/improvement_plan*.json`의 `improvementId`와 같은 결과, 예: imp-1119·imp-1119b) / `UNKNOWN`(그 밖에 결과 파일만 있는 것: 연습·별도 스크립트 실행 등). `LIVE` 실행 계획은 `improvementPlanId`에 `-live`가 붙고 공식 실행 기록(`secondRun`)은 지운다.
+- 응답 `kind`: `LIVE`(서버에서 시작한 실행, 심사·시연용) / `OFFICIAL`(동결된 사전 등록 계획 `results/improvement_plan*.json`의 `improvementId`와 같은 결과, 예: imp-1119·imp-1119b) / `UNKNOWN`(그 밖에 결과 파일만 있는 것: 연습·별도 스크립트 실행 등). 심사 실행 계획은 `improvementPlanId`에 `-live`가 붙고 공식 실행 기록(`secondRun`)은 지운다.
 - 채택 이름의 최종안 사이트는 그 실행 안에서만 띄웠다가 내린다. 일반 `variant=after` Run은 서버 설정 `SHOP_AFTER_URL`·`SHOP_AFTER_LABEL`의 고정 사이트를 쓰므로 AI 개선 결과와 연결되지 않는다. 개선안 확인은 결과의 검증 Run 비교(`comparisonPath`)로만 본다(FE도 진단 결과에서 일반 after Run을 만들지 않는다).
-- `UXM_IMPROVEMENTS_ENABLED=0`이면 새 시작은 `503 IMPROVEMENTS_DISABLED`(조회는 그대로). 행사 뒤 끄기용.
+- `UXM_IMPROVEMENTS_ENABLED=0`이면 새 시작은 `503 IMPROVEMENTS_DISABLED`(조회는 그대로). 심사 기간 뒤 끄기용.
 - 상태·로그는 `results/improvement_jobs/<id>/`, 리포트는 `results/improvements/<id>/`. 응답에는 pid·로그·사이트 주소를 넣지 않는다.
 
 ## 목표 도달 확률 엔진
