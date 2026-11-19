@@ -86,7 +86,7 @@ flowchart LR
 
 배포 서버(EC2 + 행사 GPU)에서 자동 개선을 처음부터 돌린다. 결과는 미리 저장된 값이 아니라 그 자리에서 Zoro-1로 계산한다. 자세한 규칙: [자동 개선 실행·리포트 API](#자동-개선-실행리포트-api-130).
 
-1. 프론트에서 할 일·고객 유형을 골라 진단 Run을 돌린다 (`POST /api/runs`, `variant=before`)
+1. 프론트에서 진단할 사이트와 할 일을 입력해 진단 Run을 돌린다 (`POST /api/runs`, `variant=before`). 고객 유형은 정해진 값이 자동으로 적용된다
 2. 진단 결과에서 자동 개선을 시작한다 (`POST /api/improvements` + `{sourceRunId}`) → `202`
 3. 상태를 본다 (`GET /api/improvements/{id}`): `LOOP` → `BUILD_FINAL_SITE` → `OFFICIAL_AND_VERIFY` → `DONE`, 행사 GPU 기준 대략 5분
 4. 리포트(`improvement`)와 검증 Run 비교(`/comparisons/<improvementId>-<goal>`)를 본다
