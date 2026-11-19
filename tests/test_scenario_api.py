@@ -343,6 +343,24 @@ def test_internal_site_leaks_neither_url_nor_host():
     assert public_site_url(scope) is None and public_allowed_hosts(scope) == []
 
 
+@pytest.mark.parametrize("host", [
+    "gpu-box.local", "intranet", "myserver.internal", "nas.lan", "printer.home.arpa", "box.localdomain",
+    "GPU-BOX.LOCAL", "myserver.internal.",
+])
+def test_internal_host_names_are_not_public(host):
+    """내부용 도메인 이름(점 없는 이름, .local·.internal·.lan·.home.arpa·.localdomain)도 응답에 내보내지 않는다 (#97 재리뷰)."""
+    from api.sites import public_site_url, public_allowed_hosts
+    scope = _fake_scope(f"http://{host}:30001", [host])
+    assert public_site_url(scope) is None and public_allowed_hosts(scope) == []
+
+
+@pytest.mark.parametrize("host", ["ecudemo360127.cafe24.com", "shop.example.com", "local.example.com", "internal.shop.co.kr"])
+def test_public_domain_names_stay_public(host):
+    """이름 중간에 local·internal이 들어가도 끝이 공개 도메인이면 그대로 내보낸다."""
+    from api.sites import public_allowed_hosts
+    assert public_allowed_hosts(_fake_scope(f"https://{host}", [host])) == [host]
+
+
 @pytest.mark.parametrize("variant_url, hosts, expected", [
     ("https://shop.example.com:443", ["shop.example.com"], "https://shop.example.com"),     # 기본 포트는 뺀다
     ("http://shop.example.com:80/x", ["shop.example.com"], "http://shop.example.com"),

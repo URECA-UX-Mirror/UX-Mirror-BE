@@ -85,18 +85,26 @@ def unreachable_pages(scope: SiteScope, site_map: dict | None) -> list[str] | No
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
+# 내부망에서만 쓰는 이름의 끝부분. 이 이름으로 등록한 서버도 응답에 내보내지 않는다.
+INTERNAL_NAME_SUFFIXES = ("localhost", "local", "internal", "lan", "intranet", "home.arpa", "localdomain")
+
+
 def _is_public_host(host: str) -> bool:
     """응답에 내보내도 되는 호스트인지: 내 컴퓨터(`localhost`·루프백)·사설망·링크 로컬 등 공인 주소가 아닌 IP는 제외.
 
+    도메인 이름은 점이 없는 이름(`intranet`)과 내부용 끝부분(`.local`·`.internal`·`.lan`·`.home.arpa` 등)을 제외한다.
     `siteUrl`과 `allowedHosts`가 같은 판정을 쓴다 (#97 리뷰).
     """
-    host = (host or "").strip().strip("[]").lower()
-    if not host or host == "localhost" or host.endswith(".localhost"):
+    host = (host or "").strip().strip("[]").lower().rstrip(".")
+    if not host:
         return False
     try:
         return ipaddress.ip_address(host).is_global
     except ValueError:
-        return True   # 도메인 이름
+        pass
+    if "." not in host:
+        return False
+    return not any(host == s or host.endswith("." + s) for s in INTERNAL_NAME_SUFFIXES)
 
 
 def public_allowed_hosts(scope: SiteScope) -> list[str]:
