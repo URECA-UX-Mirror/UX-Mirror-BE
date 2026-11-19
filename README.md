@@ -15,6 +15,7 @@ uxm/
   browser.py     # 브라우저 조작: open/close, click, go_back, reload, capture, page_key, page_signature (예외 대신 ActionResult)
   leak.py        # T-LEAK: 모델 입력에 variant/testMode/정답 마커 차단
   sitemap.py     # 사이트 지도(SITE_MAP): 간선·해시·최단 거리·지도 검증·실제 Run 대조 (#46)
+  label_edit.py  # 자동 개선 수정 A: apply_label(상단 메뉴 이용정보 글자만 변경, 1단계 이 버튼만), check_layout(v1 기준 대비 위치·후보·이름 + LABEL_OVERFLOW·VIEWPORT_MISMATCH, B 화면에도 사용) (#104)
   config.py      # .env 로딩
 scripts/run_a.py # A 실행기 → results/json/a/, results/run_log.md
 scripts/run_b5.py        # B3+B5 실제 화면 확률 → results/json/b5/, results/screenshots/b5/
