@@ -22,6 +22,9 @@ SHOP_URLS = {
     "before": os.getenv("SHOP_BEFORE_URL", "http://127.0.0.1:8001"),
     "after": os.getenv("SHOP_AFTER_URL") or None,
 }
+# after 사이트의 이름(예: 자동 개선 최종안 "주문 환불"). 주소는 Run에 남기지 않으므로 이 이름을 afterSite로 남겨
+# 같은 실험 키에서 다른 after 사이트의 Run끼리 짝지어지지 않게 한다.
+SHOP_AFTER_LABEL = os.getenv("SHOP_AFTER_LABEL") or None
 
 # run_agent 결과에서 Run에 반영하는 필드. 나머지(설정·버전 값)는 생성 때 값을 그대로 둔다.
 # validity·invalidReason은 받지 않는다. 종료 시 finalize()가 terminationReason·error.code로 정한다.
@@ -78,6 +81,10 @@ class Runner:
                 raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
                                f"같은 experimentKey의 첫 실행과 입력이 다릅니다: {', '.join(diff)}")
             same = [r for r in runs if r.get("variant") == run["variant"]]
+            if "afterSite" in run and any(r.get("afterSite") != run["afterSite"] for r in same):
+                # 이전 after Run이 다른 사이트(또는 afterSite가 없는 예전 고정 v2)에서 돌았다 → 섞으면 비교가 틀어진다
+                raise ApiError(422, "CONTRACT_VALIDATION_ERROR",
+                               "같은 experimentKey의 이전 after 실행과 after 사이트가 다릅니다. 새 실험 키로 실행해 주세요.")
             if any(r.get("status") in ("READY", "RUNNING") or r.get("validity") == "VALID" for r in same):
                 raise ApiError(409, "EXPERIMENT_RUN_EXISTS",
                                "같은 experimentKey와 variant에 유효하거나 진행 중인 실행이 이미 있습니다.")

@@ -934,3 +934,34 @@ def test_before_run_works_without_after_site(make_client, monkeypatch):
     monkeypatch.setitem(runner.SHOP_URLS, "after", None)
     client, _, app = make_client()
     assert run_and_wait(client, app, variant="before")["status"] == "SUCCESS"
+
+
+def test_after_run_records_after_site_label(make_client, monkeypatch):
+    """Run에는 after 주소 대신 사이트 이름을 남긴다 (#128 리뷰)."""
+    from api import runner
+    monkeypatch.setattr(runner, "SHOP_AFTER_LABEL", "주문 환불")
+    client, _, app = make_client()
+    run = run_and_wait(client, app, variant="after")
+    assert run["afterSite"] == {"label": "주문 환불"}
+    assert "afterSite" not in run_and_wait(client, app, variant="before")
+
+
+def test_after_runs_from_different_sites_do_not_mix(make_client, monkeypatch):
+    """E처럼 예전 after(afterSite 없음)나 다른 after 사이트의 Run이 있는 키에는 after를 다시 만들지 않는다 (#128 리뷰)."""
+    from api import runner
+    integ = FakeIntegrations(issues=[])
+    client, _, app = make_client(integ)
+    run_and_wait(client, app)
+    integ.open_fails = True
+    broken = run_and_wait(client, app, variant="after")   # INVALID라 원래는 다시 만들 수 있다
+    store = app.state.runner.store
+    legacy = store.load_run(broken["runId"])
+    legacy.pop("afterSite")                                # 예전 고정 v2 after Run처럼
+    store.save_run(legacy)
+    integ.open_fails = False
+    r = client.post("/api/runs", json=body(variant="after"))
+    assert r.status_code == 422 and "after 사이트가 다릅니다" in r.json()["error"]["message"]
+
+    monkeypatch.setattr(runner, "SHOP_AFTER_LABEL", "주문 환불")
+    r = client.post("/api/runs", json=body(experimentKey="exp_new", variant="after"))
+    assert r.status_code == 201   # 새 실험 키는 된다

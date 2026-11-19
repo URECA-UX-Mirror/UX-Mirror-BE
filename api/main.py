@@ -117,6 +117,8 @@ def create_app(results_dir: str | None = None, integrations: Integrations | None
             integrations.goal_preflight()(goal["verification"],
                                           {v: u for v, u in runner_module.SHOP_URLS.items() if u})
         run = run_factory.build_run(req, goal, persona, run_factory.model_settings())
+        if req.variant == "after":   # 어느 after 사이트였는지 (주소 대신 이름). 같은 키 안에서 섞이지 않게 runner가 확인
+            run["afterSite"] = {"label": runner_module.SHOP_AFTER_LABEL}
         runner.create(run, goal)
         return {k: run[k] for k in ("runId", "experimentKey", "variant", "status", "createdAt")} | {
             "maxSteps": run["limits"]["maxSteps"]}
