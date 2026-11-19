@@ -198,11 +198,12 @@ class Runner:
         return page_url(scope, key)
 
     def _base_url(self, run: dict) -> str:
-        """P0 Run은 variant별 고정 쇼핑몰. Optimization 검증 Run은 등록된 Site Instance 주소 (클라이언트 지정 불가).
+        """P0 Run은 variant별 고정 쇼핑몰. Optimization·자동 개선 검증 Run은 등록된 Site Instance 주소 (클라이언트 지정 불가).
         시나리오 Run은 사이트 설정의 주소 (#74)."""
         if run.get("siteId"):
             return self._scenario_scope(run).base_url.rstrip("/")
-        ctx = run.get("optimizationContext")
+        # 자동 개선 검증 Run(#101)도 Optimization 검증 Run처럼 등록 주소를 siteInstanceId로 찾는다
+        ctx = run.get("optimizationContext") or run.get("improvementContext")
         if not ctx:
             return SHOP_URLS[run["variant"]]
         base = self.site_base_url(ctx["siteInstanceId"]) if self.site_base_url else None
