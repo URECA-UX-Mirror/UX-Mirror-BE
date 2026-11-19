@@ -30,8 +30,10 @@ def test_home_card_and_side_menu_keep_original_label(base):
 
 
 def test_c2_variant_matches_p0_after(base):
-    after = {key: bs.build_page(bs.DEFAULT_SRC, "after_", key) for key in bs.PAGES}
-    assert {key: bs.relabel_nav(html, "주문·환불") for key, html in base.items()} == after
+    """After는 Before 원본 + 이름 변경으로 만든다. 저장소의 생성 결과(moro-after)와 같아야 한다."""
+    for key, html in base.items():
+        with open(os.path.join(bs.SHOP, "moro-after", "pages", f"{key}.html"), encoding="utf-8", newline="") as f:
+            assert bs.relabel_nav(html, "주문·환불") == f.read(), key
 
 
 @pytest.mark.parametrize("proj", ["moro-before", "moro-after"])
