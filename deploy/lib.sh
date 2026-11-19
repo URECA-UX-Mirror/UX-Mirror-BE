@@ -2,7 +2,7 @@
 # 함수 정의만 있어서 source 하는 순간 다 읽힌다 (뒤에 git pull로 파일이 바뀌어도 영향 없음).
 
 API_URL="${UXM_API_URL:-http://127.0.0.1:8000}"
-SHOP_PORTS="${UXM_SHOP_PORTS:-8001 8002 8003 8004 8005}"
+SHOP_PORTS="${UXM_SHOP_PORTS:-8001 8002 8003 8004 8005 8006}"
 CADDYFILE="${UXM_CADDYFILE:-/etc/caddy/Caddyfile}"
 LOCK_FILE="${UXM_CADDY_LOCK:-/etc/caddy/uxm-write-lock.caddy}"
 CADDY_RELOAD="${UXM_CADDY_RELOAD:-sudo systemctl reload caddy}"
@@ -144,7 +144,7 @@ check_idle() {   # 진행 중이면 이유를 출력하고 1
 }
 
 # 실제로 Run을 돌릴 수 있는 상태인지. 안 되는 항목을 모두 출력하고 하나라도 있으면 1.
-#   API status READY(모델·브라우저·루프) + 쇼핑몰 5개 + (도메인이 있으면) 바깥 HTTPS
+#   API status READY(모델·브라우저·루프) + 쇼핑몰 6개 + (도메인이 있으면) 바깥 HTTPS
 check_ready() {
   local wait_s="${1:-60}" domain="${2:-}" health="" detail="" problems=() i code port shops_ok
   for i in $(seq 1 "$wait_s"); do
