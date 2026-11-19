@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.3.5",
+  "runId": "run_after_20261119152804_2323",
+  "experimentKey": "e-s3-1119",
+  "variant": "after",
+  "resultOrigin": "LIVE",
+  "siteVersion": "shop-v1",
+  "modelVersion": "trillionlabs/Zoro-1",
+  "modelEndpointId": "brev-l40s-bf16",
+  "promptVersion": "v2",
+  "temperature": 1.52,
+  "decisionMode": "DIRECT",
+  "goalJudgmentMode": "DOM_ONLY",
+  "goalId": null,
+  "goal": "내가 가진 할인 쿠폰이 몇 장 남았는지 보고 싶다",
+  "personaId": null,
+  "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+  "startPath": "/shop/home",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "limits": {
+    "maxSteps": 8,
+    "modelTimeoutMs": 30000,
+    "pageChangeTimeoutMs": 10000,
+    "runTimeoutMs": 180000,
+    "maxModelBackActions": 2,
+    "maxSystemBackActions": 1,
+    "maxSamePageVisits": 3
+  },
+  "thresholdConfig": {
+    "version": "threshold-v1",
+    "entropyThreshold": 0.8,
+    "minCandidateCount": 2,
+    "configuredAt": "2026-11-15T09:00:00+09:00",
+    "changeReason": "초기 사전 지정 기준"
+  },
+  "analysisVersion": "analysis-v1",
+  "referencePathConfig": {
+    "basis": "SITE_MAP",
+    "siteMapVersion": "sitemap-v1",
+    "siteMapHash": "sha256:da53a6c6e38b53a7a1e02ff82e7ca6a9806ce24a22554beb547b3daad47731e3",
+    "startPageKey": "home",
+    "goalPageKey": "mypage",
+    "shortestSteps": 1,
+    "distances": {
+      "home": 1,
+      "mypage": 0,
+      "orders": 2,
+      "refund": 2,
+      "support": 3
+    }
+  },
+  "verification": {
+    "type": "PATH_AND_VISIBLE_TEXT",
+    "exact": false,
+    "scope": "page",
+    "path": "/shop/mypage",
+    "text": "사용 가능 쿠폰"
+  },
+  "comparisonContext": {
+    "leakCheckPassed": true,
+    "initialBrowserStateId": "clean-context-v1",
+    "layoutVersion": "shop-layout-v1",
+    "candidatePolicyVersion": "candidate-v2"
+  },
+  "status": "SUCCESS",
+  "createdAt": "2026-11-19T15:28:04.910+09:00",
+  "startedAt": "2026-11-19T15:28:04.968+09:00",
+  "finishedAt": "2026-11-19T15:28:10.171+09:00",
+  "terminationReason": "GOAL_VERIFIED",
+  "progress": {
+    "stepRecordCount": 1,
+    "stepCount": 1,
+    "maxSteps": 8,
+    "currentPageKey": "mypage",
+    "lastUpdatedAt": "2026-11-19T15:28:10.171+09:00"
+  },
+  "summary": {
+    "goalReached": true,
+    "stepCount": 1,
+    "stepRecordCount": 1,
+    "modelCallCount": 1,
+    "clickCount": 1,
+    "successfulNavigationClickCount": 1,
+    "modelBackCount": 0,
+    "systemBackCount": 0,
+    "backCount": 0,
+    "revisitCount": 0,
+    "referencePathDeviationCount": null,
+    "detourMoveCount": 0,
+    "navigationCost": 1,
+    "extraSteps": 0,
+    "extraNavigationCost": 0,
+    "attemptedExtraSteps": 0,
+    "executionTimeMs": 2457,
+    "path": [
+      {
+        "sequence": 0,
+        "pageKey": "home",
+        "pageSignature": "home_default",
+        "path": "/shop/home",
+        "enteredBy": null,
+        "visitCause": "RUN_START",
+        "stepId": null
+      },
+      {
+        "sequence": 1,
+        "pageKey": "mypage",
+        "pageSignature": "mypage_default",
+        "path": "/shop/mypage",
+        "enteredBy": "CLICK",
+        "visitCause": "MODEL_NAVIGATION",
+        "stepId": 1
+      }
+    ],
+    "detectedIssueTypes": []
+  },
+  "error": null,
+  "validity": "VALID",
+  "invalidReason": null,
+  "replacementRunId": null
+}

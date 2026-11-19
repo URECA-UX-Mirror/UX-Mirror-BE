@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.3.5",
+  "runId": "run_after_20261119152842_443f",
+  "analysisStatus": "COMPLETED",
+  "items": [
+    {
+      "schemaVersion": "1.3.5",
+      "issueId": "issue_7da8f2e160513817b29b6de7",
+      "runId": "run_after_20261119152842_443f",
+      "issueType": "CHOICE_AMBIGUITY",
+      "stepId": 1,
+      "relatedStepIds": [
+        1
+      ],
+      "pagePath": "/shop/home",
+      "pageKey": "home",
+      "pageSignature": "home_default",
+      "title": "메뉴 선택 확률 분산",
+      "description": "여러 클릭 후보에 모델의 선택 확률이 분산되었습니다.",
+      "evidence": {
+        "clickOnlyNormalizedEntropy": 0.8635059566769107,
+        "clickOnlyTop2Margin": 0.15118488151184883,
+        "candidateCount": 5,
+        "entropyThreshold": 0.8
+      },
+      "reviewPriority": "GENERAL_REVIEW",
+      "occurrenceCount": 1,
+      "createdAt": "2026-11-19T15:28:45.826+09:00"
+    }
+  ]
+}

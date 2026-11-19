@@ -1,0 +1,24 @@
+{
+  "state": {
+    "pageTitle": "고객센터 | MORO MARKET",
+    "currentPath": "/shop/support",
+    "goal": "지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다",
+    "persona": "온라인 쇼핑몰 이용 경험이 적은 사용자",
+    "recentActions": [
+      "MORO MARKET 화면 → 고객센터 선택",
+      "고객센터 화면 → 이전 화면으로 돌아감",
+      "MORO MARKET 화면 → 고객센터 선택"
+    ],
+    "previousFailedActions": []
+  },
+  "questions": {
+    "next_click": {
+      "type": "choice",
+      "instructions": "현재 화면과 이전 탐색 기록을 참고하여 목표 달성에 가장 적합한 행동을 선택하세요. 주어진 후보 중 하나만 선택하세요.",
+      "criteria": {
+        "option_01": "[본문] 배송 현황 확인",
+        "option_02": "[브라우저] 이전 화면으로 돌아가기"
+      }
+    }
+  }
+}
