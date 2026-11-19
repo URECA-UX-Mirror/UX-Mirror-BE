@@ -730,10 +730,18 @@ def test_real_policy_module_follows_contract(make):
     opt = create_and_evaluate(client, app)
     assert opt["status"] == "EVALUATED", opt["error"]
     assert opt["selection"]["selectionPolicyVersion"] == "selection-v1"
-    assert opt["recommendationStatus"] in ("RECOMMENDED", "NO_RECOMMENDATION")
-    if opt["verificationCandidateId"]:
-        assert client.post(f"/api/optimizations/{opt['optimizationId']}/verify").status_code == 202
-        app.state.optimizer.wait(20)
-        done = client.get(f"/api/optimizations/{opt['optimizationId']}").json()
-        assert done["status"] == "COMPLETED", done["error"]
-        assert done["finalDecision"] in ("IMPROVEMENT_OBSERVED", "NEEDS_MORE_EVIDENCE", "HOLD", "INCONCLUSIVE")
+    assert opt["recommendationStatus"] == "RECOMMENDED"
+    assert opt["recommendedCandidateId"] == opt["verificationCandidateId"] == "C2"
+    assert all(e["normalizedEntropy"] is not None and e["top2Margin"] is not None for e in opt["evaluations"])
+    to_next = [c["semanticKey"] for c in home_candidates() if c["href"] in ("/shop/orders", "/shop/mypage")]
+    for ev in opt["evaluations"]:
+        assert ev["targetOptionProbability"] == ev["probabilities"][TARGET]
+        assert ev["goalPathProbability"] == pytest.approx(sum(ev["probabilities"][key] for key in to_next))
+    assert client.post(f"/api/optimizations/{opt['optimizationId']}/verify").status_code == 202
+    app.state.optimizer.wait(20)
+    done = client.get(f"/api/optimizations/{opt['optimizationId']}").json()
+    assert done["status"] == "COMPLETED", done["error"]
+    assert done["finalDecision"] == "IMPROVEMENT_OBSERVED"
+    report = client.get(f"/api/optimizations/{opt['optimizationId']}/report")
+    assert report.status_code == 200
+    assert report.json()["verification"]["finalDecision"] == "IMPROVEMENT_OBSERVED"
