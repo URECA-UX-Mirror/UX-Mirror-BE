@@ -1,0 +1,5 @@
+# setup.sh가 __DOMAIN__을 바꿔 /etc/caddy/Caddyfile로 복사한다. 인증서는 Caddy가 자동으로 받는다 (80·443 열려 있어야 함).
+__DOMAIN__ {
+	encode gzip
+	reverse_proxy 127.0.0.1:8000
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=UX MIRROR execution API (127.0.0.1:8000)
+After=network-online.target uxm-shops.service
+Wants=network-online.target uxm-shops.service
+
+[Service]
+User=__USER__
+WorkingDirectory=__APP_DIR__
+# 단일 활성 Run은 프로세스 안에서 지킨다 → 반드시 workers 1
+ExecStart=__APP_DIR__/.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

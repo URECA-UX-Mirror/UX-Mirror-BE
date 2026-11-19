@@ -55,6 +55,10 @@ copy .env.example .env
 .\.venv\Scripts\python scripts\run_a.py A2 A3       # 일부
 ```
 
+## 서버 배포 (EC2)
+
+실행 API·브라우저·쇼핑몰 C0~C4를 서버 한 대에 올리고 행사 GPU와 연결하는 방법은 [`deploy/README.md`](deploy/README.md) (`./deploy/setup.sh`, #108).
+
 ## 실행 API
 
 행사 최종 Before/After 실행과 결과 보존 절차는 [최종 Run 비교·증거 보존 절차](docs/final-run-evaluation.md)를 참고한다.
