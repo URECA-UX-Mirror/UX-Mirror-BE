@@ -3,7 +3,7 @@
 > **Zoro-1이 사용자 대신 사이트를 탐색해 막히는 버튼을 찾고, 그 버튼 이름을 스스로 고친 뒤 실제로 좋아졌는지 다시 돌려 확인한다.**
 > 결과는 사람 사용성 테스트 전에 확인할 화면과 버튼 이름 후보다.
 
-**바로 가기:** [에이전트 실행 로그 (run-logs)](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) · [직접 실행해 보기](#직접-실행해-보기) · [공식 실행 기록 (run_log.md)](results/run_log.md)
+**바로 가기:** [데모](#데모) · [에이전트 실행 로그 (run-logs)](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) · [직접 실행해 보기](#직접-실행해-보기) · [공식 실행 기록 (run_log.md)](results/run_log.md)
 
 ```mermaid
 flowchart LR
@@ -30,30 +30,36 @@ flowchart LR
     class A,I,C,FE ok
 ```
 
-## 한눈에 보기
+## 데모
 
-| | |
-|---|---|
-| **데모** | [ux-mirror-fe.vercel.app](https://ux-mirror-fe.vercel.app)<br>예시 결과 (운동화): [진단 → 개선안 → 효과](https://ux-mirror-fe.vercel.app/runs/run_before_20261120072728_49b6) · [지금 화면 vs 개선안](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120072738-8ba5-MAIN) |
-| **결과** | 환불하려는 고객이 '이용정보'를 '주문 환불'로 바꾼 화면에서 더 잘 찾아온다. 11/20 배포 서버에서 할 일 문장마다 새로 계산한 찾아올 가능성:<br>· 선물로 받은 셔츠가 작아서 반품하고 환불받고 싶다: 23.5% → 72.1%, 지금 화면 못 찾음 → 개선안 2번 만에 도착 ([결과](https://ux-mirror-fe.vercel.app/improvements/imp-live-20261120075020-967a) · [비교](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120075020-967a-MAIN))<br>· 지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다: 40.0% → 59.7%, 못 찾음 → 2번 만에 도착 (공식 결과와 같은 문장)<br>· 어제 받은 원피스가 마음에 안 들어서 반품하고 싶다: 36.9% → 68.1%<br>[실행 로그](run-logs/README.md) · [공식 결과](#결과-자동-개선-공식) |
-| **실패 처리** | [상황별 동작과 근거 코드](#실패-처리) |
-| **Zoro-1** | [진단·라우팅·검증에 쓰는 곳](#zoro-1의-역할). Run 폴더마다 원본 요청·응답(`raw/`)이 있다 |
-| **하는 일** | 사이트를 고치지 않고, AI 고객이 직접 눌러 보며 어디서 헤매는지, 왜 그런지, 무엇을 바꾸면 얼마나 나아지는지 보여 준다. 반영은 개발자가 한다 |
+[ux-mirror-fe.vercel.app](https://ux-mirror-fe.vercel.app)
 
-**직접 해 보기** (약 6분)
-1. [첫 화면](https://ux-mirror-fe.vercel.app)에서 예시 문장을 고르고 "진단 시작"
-2. ①·②가 채워지면 "AI에게 개선안 받아 보기" (약 5분)
-3. ③ 바꿀 이름, ④ 찾아올 가능성 전 → 후, "화면별로 비교하기"
+예시 쇼핑몰 MORO MARKET에서 할 일을 한 문장으로 넣으면, AI 고객이 쇼핑몰을 직접 눌러 보고 다음을 차례로 보여 준다. 진단은 1~2분, 개선안은 약 5분 걸린다.
 
+1. 원하는 화면을 잘 찾아가는지
+2. 못 찾았다면 왜 그런지
+3. 메뉴 이름을 어떻게 바꾸면 좋을지
+4. 바꾸면 찾아올 가능성이 얼마나 오르는지
+
+사이트는 고치지 않는다. 바꿀 이름과 효과만 보여 주고, 반영은 개발자가 한다.
+
+**예시 결과** (11/20 배포 서버, 셋 다 '이용정보' → '주문 환불')
+
+| 할 일 | 찾아올 가능성 | 다시 해 본 결과 (지금 화면 → 개선안) | |
+|---|---|---|---|
+| 선물로 받은 셔츠가 작아서 반품하고 환불받고 싶다 | 23.5% → 72.1% | 못 찾음 → 2번 만에 도착 | [결과](https://ux-mirror-fe.vercel.app/improvements/imp-live-20261120075020-967a) · [비교](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120075020-967a-MAIN) |
+| 지난주에 산 운동화가 발에 안 맞아서 돌려보내고 돈을 돌려받고 싶다 | 40.0% → 59.7% | 못 찾음 → 2번 만에 도착 | [결과](https://ux-mirror-fe.vercel.app/runs/run_before_20261120072728_49b6) · [비교](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120072738-8ba5-MAIN) |
+| 어제 받은 원피스가 마음에 안 들어서 반품하고 싶다 | 36.9% → 68.1% | 둘 다 2번 만에 도착 | [결과](https://ux-mirror-fe.vercel.app/improvements/imp-live-20261120075522-9be8) · [비교](https://ux-mirror-fe.vercel.app/comparisons/imp-live-20261120075522-9be8-MAIN) |
+
+- 같은 문장·같은 조건이면 찾아올 가능성은 거의 같게 나온다(운동화 문장: 공식 실행 40.2% → 59.7%, 재실행 40.0% → 59.7%). 지나가는 길은 Zoro-1이 확률로 고르므로 조금씩 다를 수 있다.
 - 실행은 한 번에 하나다. 다른 실행이 돌고 있으면 화면에 안내가 나온다.
-- 진단은 Zoro-1이 확률로 고르므로 같은 문장도 결과가 조금씩 다를 수 있다. 찾아올 가능성은 같은 문장·같은 조건이면 거의 같게 나온다(공식 실행 40.2% → 59.7%, 11/20 재실행 40.0% → 59.7%).
 - 프론트엔드: [UX-Mirror/UX-Mirror-FE](https://github.com/UX-Mirror/UX-Mirror-FE)
 
 ## 특징
 
 - **막히는 버튼 탐지 → 이름 수정 → 실제 Run으로 확인** ([자동 개선 에이전트](#자동-개선-에이전트), [공식 결과](#결과-자동-개선-공식))
 - **다른 목표 점수도 확인.** 다른 목표가 2%p 넘게 내려가면 탈락
-- **심사위원이 배포 서버에서 직접 실행** ([직접 실행해 보기](#직접-실행해-보기))
+- **배포 서버에서 직접 실행** ([직접 실행해 보기](#직접-실행해-보기))
 - **사이트 수정 없이 실행.** 도착 판정 = 주소 + 화면 글자 ([외부 사이트 시나리오](#외부-사이트-시나리오))
 - **브라우저 실행 없이 도달 확률 추정** ([목표 도달 확률 엔진](#목표-도달-확률-엔진))
 - **결과는 사람 사용성 테스트에 올릴 후보**
@@ -497,7 +503,7 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문 환불", ["refu
 
 ### 자동 개선 실행·리포트 API (#130)
 
-심사위원·사용자가 FE에서 직접 시작하고, 진행 상황과 리포트를 서버에서 본다. **고객이 하려는 일·고객 유형·도착 화면을 입력으로 받아** 그때그때 계획을 만든다. 점수 기준·채택 규칙·회차 한도·모델 조건은 동결 계획 `results/improvement_plan_1119b.json` 그대로다.
+사용자가 FE에서 직접 시작하고, 진행 상황과 리포트를 서버에서 본다. **고객이 하려는 일·고객 유형·도착 화면을 입력으로 받아** 그때그때 계획을 만든다. 점수 기준·채택 규칙·회차 한도·모델 조건은 동결 계획 `results/improvement_plan_1119b.json` 그대로다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
@@ -513,9 +519,9 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문 환불", ["refu
 - `improvement`: 리포트 `improvement.json` (FE 정적 파일과 같은 `improvement-v1` 형식). 루프가 끝나면 생기고, 공식 점수·검증 중에는 루프 결과까지만 들어 있다. 검증 Run 비교는 `verification.pairs[].comparisonPath`(`/comparisons/<improvementId>-<goal>`).
 - 실행은 별도 프로세스(`scripts/improve_live.py`): 루프(`improve.py loop`) → 채택 이름으로 최종안 사이트를 그 자리에서 만들어 서버 안 빈 포트에 띄움 → 공식 점수 + 실제 Run 검증(`improve.py finalize`) → 사이트 내림. 처음부터 끝까지 Run 잠금을 잡아 그동안 다른 Run·Optimization·배포는 막힌다. `/api/health`의 `activeRunOwner`에 `{kind: "IMPROVEMENT", improvementId}`가 보이고, 그 안의 검증 Run 동안(`kind: "RUN"`)에도 `improvementId`가 유지된다(겹쳐 잡은 잠금은 바깥 작업 id를 이어받음).
 - 대략 루프 1~2분 + 공식 점수·검증 3~4분 (행사 GPU 기준).
-- 응답 `kind`: `LIVE`(서버에서 시작한 실행, 심사·시연용) / `OFFICIAL`(동결된 사전 등록 계획 `results/improvement_plan*.json`의 `improvementId`와 같은 결과, 예: imp-1119·imp-1119b) / `UNKNOWN`(그 밖에 결과 파일만 있는 것: 연습·별도 스크립트 실행 등). 심사 실행 계획은 `improvementPlanId`에 `-live`가 붙고 공식 실행 기록(`secondRun`)은 지운다.
+- 응답 `kind`: `LIVE`(서버에서 시작한 실행, 시연용) / `OFFICIAL`(동결된 사전 등록 계획 `results/improvement_plan*.json`의 `improvementId`와 같은 결과, 예: imp-1119·imp-1119b) / `UNKNOWN`(그 밖에 결과 파일만 있는 것: 연습·별도 스크립트 실행 등). `LIVE` 실행 계획은 `improvementPlanId`에 `-live`가 붙고 공식 실행 기록(`secondRun`)은 지운다.
 - 채택 이름의 최종안 사이트는 그 실행 안에서만 띄웠다가 내린다. 일반 `variant=after` Run은 서버 설정 `SHOP_AFTER_URL`·`SHOP_AFTER_LABEL`의 고정 사이트를 쓰므로 AI 개선 결과와 연결되지 않는다. 개선안 확인은 결과의 검증 Run 비교(`comparisonPath`)로만 본다(FE도 진단 결과에서 일반 after Run을 만들지 않는다).
-- `UXM_IMPROVEMENTS_ENABLED=0`이면 새 시작은 `503 IMPROVEMENTS_DISABLED`(조회는 그대로). 심사 기간 뒤 끄기용.
+- `UXM_IMPROVEMENTS_ENABLED=0`이면 새 시작은 `503 IMPROVEMENTS_DISABLED`(조회는 그대로). 행사 뒤 끄기용.
 - 상태·로그는 `results/improvement_jobs/<id>/`, 리포트는 `results/improvements/<id>/`. 응답에는 pid·로그·사이트 주소를 넣지 않는다.
 
 ## 목표 도달 확률 엔진
