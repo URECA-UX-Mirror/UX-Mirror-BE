@@ -94,3 +94,20 @@ def test_rules_are_all_required_and_guard_reasons_identify_goals():
     with pytest.raises(ValueError, match='rules must include'):
         choose(base, [c], {'mainMinGain': .05, 'guardMaxDrop': .02, 'tieRange': .01})
     assert choose(base, [c], RULES)['rejected'] == [{'candidateId': 'C', 'reason': 'GUARD_LOSS_EXCEEDED', 'guardGoals': ['S2', 'S4']}]
+
+
+def test_comma_separated_candidates_use_the_same_filters_and_global_limit():
+    ctx = {'currentLabel': '이용정보', 'siblingLabels': ['고객센터'], 'triedLabels': ['주문 관리'], 'maxLength': 6}
+    rows = filter_labels('고객센터, 이용정보, 마이페이지\n환불， 배송, 주문, 주문 관리, 환불', ctx)
+    assert [r['label'] for r in rows] == ['고객센터', '이용정보', '마이페이지', '환불', '배송', '주문', '주문 관리', '환불']
+    assert [r['rejectedReason'] for r in rows] == ['EXISTING_LABEL', 'EXISTING_LABEL', None, None, None, None, 'EXISTING_LABEL', 'DUPLICATE_LABEL']
+    limited = filter_labels('가,나,다\n라,마,바,사', ctx)
+    assert [x['rejectedReason'] for x in limited] == [None] * 6 + ['CANDIDATE_LIMIT_EXCEEDED']
+
+
+def test_prompt_explicitly_excludes_existing_and_previous_names():
+    prompt = build_prompt('화면 찾기', {'label': '이용정보'}, ['고객센터', '마이페이지'], '초보 사용자',
+                          ['이미 시험한 이름: 주문내역, 주문·환불'])
+    assert '쓰지 말 이름: 이용정보, 고객센터, 마이페이지' in prompt
+    assert '이전 시도에 나온 이름을 제외하고 새 이름만' in prompt
+    assert '이미 시험한 이름: 주문내역, 주문·환불' in prompt

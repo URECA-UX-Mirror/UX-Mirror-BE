@@ -280,3 +280,21 @@ def test_finalize_rerun_does_not_keep_previous_verification():
     restore_loop_summary(imp)                                  # finalize 시작 때 되돌림
     assert imp["verification"] == verification_not_run("NOT_FINALIZED")
     assert verification_not_run("SKIPPED_BY_OPTION")["reason"] == "SKIPPED_BY_OPTION"
+
+
+def test_real_policy_prompt_receives_previously_tried_names_and_comma_response():
+    from uxm import improve_policy
+    prompts = []
+    responses = iter(['고객센터, 이용정보, 주문내역', '주문내역, 구매내역'])
+    def propose(prompt):
+        prompts.append(prompt)
+        return next(responses, '')
+    deps = Deps(fake_collect([]), propose, improve_policy, clock=lambda: 't')
+    result = run_loop(copy.deepcopy(PLAN), SITE_MAP, deps)['improvement']
+    assert len(prompts) >= 2
+    assert '쓰지 말 이름:' in prompts[0] and '고객센터' in prompts[0]
+    assert '이미 시험한 이름:' in prompts[1]
+    assert '주문내역' in prompts[1] and '주문·환불' in prompts[1]
+    filtered = result['rounds'][0]['proposal']['filtered']
+    assert [(x['label'], x['accepted']) for x in filtered] == [
+        ('고객센터', False), ('이용정보', False), ('주문내역', True)]

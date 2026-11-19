@@ -34,8 +34,11 @@ def build_prompt(diagnosis_text, button, siblings, persona, history):
         raise ValueError("siblings must be a list of names")
     if not isinstance(history, (list, tuple)) or not all(isinstance(x, str) for x in history):
         raise ValueError("history must be a list of natural-language summaries")
+    forbidden_names = list(dict.fromkeys([current, *siblings]))
     prompt = ("사용자가 목적을 찾기 쉬운 메뉴 이름을 제안하세요.\n"
+              "쓰지 말 이름 목록과 이전 시도에 나온 이름을 제외하고 새 이름만 제안하세요.\n"
               "설명 없이 한 줄에 이름 하나씩, 최대 6개를 출력하세요.\n"
+              f"쓰지 말 이름: {', '.join(forbidden_names)}\n"
               f"현재 메뉴: {current}\n같은 영역의 다른 메뉴: {', '.join(siblings)}\n"
               f"사용자 유형: {user}\n상황: {diagnosis}\n"
               f"이전 시도: {'; '.join(history) if history else '없음'}")
@@ -48,7 +51,7 @@ def _key(value):
 
 
 def filter_labels(raw_text, context):
-    """원문 한 줄을 한 후보로 검사하고 거절 사유를 보존한다.
+    """줄바꿈 또는 쉼표로 구분한 후보를 검사하고 거절 사유를 보존한다.
 
     잘린 단어 검사는 명확한 기호 끝과 '·환' 예시에 한정한 휴리스틱이다.
     줄 앞의 일반적인 목록 기호를 제거한다. 설명·코드 블록은 후보로 취급하지 않는다.
@@ -64,7 +67,7 @@ def filter_labels(raw_text, context):
         raise ValueError("context requires currentLabel, siblingLabels and triedLabels")
     existing = {_key(x) for x in [current, *siblings, *tried]}
     seen, result, accepted = set(), [], 0
-    for raw in raw_text.splitlines():
+    for raw in (part for line in raw_text.splitlines() for part in unicodedata.normalize("NFKC", line).split(",")):
         label = unicodedata.normalize("NFKC", raw).strip()
         label = re.sub(r"^(?:\d+[.)]|[-*•])\s*", "", label, count=1)
         label = " ".join(label.split())

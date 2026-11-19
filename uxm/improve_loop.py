@@ -185,7 +185,9 @@ def _run_round(ctx: _Ctx, rnd: int, current: dict, v1_label, tried: set, history
 def _propose(ctx: _Ctx, rnd: int, diag: dict, siblings: list, tried: set, history: list) -> list[dict]:
     """제안 (모델 호출·통과 후보가 없으면 재요청·원본 저장). 시도 기록 목록을 돌려준다."""
     target = diag["targetButton"]
-    prompt = ctx.deps.policy.build_prompt(diag["text"], target, siblings, ctx.plan["persona"], history)
+    # 함수 계약은 유지하고, 이미 시험한 이름을 자연어 이력에 명시해 모델에도 전달한다.
+    proposal_history = [*history, f"이미 시험한 이름: {', '.join(sorted(tried))}"] if tried else list(history)
+    prompt = ctx.deps.policy.build_prompt(diag["text"], target, siblings, ctx.plan["persona"], proposal_history)
     context = {"currentLabel": target["label"], "siblingLabels": siblings, "triedLabels": sorted(tried),
                "maxLength": ctx.plan["edit"]["maxNewLabelLength"]}
     attempts = []
