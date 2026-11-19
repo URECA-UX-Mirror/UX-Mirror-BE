@@ -475,3 +475,14 @@ def test_health_shows_improvement_during_its_verification_run(make_client):
     finally:
         lock.release()
         lock.release()
+
+
+def test_live_plan_adds_official_adopted_name_as_human_candidate():
+    """AI 제안은 실행마다 달라서, 공식 실행이 채택한 이름('주문 환불')을 사람 후보로 늘 평가한다 (기준·규칙은 그대로)."""
+    plan = improve_live.make_plan(REAL_TEMPLATE, "imp-live-x")
+    labels = [c["label"] for c in plan["humanCandidates"]]
+    assert labels[:4] == [c["label"] for c in REAL_TEMPLATE["humanCandidates"]]
+    assert labels[-1] == "주문 환불" and labels.count("주문 환불") == 1
+    assert len({c["candidateId"] for c in plan["humanCandidates"]}) == len(labels)
+    assert plan["rules"] == REAL_TEMPLATE["rules"]   # 채택 기준은 바꾸지 않는다
+    assert [c["label"] for c in REAL_TEMPLATE["humanCandidates"]] == ["주문·배송", "주문·환불", "주문·반품", "주문 관리"]
