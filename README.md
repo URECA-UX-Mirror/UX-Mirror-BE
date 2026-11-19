@@ -51,6 +51,8 @@ flowchart LR
 
 쇼핑몰 v1·v2, 같은 목표·같은 사용자 유형. Run 8개 모두 `VALID`. 기록: [run-logs/](run-logs/README.md)
 
+당시 v2는 고정 사이트 `moro-after`(8002)였다. 지금은 삭제했고 같은 화면은 `moro-c2`(8006)에 있다. 지금 after Run은 자동 개선 최종안([실행 API](#실행-api) 참고).
+
 ```mermaid
 flowchart LR
     subgraph V1["v1 · 상단 메뉴 '이용정보'"]
@@ -94,12 +96,12 @@ xychart-beta
 
 ```bash
 python shop/moro-before/server.py --port 8001     # v1
-python shop/moro-after/server.py --port 8002      # v2
+python shop/moro-final/server.py --port 8010      # 개선안: 자동 개선 최종안 "주문 환불" (.env SHOP_AFTER_URL)
 python -m uvicorn api.main:app --port 8000        # API (.env에 행사 GPU 설정)
 curl localhost:8000/api/health                    # 모델·브라우저·에이전트 READY 확인
 ```
 
-프론트(UX-Mirror-FE)에서 목표·사용자 유형 선택 → v1·v2 Run → 경로·Issue·비교 표시. 저장된 Run은 재생 가능.
+프론트(UX-Mirror-FE)에서 목표·사용자 유형 선택 → v1·개선안 Run → 경로·Issue·비교 표시. 저장된 Run은 재생 가능.
 
 ## 실패 처리
 
@@ -123,7 +125,7 @@ curl localhost:8000/api/health                    # 모델·브라우저·에이
 | 흐름 | 내용 |
 |---|---|
 | [단일 판단](#설치실행) | 브라우저 없이 화면 1개에서 Zoro-1 판단 확인 (A1~A10) |
-| [버전 비교](#실행-api) | v1(8001)·v2(8002)에서 같은 목표로 Run 1쌍 → Issue 분석·비교 |
+| [버전 비교](#실행-api) | v1(8001)·개선안(`SHOP_AFTER_URL`, 기본 최종안 8010)에서 같은 목표로 Run 1쌍 → Issue 분석·비교 |
 | [외부 사이트 시나리오](#외부-사이트-시나리오) | 등록한 외부 사이트(cafe24) 1곳에서 Run 1개 |
 | [UX Optimizer](#ux-optimizer) | 사람이 만든 이름 후보 C1~C4 평가 → 선정 → 실제 Run 재검증 |
 | [목표 도달 확률 엔진](#목표-도달-확률-엔진) | 실행 없이 사이트 지도 + 화면별 확률로 도달 확률 추정 |
@@ -155,7 +157,7 @@ flowchart LR
 | `uxm/` | 핵심 로직 (API 없이 동작) | 아래 표 |
 | `api/` | 실행 API | `main.py`, `runner.py`, `optimizer.py`, `improvement.py`, `integrations.py`(모듈 연결) |
 | `scripts/` | 명령줄 도구 | `build_shop.py`, `build_sitemap.py`, `estimate_reach.py`, `export_run_logs.py` |
-| `shop/` | 테스트 쇼핑몰 | `moro-before`(v1), `moro-after`(v2), `moro-c1~c4`(이름 변형, Optimizer 후보). 생성 결과라 직접 수정 금지, 원본은 `stitch_moro_market/` |
+| `shop/` | 테스트 쇼핑몰 | `moro-before`(v1), `moro-final`(자동 개선 최종안 "주문 환불", after), `moro-c1~c4`(이름 변형, Optimizer 후보). 모두 v1 원본에서 생성, 직접 수정 금지, 원본은 `stitch_moro_market/` |
 | `config/` | 설정 | 목표·페르소나(`presets.json`), 사이트, 사이트 지도, Optimizer 후보 |
 | `tests/` | 테스트 | 모델 없이 실행 |
 | `vendor/trida-stack/` | 공식 코드 일부 (Apache-2.0) | 요청 인코딩·서버 |
@@ -241,7 +243,8 @@ flowchart LR
 - 목표는 `goalId` 또는 `goal` + `verification{path, text, exact?, scope?}`, 사용자 유형은 `personaId` 또는 `persona`. 직접 입력 문장이 비었거나 200자 초과·누출 금지 문자열이면 `422`.
 - 직접 입력한 목표는 사이트 지도 기준(`referencePathConfig.basis = SITE_MAP`)으로 경로 지표를 낸다. 지도를 못 쓰면 `null`, 시작 화면에서 길이 없으면 `422`.
 - 같은 `experimentKey`의 두 Run은 목표·사용자 유형·`verification`이 같아야 한다.
-- 실행 전 검사: 직접 입력한 성공 조건은 v1·v2에서 도착 화면을 열어 확인한다. 없는 화면·다른 화면·글자 없음은 `422`, 10초 안에 못 열면 `503 BROWSER_ERROR`.
+- after(개선안) 사이트는 서버 설정 `SHOP_AFTER_URL`로만 정한다(고정 v2 없음, 클라이언트는 주소를 넘기지 않음). 설정이 없으면 after Run은 `503 SITE_NOT_CONFIGURED`.
+- 실행 전 검사: 직접 입력한 성공 조건은 설정된 사이트(v1·개선안)에서 도착 화면을 열어 확인한다. 없는 화면·다른 화면·글자 없음은 `422`, 10초 안에 못 열면 `503 BROWSER_ERROR`.
 - preset 목표마다 시작 화면이 정해져 있다(`refund` = `/shop/home`). 다르면 `422`.
 - `validity`는 루프가 넘긴 값을 쓰지 않고 종료 사유로 항상 다시 정한다. `PAGE_LOAD_FAILED`는 `ERROR` + `INVALID`.
 
@@ -461,8 +464,8 @@ python scripts/build_sitemap.py --dry-run      # 파일을 쓰지 않고 결과�
 <details>
 <summary>세부 규칙</summary>
 
-- 화면 5개를 v1·v2 각각 새 브라우저(1440×900)로 열어 후보를 뽑는다. 간선 = `{fromPageKey, semanticKey, to}`.
-- 검증(하나라도 실패하면 파일을 만들지 않음): 화면 누락, v1·v2 간선 일치, home에서 모든 화면 도달, preset 허용 경로 대조. 저장된 LIVE Run Step 76개와 대조해 불일치 0.
+- 화면 5개를 설정 파일의 사이트(지금은 v1)마다 새 브라우저(1440×900)로 열어 후보를 뽑는다. 간선 = `{fromPageKey, semanticKey, to}`.
+- 검증(하나라도 실패하면 파일을 만들지 않음): 화면 누락, 사이트가 여럿이면 간선 일치, home에서 모든 화면 도달, preset 허용 경로 대조. 저장된 LIVE Run Step 76개와 대조해 불일치 0.
 - `siteMapHash`: `pages`의 `{path, edges}`만 정렬·중복 제거해 SHA-256.
 - Run에 `referencePathConfig.basis = SITE_MAP`이면 복사된 거리로 경로 지표를 낸다: `extraSteps`(최단보다 더 간 수), `detourMoveCount`(거리가 줄지 않은 이동), Step `goalPathProbability`(거리를 줄이는 후보 확률 합).
 - 다른 사이트는 `config/sites/`에 설정을 만들고 `--site 파일 --url 이름=주소`로 실행한다.

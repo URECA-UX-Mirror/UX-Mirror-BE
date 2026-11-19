@@ -1,6 +1,6 @@
 """사이트 지도 기반 목표 도달 확률 (19번): 실행 없이 화면당 모델 1번으로 Before/After를 비교한다.
 
-쇼핑몰 서버(Before 8001 / After 8002)가 켜져 있어야 한다. 모델은 .env 설정(실제 Zoro-1).
+쇼핑몰 서버(v1 8001 / 최종안 8010)가 켜져 있어야 한다. 모델은 .env 설정(실제 Zoro-1).
 결과: results/reach/<이름>.json (화면별 원본 요청·응답 포함)
 
     .venv\\Scripts\\python scripts\\estimate_reach.py
@@ -27,7 +27,7 @@ from uxm.sitemap import load_site_map  # noqa: E402
 
 SITE_MAP = os.path.join(ROOT, "config", "sitemaps", "sitemap-shop-v1.json")
 SHOP_URLS = {"before": os.getenv("SHOP_BEFORE_URL", "http://127.0.0.1:8001"),
-             "after": os.getenv("SHOP_AFTER_URL", "http://127.0.0.1:8002")}
+             "after": os.getenv("SHOP_AFTER_URL", "http://127.0.0.1:8010")}   # after = 자동 개선 최종안
 
 
 def main(argv=None, backend=None, browser=None) -> dict:

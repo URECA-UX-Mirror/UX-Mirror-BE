@@ -6,7 +6,7 @@
 
 순서: 화면 열기 → 후보 추출 → 요청 생성 → 누출 검사 → Before/After 요청 비교(B3, 실패 시 중단)
       → Zoro-1 판단 → 확률 배지를 화면에 표시 → 저장.
-쇼핑몰 서버 두 개(8001, 8002)가 켜져 있어야 한다.
+쇼핑몰 서버 두 개(v1 8001, "주문·환불" 사이트 C2 moro-c2 8006)가 켜져 있어야 한다.
 """
 import argparse
 import json
@@ -23,7 +23,7 @@ from uxm.leak import assert_no_leak  # noqa: E402
 from uxm.metrics import decision_metrics, probability_by_destination, validate_probabilities  # noqa: E402
 from uxm.screen_request import build_screen_request, payload_diff  # noqa: E402
 
-SHOPS = {"before": "http://127.0.0.1:8001", "after": "http://127.0.0.1:8002"}
+SHOPS = {"before": "http://127.0.0.1:8001", "after": "http://127.0.0.1:8006"}   # after = C2(주문·환불)
 LABELS = {"before": "이용정보", "after": "주문·환불"}
 PAGES = ("home", "mypage", "support", "orders", "refund")
 
@@ -36,7 +36,7 @@ def check_shops():
         try:
             urllib.request.urlopen(base + "/shop/home", timeout=3)
         except Exception:
-            folder = "moro-before" if variant == "before" else "moro-after"
+            folder = "moro-before" if variant == "before" else "moro-c2"
             down.append(f"  {variant}: {base} 응답 없음 → 새 터미널에서 cd C:\\workspace\\uxmirror\\shop\\{folder} 후 py -3.11 server.py")
     if down:
         sys.exit("쇼핑몰 서버가 꺼져 있습니다.\n" + "\n".join(down))

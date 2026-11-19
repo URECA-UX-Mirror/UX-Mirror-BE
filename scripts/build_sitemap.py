@@ -5,7 +5,7 @@
 `candidates.extract`(후보 정책 candidate-v2)로 후보를 뽑아 지도를 만든다. 검증(화면 누락·variant 간 간선 일치·
 도달 가능·preset 허용 경로 대조) 중 하나라도 실패하면 파일을 만들지 않고 이유를 출력한다(종료 코드 1).
 
-테스트 쇼핑몰은 서버(Before 8001 / After 8002)가 켜져 있어야 한다.
+테스트 쇼핑몰은 v1 서버(8001)가 켜져 있어야 한다.
 
     .venv\\Scripts\\python.exe scripts\\build_sitemap.py                       # 기본: config/sites/moro-market.json
     .venv\\Scripts\\python.exe scripts\\build_sitemap.py --check-runs          # 저장된 실제 Run 후보와 지도 대조(2단계)

@@ -1,6 +1,6 @@
 """C 시나리오 실행기: 실행 API 없이 명령줄에서 에이전트 루프를 돌린다 (#7).
 
-쇼핑몰 서버(Before 8001 / After 8002)가 켜져 있어야 한다. Run은 실행 API와 같은 방식으로 만든다
+쇼핑몰 서버(v1 8001 / 최종안 8010)가 켜져 있어야 한다. Run은 실행 API와 같은 방식으로 만든다
 (api/run_factory.build_run → RunStore.create → run_agent → finalize). 결과: results/runs/<runId>/
 
     가짜 모델 (C0-MOCK):
@@ -37,7 +37,7 @@ from uxm.storage import RunStore  # noqa: E402
 # api/runner.py와 같은 값 (runner는 fastapi를 불러와서 여기서 import하지 않는다)
 SHOP_URLS = {
     "before": os.getenv("SHOP_BEFORE_URL", "http://127.0.0.1:8001"),
-    "after": os.getenv("SHOP_AFTER_URL", "http://127.0.0.1:8002"),
+    "after": os.getenv("SHOP_AFTER_URL", "http://127.0.0.1:8010"),   # 자동 개선 최종안 (api/runner.py는 기본값 없음)
 }
 AGENT_RESULT_FIELDS = ("status", "terminationReason", "progress", "summary", "error", "finishedAt")
 
