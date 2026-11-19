@@ -763,6 +763,8 @@ def test_real_policy_excludes_failed_model_evaluation(make):
     assert opt["verificationCandidateId"] == "C2"
     excluded = next(item for item in opt["selection"]["excludedCandidates"] if item["candidateId"] == "C1")
     assert "EVALUATION_NOT_COMPLETED" in excluded["reasonCodes"]
+    assert "MODEL_UNAVAILABLE" in excluded["reasonCodes"]
+    assert "C1" not in opt["selection"]["rankedCandidates"]
 
 
 def test_real_policy_and_real_browser_with_all_candidate_sites(tmp_path, shops, monkeypatch):
@@ -816,18 +818,22 @@ def test_real_policy_and_real_browser_with_all_candidate_sites(tmp_path, shops, 
                        for ev in opt["evaluations"])
             assert all(ev["normalizedEntropy"] is not None and ev["top2Margin"] is not None
                        for ev in opt["evaluations"])
-            assert opt["verificationCandidateId"] in {"C1", "C2", "C3", "C4"}
+            assert opt["verificationCandidateId"] == "C2"
             assert client.post(f"/api/optimizations/{opt_id}/verify").status_code == 202
             app.state.optimizer.wait(120)
             done = client.get(f"/api/optimizations/{opt_id}").json()
             assert done["status"] == "COMPLETED", done["error"]
-            assert done["verification"]["finalDecision"] == done["finalDecision"]
+            # KeywordBackend는 양쪽에서 home → orders → refund를 선택한다. 행사 Zoro 실측과 구분한다.
+            assert done["verification"]["finalDecision"] == done["finalDecision"] == "NEEDS_MORE_EVIDENCE"
+            assert done["verification"]["reasonCode"] == "NAVIGATION_COST"
+            assert done["verification"]["navigationCostDelta"] == 0
             assert done["verification"]["reasonCode"] != "RUN_CONDITIONS_MISMATCH_OR_MISSING"
             assert done["baselineRunId"] != done["validationRunId"]
             for key, role in (("baselineRunId", "BASELINE"), ("validationRunId", "CANDIDATE")):
                 run_id = done[key]
                 run = client.get(f"/api/runs/{run_id}").json()
                 assert run["validity"] == "VALID"
+                assert run["summary"]["goalReached"] is True and run["summary"]["navigationCost"] == 2
                 assert run["optimizationContext"]["executionRole"] == role
                 steps = client.get(f"/api/runs/{run_id}/steps").json()["items"]
                 assert steps and client.get(f"/api/runs/{run_id}/screenshots/{steps[0]['stepId']}").status_code == 200
@@ -842,4 +848,8 @@ def test_real_policy_and_real_browser_with_all_candidate_sites(tmp_path, shops, 
         for proc in procs:
             proc.terminate()
         for proc in procs:
-            proc.wait(timeout=5)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
