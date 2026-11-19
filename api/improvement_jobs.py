@@ -5,6 +5,8 @@
   처음부터 끝까지 Run 잠금(#122)을 잡으므로 그동안 다른 Run·Optimization·배포는 막힌다.
 - `GET /api/improvements/{id}`: 상태·단계·오류 + 리포트(`results/improvements/<id>/improvement.json`, FE 형식 그대로).
 - `GET /api/improvements`: 목록. 서버에서 시작한 실행과, 결과 폴더에 이미 있는 결과(예: imp-1119b)를 같이 보여 준다.
+- `kind`: `LIVE`(이 서버가 시작한 실행) / `OFFICIAL`(동결된 공식 계획 `results/improvement_plan*.json`의 improvementId와
+  같은 결과) / `UNKNOWN`(그 밖에 결과 파일만 있는 것: 연습·별도 스크립트 실행 등 출처를 확인할 수 없음).
 - 응답에는 pid·로그 경로·사이트 주소를 넣지 않는다.
 """
 import json
@@ -16,6 +18,7 @@ import threading
 import time
 
 from api.errors import ApiError
+from api import run_factory
 from api.input_rules import sentence_problem
 from api.run_lock import RunLock
 from api.store import is_safe_id
@@ -23,6 +26,7 @@ from api.timeutil import now_iso, now_stamp
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_PLAN = os.path.join(ROOT, "results", "improvement_plan_1119b.json")
+PLANS_DIR = os.path.join(ROOT, "results")   # 사전 등록(동결)된 공식 계획 `improvement_plan*.json`이 있는 곳
 DRIVER = [sys.executable, os.path.join(ROOT, "scripts", "improve_live.py")]
 JOBS_DIR = "improvement_jobs"
 ACTIVE = ("QUEUED", "RUNNING")
@@ -78,9 +82,10 @@ class ImprovementJobs:
                 for g in pool if g.get("goalPage") and g.get("verification")}
 
     def resolve_input(self, body: dict | None) -> dict | None:
-        """요청 → 실행 입력 {goal, persona, goalPage} (없으면 None = 동결 계획 그대로).
+        """요청 → 실행 입력 {goal, persona, goalPage[, verification, sourceRunId]} (없으면 None = 동결 계획 그대로).
 
-        `sourceRunId`: 그 진단 Run의 고객이 하려는 일·고객 유형·도착 화면을 그대로 쓴다 (진단 결과의 "AI에게 고쳐 달라고 하기").
+        `sourceRunId`: 그 진단 Run의 고객이 하려는 일·고객 유형·도착 화면·성공 조건을 그대로 쓴다
+        (진단 결과의 "AI에게 고쳐 달라고 하기"). 끝난 유효한 MORO MARKET before 진단만 받는다.
         직접 입력: goal·persona·goalPage 셋 다. 문장은 진단과 같은 규칙으로 검사한다 (`api/input_rules`).
         """
         body = body or {}
@@ -92,13 +97,14 @@ class ImprovementJobs:
             if not isinstance(run_id, str) or not self.runner.store.exists(run_id):
                 raise ApiError(404, "RUN_NOT_FOUND", "진단 실행을 찾을 수 없습니다.")
             run = self.runner.store.load_run(run_id)
-            if run.get("siteId"):
-                raise _invalid("AI 개선은 MORO MARKET 진단에서만 할 수 있어요 (다른 사이트는 메뉴를 바꾼 화면을 만들 수 없습니다).")
-            path = (run.get("verification") or {}).get("path")
-            page = next((k for k, v in pages.items() if v["path"] == path), None)
+            source_problem(run)
+            verification = source_verification(run)
+            page = next((k for k, v in pages.items() if v["path"] == verification["path"]), None)
             if page is None:
                 raise _invalid("이 진단의 도착 화면으로는 AI 개선을 할 수 없습니다.")
-            user_input = {"goal": run.get("goal"), "persona": run.get("persona"), "goalPage": page, "sourceRunId": run_id}
+            # 진단의 성공 조건(확인 글자·정확 일치·범위)을 그대로 넘긴다 → 개선 검증도 같은 조건으로 판정 (#131 리뷰)
+            user_input = {"goal": run.get("goal"), "persona": run.get("persona"), "goalPage": page,
+                          "verification": verification, "sourceRunId": run_id}
         elif any(body.get(k) for k in ("goal", "persona", "goalPage")):
             user_input = {"goal": body.get("goal"), "persona": body.get("persona"), "goalPage": body.get("goalPage")}
             if user_input["goalPage"] not in pages:
@@ -159,7 +165,7 @@ class ImprovementJobs:
         result = _read(self._result_path(imp_id))
         if status is None and result is None:
             raise ApiError(404, "IMPROVEMENT_NOT_FOUND", "자동 개선 결과를 찾을 수 없습니다.")
-        kind = "LIVE" if status is not None else "OFFICIAL"   # 서버에서 시작한 실행 / 사전 등록 공식 실행 결과 (#131 리뷰)
+        kind = "LIVE" if status is not None else "OFFICIAL" if imp_id in official_ids() else "UNKNOWN"   # (#131 리뷰)
         if status is None:   # 서버 밖에서 돌려 결과만 넣은 것 (예: imp-1119b)
             status = {"improvementId": imp_id, "status": "COMPLETED" if result.get("status") == "COMPLETED" else
                       result.get("status"), "phase": "DONE", "phases": [], "createdAt": result.get("createdAt"),
@@ -200,6 +206,47 @@ class ImprovementJobs:
             v["summary"] = {k: s.get(k) for k in ("result", "beforeLabel", "afterLabel", "main")} if s else None
             items.append(v)
         return sorted(items, key=lambda v: v.get("createdAt") or "", reverse=True)
+
+
+def official_ids() -> set[str]:
+    """공식 결과 id: 동결(FROZEN)된 사전 등록 계획 `results/improvement_plan*.json`의 improvementId."""
+    ids = set()
+    try:
+        names = os.listdir(PLANS_DIR)
+    except OSError:
+        return ids
+    for name in names:
+        if name.startswith("improvement_plan") and name.endswith(".json"):
+            plan = _read(os.path.join(PLANS_DIR, name)) or {}
+            if plan.get("status") == "FROZEN" and isinstance(plan.get("improvementId"), str):
+                ids.add(plan["improvementId"])
+    return ids
+
+
+def source_problem(run: dict) -> None:
+    """AI 개선의 원본으로 쓸 수 있는 진단인지. 끝난 유효한 MORO MARKET 지금 화면(before) 진단만 (#131 리뷰).
+
+    목표에 못 간 진단(BLOCKED·MAX_STEPS 등)도 유효하면 받는다 (고칠 대상이 바로 그런 진단).
+    """
+    if run.get("siteId"):
+        raise _invalid("AI 개선은 MORO MARKET 진단에서만 할 수 있어요 (다른 사이트는 메뉴를 바꾼 화면을 만들 수 없습니다).")
+    if run.get("optimizationContext") or run.get("improvementContext"):
+        raise _invalid("후보 비교·AI 개선이 만든 확인용 진단으로는 AI 개선을 시작할 수 없어요. 직접 한 진단에서 시작해 주세요.")
+    if run.get("variant") != "before":
+        raise _invalid("지금 화면(개선 전) 진단에서만 AI 개선을 시작할 수 있어요.")
+    if run.get("status") not in run_factory.TERMINAL_STATUSES:
+        raise _invalid("진단이 아직 끝나지 않았어요. 끝난 뒤에 AI 개선을 시작해 주세요.")
+    if run.get("validity") != "VALID":
+        raise _invalid("결과로 쓸 수 없는 진단이에요. 진단을 다시 한 뒤에 AI 개선을 시작해 주세요.")
+
+
+def source_verification(run: dict) -> dict:
+    """원본 진단의 성공 조건 (빠진 값은 진단과 같은 기본값: 부분 일치·화면 전체)."""
+    v = run.get("verification") or {}
+    if not isinstance(v.get("path"), str) or not isinstance(v.get("text"), str) or not v["text"].strip():
+        raise _invalid("이 진단에는 성공 조건이 없어 AI 개선을 시작할 수 없어요.")
+    return {"type": "PATH_AND_VISIBLE_TEXT", "path": v["path"], "text": v["text"],
+            "exact": v.get("exact") is True, "scope": v.get("scope") if v.get("scope") in ("page", "main") else "page"}
 
 
 def _invalid(message: str) -> ApiError:

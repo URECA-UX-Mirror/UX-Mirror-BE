@@ -86,9 +86,11 @@ class RunLock:
                 self._fd = fd
             info = {"pid": os.getpid(), "host": socket.gethostname(), "kind": owner.get("kind"),
                     "runId": owner.get("runId"), "since": now_iso()}
+            outer = self._stack[0] if self._stack else {}
             for key in ("improvementId", "optimizationId"):   # 무슨 작업인지 (자동 개선·Optimization id)
-                if owner.get(key):
-                    info[key] = owner[key]
+                # 겹쳐 잡은 Run(자동 개선의 검증 Run 등)도 바깥 작업 id를 이어받는다 → health에서 진행 중인 작업을 계속 찾는다 (#131 리뷰)
+                if owner.get(key) or outer.get(key):
+                    info[key] = owner.get(key) or outer[key]
             self._stack.append(info)
             self._write_info()
             return True

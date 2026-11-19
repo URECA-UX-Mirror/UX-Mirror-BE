@@ -77,7 +77,7 @@ def goal_pages(template: dict) -> dict:
 def make_plan(template: dict, improvement_id: str, user_input: dict | None = None) -> dict:
     """동결 계획을 이번 실행 id로 바꾼 복사본. 입력이 있으면 주 목표·고객 유형만 그 값으로 바꾼다.
 
-    user_input = {goal, persona, goalPage}. 주 목표 = 입력 문장 + 그 도착 화면의 확인 글자, 지킬 목표 = 도착 화면이 다른
+    user_input = {goal, persona, goalPage[, verification]}. 주 목표 = 입력 문장 + 성공 조건(원본 진단 것, 없으면 그 화면 기본), 지킬 목표 = 도착 화면이 다른
     기본 목표 3개. 점수 기준·채택 규칙·회차 한도·모델 조건은 그대로 둔다 (측정 기준).
     """
     plan = copy.deepcopy(template)
@@ -95,8 +95,12 @@ def make_plan(template: dict, improvement_id: str, user_input: dict | None = Non
         base = pages.get(user_input["goalPage"])
         if base is None:
             raise ValueError(f"도착 화면은 {', '.join(pages)} 중 하나여야 합니다.")
+        # 원본 진단의 성공 조건이 있으면 그대로 (같은 조건으로 개선을 판정), 없으면 그 화면의 기본 조건 (#131 리뷰)
+        verification = copy.deepcopy(user_input.get("verification") or base["verification"])
+        if verification.get("path") != base["verification"]["path"]:
+            raise ValueError("성공 조건의 경로가 도착 화면과 다릅니다.")
         plan["mainGoal"] = {"goalKey": MAIN_KEY, "goal": user_input["goal"], "goalPage": base["goalPage"],
-                            "name": base["name"], "verification": copy.deepcopy(base["verification"])}
+                            "name": base["name"], "verification": verification}
         plan["guardGoals"] = [copy.deepcopy(g) for g in goal_pool(template) if g["goalPage"] != base["goalPage"]]
         plan["persona"] = user_input["persona"]
         guard_keys = [g["goalKey"] for g in plan["guardGoals"]]

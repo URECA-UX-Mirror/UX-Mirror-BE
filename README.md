@@ -422,19 +422,20 @@ runs = run_verification(frozen, "http://127.0.0.1:8010", "주문·조회", ["ref
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| POST | `/api/improvements` | 본문 `{sourceRunId}`(진단 Run의 할 일·고객 유형·도착 화면을 그대로) 또는 `{goal, persona, goalPage}`(`refund`·`orders`·`mypage`·`support`). 본문 없으면 동결 계획 그대로. → `202 {improvementId, status, phase, input, ...}`. 다른 실행 중이면 `409 RUN_ALREADY_ACTIVE`, 입력 오류 `422`, 없는 Run `404` |
+| POST | `/api/improvements` | 본문 `{sourceRunId}`(끝난 유효한 MORO MARKET `before` 진단만. 그 Run의 할 일·고객 유형·도착 화면·성공 조건을 그대로) 또는 `{goal, persona, goalPage}`(`refund`·`orders`·`mypage`·`support`). 본문 없으면 동결 계획 그대로. → `202 {improvementId, status, phase, input, ...}`. 다른 실행 중이면 `409 RUN_ALREADY_ACTIVE`, 입력 오류 `422`, 없는 Run `404` |
 | GET | `/api/improvements/{id}` | `{improvementId, status, phase, phases[], createdAt, startedAt, finishedAt, error, improvement}` |
 | GET | `/api/improvements` | `{items: [... + summary{result, beforeLabel, afterLabel, main}]}` 최신순. 결과 폴더에 이미 있는 결과(예: `imp-1119b`)도 포함 |
 
-- 입력으로 바뀌는 것: 주 목표 = 입력 문장 + 그 도착 화면의 확인 글자(동결 계획의 같은 화면 목표에서), 지킬 목표 = 도착 화면이 다른 기본 목표 3개, 고객 유형(확률 수집·실제 Run 둘 다). 실제 Run으로 다시 확인하는 목표 = 주 목표 + 문의(S4, 도착 화면이 문의면 남은 첫 목표).
+- 입력으로 바뀌는 것: 주 목표 = 입력 문장 + 성공 조건(`sourceRunId`면 그 진단의 `text`·`exact`·`scope` 그대로, 직접 입력이면 동결 계획의 같은 화면 목표 것), 지킬 목표 = 도착 화면이 다른 기본 목표 3개, 고객 유형(확률 수집·실제 Run 둘 다). 실제 Run으로 다시 확인하는 목표 = 주 목표 + 문의(S4, 도착 화면이 문의면 남은 첫 목표).
 - 문장 검사(`api/input_rules.py`, 진단 `POST /api/runs`도 같음): 공백 빼고 4자 이상, 한글·영문 글자 2자 이상, 한 글자 60% 넘게 반복 금지, 모델 입력 금지어. `.`·`ㅋㅋㅋㅋ`·`123`은 `422`.
-- 다른 사이트(시나리오) 진단에서는 AI 개선을 할 수 없다(메뉴를 바꾼 화면을 만들 수 없음) → `422`. 고칠 수 있는 버튼은 상단 메뉴 "이용정보" 하나라, 그 버튼과 관계없는 목표는 `NO_IMPROVEMENT`로 끝날 수 있다.
+- 원본 진단 조건: 다른 사이트(시나리오) 진단(메뉴를 바꾼 화면을 만들 수 없음), 진행 중·`INVALID`·`after`·후보 비교/AI 개선이 만든 확인용 Run, 성공 조건이 없는 Run은 `422`. 목표에 못 간 `BLOCKED`·`MAX_STEPS`도 유효하면 받는다. 고칠 수 있는 버튼은 상단 메뉴 "이용정보" 하나라, 그 버튼과 관계없는 목표는 `NO_IMPROVEMENT`로 끝날 수 있다.
 - 검증 Run에는 직접 입력 진단과 같은 사이트 지도 경로 기준(`SITE_MAP`)을 넣는다 → 비교 화면의 목표 경로 확률이 계산된다 (예전 imp-1119b 검증 Run은 기준이 없어 비어 있음).
 - `status`: `QUEUED` → `RUNNING` → `COMPLETED` / `FAILED` / `INTERRUPTED`(실행 프로세스가 중간에 멈춤). `phase`: `LOOP` → `BUILD_FINAL_SITE` → `OFFICIAL_AND_VERIFY` → `DONE` (채택 이름이 없으면 `LOOP` → `DONE`).
 - `improvement`: 리포트 `improvement.json` (FE 정적 파일과 같은 `improvement-v1` 형식). 루프가 끝나면 생기고, 공식 점수·검증 중에는 루프 결과까지만 들어 있다. 검증 Run 비교는 `verification.pairs[].comparisonPath`(`/comparisons/<improvementId>-<goal>`).
-- 실행은 별도 프로세스(`scripts/improve_live.py`): 루프(`improve.py loop`) → 채택 이름으로 최종안 사이트를 그 자리에서 만들어 서버 안 빈 포트에 띄움 → 공식 점수 + 실제 Run 검증(`improve.py finalize`) → 사이트 내림. 처음부터 끝까지 Run 잠금을 잡아 그동안 다른 Run·Optimization·배포는 막힌다. `/api/health`의 `activeRunOwner`에 `{kind: "IMPROVEMENT", improvementId}`가 보인다.
+- 실행은 별도 프로세스(`scripts/improve_live.py`): 루프(`improve.py loop`) → 채택 이름으로 최종안 사이트를 그 자리에서 만들어 서버 안 빈 포트에 띄움 → 공식 점수 + 실제 Run 검증(`improve.py finalize`) → 사이트 내림. 처음부터 끝까지 Run 잠금을 잡아 그동안 다른 Run·Optimization·배포는 막힌다. `/api/health`의 `activeRunOwner`에 `{kind: "IMPROVEMENT", improvementId}`가 보이고, 그 안의 검증 Run 동안(`kind: "RUN"`)에도 `improvementId`가 유지된다(겹쳐 잡은 잠금은 바깥 작업 id를 이어받음).
 - 대략 루프 1~2분 + 공식 점수·검증 3~4분 (행사 GPU 기준).
-- 응답 `kind`: `LIVE`(서버에서 시작한 실행, 심사·시연용) / `OFFICIAL`(사전 등록 공식 실행 결과를 결과 폴더에 넣은 것, 예: imp-1119b). 심사 실행 계획은 `improvementPlanId`에 `-live`가 붙고 공식 실행 기록(`secondRun`)은 지운다.
+- 응답 `kind`: `LIVE`(서버에서 시작한 실행, 심사·시연용) / `OFFICIAL`(동결된 사전 등록 계획 `results/improvement_plan*.json`의 `improvementId`와 같은 결과, 예: imp-1119·imp-1119b) / `UNKNOWN`(그 밖에 결과 파일만 있는 것: 연습·별도 스크립트 실행 등). 심사 실행 계획은 `improvementPlanId`에 `-live`가 붙고 공식 실행 기록(`secondRun`)은 지운다.
+- 채택 이름의 최종안 사이트는 그 실행 안에서만 띄웠다가 내린다. 일반 `variant=after` Run은 서버 설정 `SHOP_AFTER_URL`·`SHOP_AFTER_LABEL`의 고정 사이트를 쓰므로 AI 개선 결과와 연결되지 않는다. 개선안 확인은 결과의 검증 Run 비교(`comparisonPath`)로만 본다(FE도 진단 결과에서 일반 after Run을 만들지 않는다).
 - `UXM_IMPROVEMENTS_ENABLED=0`이면 새 시작은 `503 IMPROVEMENTS_DISABLED`(조회는 그대로). 심사 기간 뒤 끄기용.
 - 상태·로그는 `results/improvement_jobs/<id>/`, 리포트는 `results/improvements/<id>/`. 응답에는 pid·로그·사이트 주소를 넣지 않는다.
 

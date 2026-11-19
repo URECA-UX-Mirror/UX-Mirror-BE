@@ -310,13 +310,16 @@ def test_start_from_diagnosis_run(make_client):
     run_dir = results / "runs" / "run_before_20261120050000_ab12"
     run_dir.mkdir(parents=True)
     (run_dir / "run.json").write_text(json.dumps({
-        "runId": "run_before_20261120050000_ab12", "status": "BLOCKED", "goal": "환불받고 싶은데 어디서 하나요",
+        "runId": "run_before_20261120050000_ab12", "variant": "before", "status": "BLOCKED", "validity": "VALID",
+        "goal": "환불받고 싶은데 어디서 하나요",
         "persona": "온라인 쇼핑이 낯선 고객", "verification": {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund",
                                                        "text": "환불 / 반품 신청"}}), encoding="utf-8")
     r = c.post("/api/improvements", json={"sourceRunId": "run_before_20261120050000_ab12"})
-    assert r.status_code == 202
+    assert r.status_code == 202   # 목표에 못 간(BLOCKED) 유효한 진단이 바로 고칠 대상
     v = wait_status(c, r.json()["improvementId"], ("COMPLETED",))
     assert v["input"] == {"goal": "환불받고 싶은데 어디서 하나요", "persona": "온라인 쇼핑이 낯선 고객", "goalPage": "refund",
+                          "verification": {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund",
+                                           "text": "환불 / 반품 신청", "exact": False, "scope": "page"},
                           "sourceRunId": "run_before_20261120050000_ab12"}
 
 
@@ -376,8 +379,13 @@ def test_live_and_official_results_are_marked(make_client):
                                                          "createdAt": "2026-11-20T00:05:39+09:00", "summary": {}}), encoding="utf-8")
     live = c.post("/api/improvements").json()["improvementId"]
     wait_status(c, live, ("COMPLETED",))
+    practice = results / "improvements" / "imp-practice-01"   # 상태 파일 없이 결과만 있는 연습 실행
+    practice.mkdir(parents=True)
+    (practice / "improvement.json").write_text(json.dumps({"improvementId": "imp-practice-01", "status": "COMPLETED",
+                                                           "summary": {}}), encoding="utf-8")
     kinds = {i["improvementId"]: i["kind"] for i in c.get("/api/improvements").json()["items"]}
-    assert kinds == {"imp-1119b": "OFFICIAL", live: "LIVE"}
+    # 공식 = 동결된 사전 등록 계획의 id만. 결과 파일만 있다고 공식으로 보지 않는다
+    assert kinds == {"imp-1119b": "OFFICIAL", live: "LIVE", "imp-practice-01": "UNKNOWN"}
     assert c.get(f"/api/improvements/{live}").json()["kind"] == "LIVE"
 
 
@@ -397,3 +405,73 @@ def test_improvements_can_be_switched_off(make_client, monkeypatch):
 def test_error_message_hides_paths():
     msg = improve_live.scrub("파일 없음: /home/ubuntu/UX-Mirror-BE/results/x.json, C:\\AI\\Zoro-1 와 http://10.0.0.1:9000")
     assert "/home/" not in msg and "C:\\" not in msg and "10.0.0.1" not in msg
+
+
+# ---------------------------------------------------------------- #131 리뷰 2: 원본 진단 조건 · 성공 조건 유지 · health
+
+def _source_run(results, run_id, **fields):
+    run = {"runId": run_id, "variant": "before", "status": "BLOCKED", "validity": "VALID",
+           "goal": "환불받고 싶은데 어디서 하나요", "persona": "온라인 쇼핑이 낯선 고객",
+           "verification": {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund", "text": "환불 / 반품 신청"}}
+    run.update(fields)
+    folder = results / "runs" / run_id
+    folder.mkdir(parents=True)
+    (folder / "run.json").write_text(json.dumps(run, ensure_ascii=False), encoding="utf-8")
+
+
+def test_custom_success_condition_of_source_run_is_kept(make_client):
+    c, _, results = make_client(delay="0.1")
+    custom = {"type": "PATH_AND_VISIBLE_TEXT", "path": "/shop/refund", "text": "반품 신청", "exact": True, "scope": "main"}
+    _source_run(results, "run_before_20261120060000_aa11", verification=custom)
+    r = c.post("/api/improvements", json={"sourceRunId": "run_before_20261120060000_aa11"})
+    assert r.status_code == 202
+    v = wait_status(c, r.json()["improvementId"], ("COMPLETED",))
+    assert v["input"]["verification"] == custom
+    plan = improve_live.make_plan(REAL_TEMPLATE, "imp-live-x", v["input"])
+    assert plan["mainGoal"]["verification"] == custom   # 루프·실제 검증 Run이 같은 조건으로 판정
+    assert "MAIN" in plan["verification"]["goals"]
+
+
+@pytest.mark.parametrize("fields, words", [
+    ({"status": "RUNNING"}, "끝나지 않았어요"),
+    ({"status": "READY"}, "끝나지 않았어요"),
+    ({"validity": "INVALID", "status": "ERROR"}, "결과로 쓸 수 없는"),
+    ({"validity": None}, "결과로 쓸 수 없는"),
+    ({"variant": "after"}, "지금 화면"),
+    ({"improvementContext": {"improvementId": "imp-1119b"}}, "확인용 진단"),
+    ({"optimizationContext": {"optimizationId": "opt_1"}}, "확인용 진단"),
+    ({"verification": {"path": "/shop/refund"}}, "성공 조건이 없어"),
+])
+def test_only_finished_valid_before_diagnosis_can_start(make_client, fields, words):
+    c, _, results = make_client()
+    _source_run(results, "run_before_20261120060100_bb22", **fields)
+    r = c.post("/api/improvements", json={"sourceRunId": "run_before_20261120060100_bb22"})
+    assert r.status_code == 422 and words in r.json()["error"]["message"]
+    assert not (results / "improvement_jobs").exists() or not list((results / "improvement_jobs").iterdir())
+
+
+def test_nested_run_keeps_improvement_id(tmp_path):
+    lock = RunLock(str(tmp_path))
+    assert lock.acquire({"kind": "IMPROVEMENT", "runId": None, "improvementId": "imp-live-x"})
+    assert lock.acquire({"kind": "RUN", "runId": "run_before_1"})   # 자동 개선 안의 검증 Run
+    holder = lock.holder()
+    assert holder["kind"] == "RUN" and holder["runId"] == "run_before_1" and holder["improvementId"] == "imp-live-x"
+    info = json.load(open(tmp_path / ".active_run.json", encoding="utf-8"))   # 다른 프로세스(API)가 읽는 정보
+    assert info["improvementId"] == "imp-live-x"
+    lock.release()
+    assert lock.holder()["kind"] == "IMPROVEMENT"
+    lock.release()
+    assert lock.holder() is None
+
+
+def test_health_shows_improvement_during_its_verification_run(make_client):
+    c, app, _ = make_client()
+    lock = app.state.improvements.run_lock
+    assert lock.acquire({"kind": "IMPROVEMENT", "runId": None, "improvementId": "imp-live-y"})
+    assert lock.acquire({"kind": "RUN", "runId": "run_before_2"})
+    try:
+        owner = c.get("/api/health").json()["activeRunOwner"]
+        assert owner["improvementId"] == "imp-live-y" and owner["runId"] == "run_before_2"
+    finally:
+        lock.release()
+        lock.release()
